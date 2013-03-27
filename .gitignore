@@ -1,3 +1,4 @@
 build/
 TESTS-TestSuites.xml
 junit*.properties
+build/*
