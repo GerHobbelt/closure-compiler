@@ -1,6 +1,6 @@
 {
     "name" : "closure-compiler",
-    "version" : "20130326.0.0",
+    "version" : "20130327.0.0",
     "keywords" : ["javascript", "compiler", "build", "google", "closure"],
     "description" : "Fork of closure-compiler that allows installation via NPM.",
     "homepage" : "https://github.com/Obvious/closure-compiler",
@@ -19,11 +19,5 @@
     },
     "scripts": {
 	"test": "ant test"
-    },
-    "files": [
-        "bin/",
-        "contrib/externs/",
-        "externs/",
-        "lib/"
-    ]
+    }
 }
