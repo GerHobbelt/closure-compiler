@@ -21,7 +21,7 @@
 	"test": "ant test"
     },
     "files": [
-        "bin/soy.jar",
-        "bin/soy-excluding-deps.jar"
+        "bin/compiler.jar",
+        "bin/closure-compiler-rexported.jar"
     ]
 }
