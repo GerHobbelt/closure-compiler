@@ -10,6 +10,16 @@ patches.
 
 The package number reflects the date the last merge was taken from.
 
+## Releasing jars
+
+Our package.json doesn't publish our source. It publishes the jar files 
+checked into git. To update these jar files, run
+
+```
+ant jar jar-nodeps
+cp build/*.jar bin/
+```
+
 ## Merging from the main project
 
 The 'pristine' branch contains only changes that we've pulled from the main repo.

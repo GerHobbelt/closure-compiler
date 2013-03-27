@@ -16,5 +16,12 @@
 	"name" : "Nick Santos",
 	"email" : "nick@medium.com",
 	"url" : "https://github.com/nicks"
-    }
+    },
+    "scripts": {
+	"test": "ant test"
+    },
+    "files": [
+        "bin/soy.jar",
+        "bin/soy-excluding-deps.jar"
+    ]
 }
