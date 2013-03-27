@@ -21,7 +21,9 @@
 	"test": "ant test"
     },
     "files": [
-        "bin/compiler.jar",
-        "bin/closure-compiler-rexported.jar"
+        "bin/",
+        "contrib/externs/",
+        "externs/",
+        "lib/"
     ]
 }
