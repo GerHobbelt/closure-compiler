@@ -170,6 +170,7 @@ public class Compiler extends AbstractCompiler {
 
   private JSTypeRegistry typeRegistry;
   private Config parserConfig = null;
+  private Config externsParserConfig = null;
 
   private ReverseAbstractInterpreter abstractInterpreter;
   private TypeValidator typeValidator;
@@ -703,8 +704,6 @@ public class Compiler extends AbstractCompiler {
               compilerThread = null;
               if (dumpTraceReport) {
                 Tracer.logCurrentThreadTrace();
-                tracker.outputTracerReport(outStream == null ?
-                    System.out : outStream);
               }
               Tracer.clearCurrentThreadTrace();
             }
@@ -783,6 +782,10 @@ public class Compiler extends AbstractCompiler {
       runSanityCheck();
     }
     setProgress(1.0, "recordFunctionInformation");
+
+    if (tracker != null) {
+      tracker.outputTracerReport(outStream == null ? System.out : outStream);
+    }
   }
 
   public void parse() {
@@ -2096,30 +2099,39 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
-  Config getParserConfig() {
+  Config getParserConfig(ConfigContext context) {
     if (parserConfig == null) {
-      Config.LanguageMode mode;
       switch (options.getLanguageIn()) {
         case ECMASCRIPT3:
-          mode = Config.LanguageMode.ECMASCRIPT3;
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT3);
+          externsParserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5);
           break;
         case ECMASCRIPT5:
-          mode = Config.LanguageMode.ECMASCRIPT5;
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5);
+          externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT5_STRICT:
-          mode = Config.LanguageMode.ECMASCRIPT5_STRICT;
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5_STRICT);
+          externsParserConfig = parserConfig;
           break;
         default:
           throw new IllegalStateException("unexpected language mode");
       }
-
-      parserConfig = ParserRunner.createConfig(
-        isIdeMode(),
-        mode,
-        acceptConstKeyword(),
-        options.extraAnnotationNames);
     }
-    return parserConfig;
+    switch (context) {
+      case EXTERNS:
+        return externsParserConfig;
+      default:
+        return parserConfig;
+    }
+  }
+
+  protected Config createConfig(Config.LanguageMode mode) {
+    return ParserRunner.createConfig(
+      isIdeMode(),
+      mode,
+      acceptConstKeyword(),
+      options.extraAnnotationNames);
   }
 
   @Override

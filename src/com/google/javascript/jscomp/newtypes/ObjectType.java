@@ -53,8 +53,8 @@ public class ObjectType {
     this.isLoose = isLoose;
   }
 
-  static ObjectType makeObjectType(NominalType klass, Map<String, Property> props,
-      FunctionType fn, boolean isLoose) {
+  static ObjectType makeObjectType(NominalType klass,
+      Map<String, Property> props, FunctionType fn, boolean isLoose) {
     if (props == null) {
       props = ImmutableMap.of();
     }
@@ -98,7 +98,9 @@ public class ObjectType {
   }
 
   private ObjectType withLoose() {
-    Preconditions.checkState(this.klass == null);
+    if (this.klass != null) { // Don't loosen nominal types
+      return this;
+    }
     FunctionType fn = this.fn == null ? null : this.fn.withLoose();
     Map<String, Property> newProps = Maps.newHashMap();
     for (String pname: this.props.keySet()) {
