@@ -24,7 +24,6 @@ import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
-import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -1305,7 +1304,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
         name.putBooleanProp(Node.IS_CONSTANT_NAME, true);
       }
       if (candidateDefinition == null) {
-        name.setJSDocInfo(createConstantJsDoc());
+        name.setJSDocInfo(NodeUtil.createConstantJsDoc());
       }
 
       Preconditions.checkState(isNamespacePlaceholder(decl));
@@ -1339,17 +1338,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
               createNamespaceLiteral()));
       decl.putBooleanProp(Node.IS_NAMESPACE, true);
       if (candidateDefinition == null) {
-        decl.getFirstChild().setJSDocInfo(createConstantJsDoc());
+        decl.getFirstChild().setJSDocInfo(NodeUtil.createConstantJsDoc());
       }
       Preconditions.checkState(isNamespacePlaceholder(decl));
       setSourceInfo(decl);
       return decl;
-    }
-
-    private JSDocInfo createConstantJsDoc() {
-      JSDocInfoBuilder builder = new JSDocInfoBuilder(false);
-      builder.recordConstancy();
-      return builder.build(null);
     }
 
     /**

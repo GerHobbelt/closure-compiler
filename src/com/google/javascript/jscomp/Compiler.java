@@ -180,6 +180,9 @@ public class Compiler extends AbstractCompiler {
 
   public PerformanceTracker tracker;
 
+  // For use by the new type inference
+  private GlobalTypeInfo symbolTable;
+
   // The oldErrorReporter exists so we can get errors from the JSTypeRegistry.
   private final com.google.javascript.rhino.ErrorReporter oldErrorReporter =
       RhinoErrorReporter.forOldRhino(this);
@@ -238,6 +241,8 @@ public class Compiler extends AbstractCompiler {
 
   private volatile double progress = 0.0;
   private String lastPassName;
+
+  private Set<String> externProperties = null;
 
   /**
    * Creates a Compiler that reports errors and warnings to its logger.
@@ -1297,6 +1302,18 @@ public class Compiler extends AbstractCompiler {
       typeValidator = new TypeValidator(this);
     }
     return typeValidator;
+  }
+
+  @Override
+  GlobalTypeInfo getSymbolTable() {
+    GlobalTypeInfo gti = symbolTable;
+    symbolTable = null; // GC this after type inference
+    return gti;
+  }
+
+  @Override
+  void setSymbolTable(GlobalTypeInfo symbolTable) {
+    this.symbolTable = symbolTable;
   }
 
   //------------------------------------------------------------------------
@@ -2483,6 +2500,16 @@ public class Compiler extends AbstractCompiler {
     } else {
       progress = newProgress;
     }
+  }
+
+  @Override
+  void setExternProperties(Set<String> externProperties) {
+    this.externProperties = externProperties;
+  }
+
+  @Override
+  Set<String> getExternProperties() {
+    return externProperties;
   }
 
   /**

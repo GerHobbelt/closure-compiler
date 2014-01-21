@@ -286,6 +286,11 @@ public class DefaultPassConfig extends PassConfig {
 
     checks.add(createEmptyPass("beforeTypeChecking"));
 
+    if (options.useNewTypeInference) {
+      checks.add(symbolTableForNewTypeInference);
+      checks.add(newTypeInference);
+    }
+
     if (options.checkTypes || options.inferTypes) {
       checks.add(resolveTypes);
       checks.add(inferTypes);
@@ -374,6 +379,11 @@ public class DefaultPassConfig extends PassConfig {
   @Override
   protected List<PassFactory> getOptimizations() {
     List<PassFactory> passes = Lists.newArrayList();
+
+    // Gather property names in externs so they can be queried by the
+    // optimising passes.
+    passes.add(gatherExternProperties);
+
     passes.add(garbageCollectChecks);
 
     // TODO(nicksantos): The order of these passes makes no sense, and needs
@@ -835,8 +845,7 @@ public class DefaultPassConfig extends PassConfig {
   final PassFactory stripSideEffectProtection =
       new PassFactory("stripSideEffectProtection", true) {
     @Override
-    protected CompilerPass create(final AbstractCompiler
-        compiler) {
+    protected CompilerPass create(final AbstractCompiler compiler) {
       return new CheckSideEffects.StripProtection(compiler);
     }
   };
@@ -1242,6 +1251,22 @@ public class DefaultPassConfig extends PassConfig {
       };
     }
   };
+
+  final PassFactory symbolTableForNewTypeInference =
+      new PassFactory("GlobalTypeInfo", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new GlobalTypeInfo(compiler);
+        }
+      };
+
+  final PassFactory newTypeInference =
+      new PassFactory("NewTypeInference", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new NewTypeInference(compiler);
+        }
+      };
 
   final HotSwapPassFactory inferJsDocInfo =
       new HotSwapPassFactory("inferJsDocInfo", true) {
@@ -2336,6 +2361,15 @@ public class DefaultPassConfig extends PassConfig {
           // TODO(johnlenz): make global instrumentation an option
           return new CoverageInstrumentationPass(
               compiler, CoverageReach.CONDITIONAL);
+        }
+      };
+
+  /** Extern property names gathering pass. */
+  final PassFactory gatherExternProperties =
+      new PassFactory("gatherExternProperties", true) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new GatherExternProperties(compiler);
         }
       };
 
