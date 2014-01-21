@@ -74,10 +74,7 @@ public enum Keywords {
     //7.8 Literals
     NULL("null", TokenType.NULL),
     TRUE("true", TokenType.TRUE),
-    FALSE("false", TokenType.FALSE),
-
-    // Parkour Specific
-    AWAIT("await", TokenType.AWAIT);
+    FALSE("false", TokenType.FALSE);
 
   private static final HashMap<String, Keywords> keywordsByName =
       new HashMap<String, Keywords>();
@@ -106,6 +103,10 @@ public enum Keywords {
 
   public static boolean isKeyword(String value) {
     return get(value) != null;
+  }
+
+  public static boolean isKeyword(TokenType token) {
+    return get(token) != null;
   }
 
   public static TokenType getTokenType(String value) {

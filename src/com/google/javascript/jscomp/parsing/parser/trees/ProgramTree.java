@@ -22,10 +22,15 @@ import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 public class ProgramTree extends ParseTree {
 
   public final ImmutableList<ParseTree> sourceElements;
+  public final ImmutableList<Comment> sourceComments;
 
-  public ProgramTree(SourceRange location, ImmutableList<ParseTree> sourceElements) {
+  public ProgramTree(
+      SourceRange location,
+      ImmutableList<ParseTree> sourceElements,
+      ImmutableList<Comment> sourceComments) {
     super(ParseTreeType.PROGRAM, location);
 
     this.sourceElements = sourceElements;
+    this.sourceComments = sourceComments;
   }
 }
