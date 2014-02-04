@@ -16,8 +16,9 @@
 
 package com.google.javascript.jscomp;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
@@ -899,7 +900,7 @@ public class Compiler extends AbstractCompiler {
       new PassFactory("sanityCheck", false) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      return new SanityCheck(compiler);
+      return new SanityCheck(compiler, options.gatherExternsFromTypes);
     }
   };
 
@@ -2628,7 +2629,7 @@ public class Compiler extends AbstractCompiler {
       originalCode = CharStreams.toString(new InputStreamReader(
           Compiler.class.getResourceAsStream(
               String.format("js/%s.js", resourceName)),
-          Charsets.UTF_8));
+          UTF_8));
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

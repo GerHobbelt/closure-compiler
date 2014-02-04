@@ -17,9 +17,11 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -38,6 +40,7 @@ import com.google.javascript.rhino.Token;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +111,19 @@ public class NewTypeInference implements CompilerPass {
           "The #{0} formal parameter of this function has an invalid type, " +
           "which prevents the function from being called.\n" +
           "Please change the type.");
+
+  static final DiagnosticType CANNOT_INSTANTIATE_TYPE_VAR =
+      DiagnosticType.warning(
+          "JSC_CANNOT_INSTANTIATE_TYPE_VAR",
+          "Illegal instantiation for type variable {0}.\n" +
+          "You can only specify one type. Found {1}.");
+
+  // The difference w/ the previous warning is that for this one we can't
+  // describe the error well.
+  static final DiagnosticType BAD_INSTANTIATION =
+      DiagnosticType.warning(
+          "JSC_BAD_INSTANTIATION",
+          "Couldn't instantiate type {0} with {1}.");
 
   Set<JSError> warnings = Sets.newHashSet();
 
@@ -395,7 +411,7 @@ public class NewTypeInference implements CompilerPass {
       println("\t\toutEnv: ", outEnv);
       switch (n.getType()) {
         case Token.EXPR_RESULT:
-          inEnv = analyzeExprBwd(n.getFirstChild(), outEnv, JSType.TOP).env;
+          inEnv = analyzeExprBwd(n.getFirstChild(), outEnv, JSType.UNKNOWN).env;
           break;
         case Token.RETURN: {
           Node retExp = n.getFirstChild();
@@ -486,7 +502,7 @@ public class NewTypeInference implements CompilerPass {
           break;
         case Token.EXPR_RESULT:
           println("\tsemi ", Token.name(n.getFirstChild().getType()));
-          outEnv = analyzeExprFwd(n.getFirstChild(), inEnv, JSType.TOP).env;
+          outEnv = analyzeExprFwd(n.getFirstChild(), inEnv, JSType.UNKNOWN).env;
           break;
         case Token.RETURN: {
           Node retExp = n.getFirstChild();
@@ -544,7 +560,7 @@ public class NewTypeInference implements CompilerPass {
             throw new RuntimeException("Unhandled statement type: "
                 + Token.name(n.getType()));
           } else {
-            outEnv = analyzeExprFwd(n, inEnv, JSType.TOP).env;
+            outEnv = analyzeExprFwd(n, inEnv, JSType.UNKNOWN).env;
             break;
           }
       }
@@ -572,7 +588,7 @@ public class NewTypeInference implements CompilerPass {
               "A condition with an edge that is neither true nor false?");
       }
       envs.put(outEdge,
-          analyzeExprFwd(cond, inEnv, JSType.TOP, specializedType).env);
+          analyzeExprFwd(cond, inEnv, JSType.UNKNOWN, specializedType).env);
     }
   }
 
@@ -589,6 +605,9 @@ public class NewTypeInference implements CompilerPass {
     DeclaredFunctionType declType = fn.getDeclaredType();
     int reqArity = declType.getRequiredArity();
     int optArity = declType.getOptionalArity();
+    if (declType.isGeneric()) {
+      builder.addTypeParameters(declType.getTypeParameters());
+    }
     for (String formal : fn.getFormals()) {
       formalType = fn.getDeclaredTypeOf(formal);
       if (formalType == null) {
@@ -671,7 +690,7 @@ public class NewTypeInference implements CompilerPass {
       rhsType = JSType.UNDEFINED;
     } else {
       EnvTypePair pair = analyzeExprFwd(rhs, inEnv,
-          declType != null ? declType : JSType.TOP);
+          declType != null ? declType : JSType.UNKNOWN);
       outEnv = pair.env;
       rhsType = pair.type;
     }
@@ -687,7 +706,7 @@ public class NewTypeInference implements CompilerPass {
   }
 
   private EnvTypePair analyzeExprFwd(Node expr, TypeEnv inEnv) {
-    return analyzeExprFwd(expr, inEnv, JSType.TOP, JSType.TOP);
+    return analyzeExprFwd(expr, inEnv, JSType.UNKNOWN, JSType.UNKNOWN);
   }
 
   private EnvTypePair analyzeExprFwd(
@@ -726,9 +745,9 @@ public class NewTypeInference implements CompilerPass {
         for (Node key: expr.children()) {
           String pname = NodeUtil.getObjectLitKeyName(key);
           JSType reqPtype = requiredType.mayHaveProp(pname) ?
-              requiredType.getProp(pname) : JSType.TOP;
+              requiredType.getProp(pname) : JSType.UNKNOWN;
           JSType specPtype = specializedType.mayHaveProp(pname) ?
-              specializedType.getProp(pname) : JSType.TOP;
+              specializedType.getProp(pname) : JSType.UNKNOWN;
           EnvTypePair pair =
               analyzeExprFwd(key.getLastChild(), env, reqPtype, specPtype);
           result = result.withProperty(pname, pair.type);
@@ -806,20 +825,20 @@ public class NewTypeInference implements CompilerPass {
         if ((specializedType.isTruthy() && exprKind == Token.AND) ||
             (specializedType.isFalsy() && exprKind == Token.OR)) {
           EnvTypePair lhsPair =
-              analyzeExprFwd(lhs, inEnv, JSType.TOP, specializedType);
+              analyzeExprFwd(lhs, inEnv, JSType.UNKNOWN, specializedType);
           EnvTypePair rhsPair =
-              analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, specializedType);
+              analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, specializedType);
           return rhsPair;
         } else if ((specializedType.isFalsy() && exprKind == Token.AND) ||
                    (specializedType.isTruthy() && exprKind == Token.OR)) {
           EnvTypePair shortCircuitPair =
-              analyzeExprFwd(lhs, inEnv, JSType.TOP, specializedType);
+              analyzeExprFwd(lhs, inEnv, JSType.UNKNOWN, specializedType);
           JSType negatedType = specializedType.isTruthy() ?
               JSType.FALSY : JSType.TRUTHY;
           EnvTypePair lhsPair =
-              analyzeExprFwd(lhs, inEnv, JSType.TOP, negatedType);
+              analyzeExprFwd(lhs, inEnv, JSType.UNKNOWN, negatedType);
           EnvTypePair rhsPair =
-              analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, specializedType);
+              analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, specializedType);
           return EnvTypePair.join(rhsPair, shortCircuitPair);
         } else {
           EnvTypePair lhsPair = analyzeExprFwd(lhs, inEnv);
@@ -880,7 +899,7 @@ public class NewTypeInference implements CompilerPass {
 
         // We are in a specialized context *and* we know the constructor type
         JSType instanceType = ctorFunType.getTypeOfThis();
-        objPair = analyzeExprFwd(obj, inEnv, JSType.TOP,
+        objPair = analyzeExprFwd(obj, inEnv, JSType.UNKNOWN,
             specializedType.isTruthy() ?
             objPair.type.specialize(instanceType) :
             objPair.type.removeType(instanceType));
@@ -999,8 +1018,8 @@ public class NewTypeInference implements CompilerPass {
         if ((exprKind == Token.SHEQ && specializedType.isTruthy()) ||
             (exprKind == Token.SHNE && specializedType.isFalsy())) {
           JSType meetType = JSType.meet(lhsPair.type, rhsPair.type);
-          lhsPair = analyzeExprFwd(lhs, rhsPair.env, JSType.TOP, meetType);
-          rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, meetType);
+          lhsPair = analyzeExprFwd(lhs, rhsPair.env, JSType.UNKNOWN, meetType);
+          rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, meetType);
         } else if ((exprKind == Token.SHEQ && specializedType.isFalsy()) ||
             (exprKind == Token.SHNE && specializedType.isTruthy())) {
           JSType lhsType = lhsPair.type;
@@ -1012,8 +1031,8 @@ public class NewTypeInference implements CompilerPass {
                      rhsType.equals(JSType.UNDEFINED)) {
             lhsType = lhsType.removeType(rhsType);
           }
-          lhsPair = analyzeExprFwd(lhs, rhsPair.env, JSType.TOP, lhsType);
-          rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, rhsType);
+          lhsPair = analyzeExprFwd(lhs, rhsPair.env, JSType.UNKNOWN, lhsType);
+          rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, rhsType);
         }
         rhsPair.type = JSType.BOOLEAN;
         return rhsPair;
@@ -1068,9 +1087,9 @@ public class NewTypeInference implements CompilerPass {
         Node thenBranch = cond.getNext();
         Node elseBranch = thenBranch.getNext();
         TypeEnv trueEnv =
-            analyzeExprFwd(cond, inEnv, JSType.TOP, JSType.TRUE_TYPE).env;
+            analyzeExprFwd(cond, inEnv, JSType.UNKNOWN, JSType.TRUE_TYPE).env;
         TypeEnv falseEnv =
-            analyzeExprFwd(cond, inEnv, JSType.TOP, JSType.FALSE_TYPE).env;
+            analyzeExprFwd(cond, inEnv, JSType.UNKNOWN, JSType.FALSE_TYPE).env;
         EnvTypePair thenPair =
             analyzeExprFwd(thenBranch, trueEnv, requiredType, specializedType);
         EnvTypePair elsePair =
@@ -1110,19 +1129,24 @@ public class NewTypeInference implements CompilerPass {
               expr, TypeCheck.WRONG_ARGUMENT_COUNT, "",
               Integer.toString(numArgs), Integer.toString(minArity),
               " and at most " + maxArity));
+          return new EnvTypePair(inEnv, requiredType);
+        }
+        if (funType.isGeneric()) {
+          Map<String, JSType> typeMap = calcTypeInstantiation(
+              funType.getTypeParameters(), expr, funType, inEnv, true);
+          funType = funType.instantiateGenerics(typeMap);
         }
         // argTypes collects types of actuals for deferred checks.
         List<JSType> argTypes = Lists.newArrayList();
         TypeEnv tmpEnv = inEnv;
+        Node arg = expr.getChildAtIndex(1);
         for (int i = 0; i < numArgs; i++) {
-          JSType formalType =
-              (i < maxArity) ? funType.getFormalType(i) : JSType.TOP;
+          JSType formalType = funType.getFormalType(i);
           if (formalType.isBottom()) {
             warnings.add(JSError.make(expr, CALL_FUNCTION_WITH_BOTTOM_FORMAL,
                   Integer.toString(i)));
-            formalType = JSType.TOP;
+            formalType = JSType.UNKNOWN;
           }
-          Node arg = expr.getChildAtIndex(i + 1);
           EnvTypePair pair = analyzeExprFwd(arg, tmpEnv, formalType);
           if (!pair.type.isSubtypeOf(formalType)) {
             warnings.add(JSError.make(arg, INVALID_ARGUMENT_TYPE,
@@ -1130,11 +1154,10 @@ public class NewTypeInference implements CompilerPass {
                     formalType.toString(), pair.type.toString()));
             pair.type = JSType.UNKNOWN; // No deferred check needed.
           }
-          if (i < maxArity) {
-            Preconditions.checkState(!pair.type.equals(JSType.topFunction()));
-            argTypes.add(pair.type);
-          }
+          Preconditions.checkState(!pair.type.equals(JSType.topFunction()));
+          argTypes.add(pair.type);
           tmpEnv = pair.env;
+          arg = arg.getNext();
         }
         JSType retType = funType.getReturnType();
         if (callee.isName()) {
@@ -1155,7 +1178,7 @@ public class NewTypeInference implements CompilerPass {
               } else {
                 dc = new DeferredCheck(
                     expr, currentScope, currentScope.getScope(calleeName));
-                dc.updateReturn(JSType.TOP);
+                dc.updateReturn(JSType.UNKNOWN);
                 deferredChecks.put(expr, dc);
               }
               dc.updateArgTypes(argTypes);
@@ -1171,8 +1194,8 @@ public class NewTypeInference implements CompilerPass {
             requiredType,
             specializedType);
       case Token.NOT: {
-        EnvTypePair pair = analyzeExprFwd(
-            expr.getFirstChild(), inEnv, JSType.TOP, specializedType.negate());
+        EnvTypePair pair = analyzeExprFwd(expr.getFirstChild(),
+            inEnv, JSType.UNKNOWN, specializedType.negate());
         pair.type = pair.type.negate().toBoolean();
         return pair;
       }
@@ -1261,6 +1284,56 @@ public class NewTypeInference implements CompilerPass {
     }
   }
 
+  private Map<String, JSType> calcTypeInstantiation(
+      List<String> templateVars, Node callNode, FunctionType funType,
+      TypeEnv typeEnv, boolean isFwd) {
+    // TODO(user): also use the return type to calc instantiation
+    HashMap<String, Set<JSType>> typeMultimap = Maps.newHashMap();
+    for (String templateVar: templateVars) {
+      typeMultimap.put(templateVar, new HashSet<JSType>());
+    }
+    Node arg = callNode.getChildAtIndex(1);
+    int i = 0;
+    while (arg != null) {
+      EnvTypePair pair = isFwd ?
+          analyzeExprFwd(arg, typeEnv) : analyzeExprBwd(arg, typeEnv);
+      JSType unifTarget = funType.getFormalType(i);
+      JSType unifSource = pair.type;
+      HashMap<String, Set<JSType>> tmpMultimap = JSType.unify(
+          templateVars, unifTarget, unifSource, typeMultimap);
+      if (tmpMultimap == null) {
+        warnings.add(JSError.make(arg, BAD_INSTANTIATION,
+                unifTarget.toString(), unifSource.toString()));
+      } else {
+        typeMultimap = tmpMultimap;
+      }
+      arg = arg.getNext();
+      typeEnv = pair.env;
+      i++;
+    }
+    HashMap<String, JSType> typeMap = Maps.newHashMap();
+    for (String templateVar: templateVars) {
+      Set<JSType> types = typeMultimap.get(templateVar);
+      if (types.size() > 1) {
+        types.remove(JSType.UNKNOWN);
+      }
+      if (types.size() > 1) {
+        Set<String> typeStrings = Sets.newHashSet();
+        for (JSType t: types) {
+          typeStrings.add(t.toString());
+        }
+        warnings.add(JSError.make(callNode, CANNOT_INSTANTIATE_TYPE_VAR,
+                templateVar, Joiner.on(", ").join(typeStrings)));
+        typeMap.put(templateVar, JSType.UNKNOWN);
+      } else if (types.size() == 1) {
+        typeMap.put(templateVar, Iterables.getOnlyElement(types));
+      } else {
+        typeMap.put(templateVar, JSType.UNKNOWN);
+      }
+    }
+    return typeMap;
+  }
+
   private EnvTypePair analyzeNonStrictComparisonFwd(
       Node expr, TypeEnv inEnv, JSType requiredType, JSType specializedType) {
     int tokenType = expr.getType();
@@ -1275,26 +1348,27 @@ public class NewTypeInference implements CompilerPass {
         tokenType == Token.NE && specializedType.isFalsy()) {
       if (lhsType.isNullOrUndef()) {
         rhsPair = analyzeExprFwd(
-            rhs, lhsPair.env, JSType.TOP, JSType.NULL_OR_UNDEF);
+            rhs, lhsPair.env, JSType.UNKNOWN, JSType.NULL_OR_UNDEF);
       } else if (rhsType.isNullOrUndef()) {
-        lhsPair = analyzeExprFwd(lhs, inEnv, JSType.TOP, JSType.NULL_OR_UNDEF);
+        lhsPair = analyzeExprFwd(
+            lhs, inEnv, JSType.UNKNOWN, JSType.NULL_OR_UNDEF);
         rhsPair = analyzeExprFwd(rhs, lhsPair.env);
       } else if (!JSType.NULL_OR_UNDEF.isSubtypeOf(lhsType)) {
         rhsType = rhsType.removeType(JSType.NULL).removeType(JSType.UNDEFINED);
-        rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, rhsType);
+        rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, rhsType);
       } else if (!JSType.NULL_OR_UNDEF.isSubtypeOf(rhsType)) {
         lhsType = lhsType.removeType(JSType.NULL).removeType(JSType.UNDEFINED);
-        lhsPair = analyzeExprFwd(lhs, inEnv, JSType.TOP, lhsType);
+        lhsPair = analyzeExprFwd(lhs, inEnv, JSType.UNKNOWN, lhsType);
         rhsPair = analyzeExprFwd(rhs, lhsPair.env);
       }
     } else if (tokenType == Token.EQ && specializedType.isFalsy() ||
         tokenType == Token.NE && specializedType.isTruthy()) {
       if (lhsType.isNullOrUndef()) {
         rhsType = rhsType.removeType(JSType.NULL).removeType(JSType.UNDEFINED);
-        rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.TOP, rhsType);
+        rhsPair = analyzeExprFwd(rhs, lhsPair.env, JSType.UNKNOWN, rhsType);
       } else if (rhsType.isNullOrUndef()) {
         lhsType = lhsType.removeType(JSType.NULL).removeType(JSType.UNDEFINED);
-        lhsPair = analyzeExprFwd(lhs, inEnv, JSType.TOP, lhsType);
+        lhsPair = analyzeExprFwd(lhs, inEnv, JSType.UNKNOWN, lhsType);
         rhsPair = analyzeExprFwd(rhs, lhsPair.env);
       }
     }
@@ -1311,7 +1385,7 @@ public class NewTypeInference implements CompilerPass {
 
     // First, analyze the receiver object.
     if (specializedType.isTruthy() || specializedType.isFalsy()) {
-      recvReqType = JSType.TOP;
+      recvReqType = JSType.UNKNOWN;
       recvSpecType = objWithProp;
     } else {
       recvReqType = recvSpecType = objWithProp;
@@ -1403,14 +1477,13 @@ public class NewTypeInference implements CompilerPass {
       tmpEnv = pair.env;
       builder.addReqFormal(pair.type);
     }
-    JSType looseRetType = retType.isTop() ? JSType.BOTTOM : retType;
+    JSType looseRetType = retType.isUnknown() ? JSType.BOTTOM : retType;
     JSType looseFunctionType =
         builder.addRetType(looseRetType).addLoose().buildType();
     // Unsound if the arguments and callee have interacting side effects
     EnvTypePair calleePair = analyzeExprFwd(
         callee, tmpEnv, JSType.topFunction(), looseFunctionType);
-    return new EnvTypePair(calleePair.env,
-        retType.isTop() ? JSType.UNKNOWN : retType);
+    return new EnvTypePair(calleePair.env, retType);
   }
 
   private EnvTypePair analyzeLooseCallNodeBwd(
@@ -1426,18 +1499,17 @@ public class NewTypeInference implements CompilerPass {
       // Wait until FWD to get more precise argument types.
       builder.addReqFormal(JSType.BOTTOM);
     }
-    JSType looseRetType = retType.isTop() ? JSType.BOTTOM : retType;
+    JSType looseRetType = retType.isUnknown() ? JSType.BOTTOM : retType;
     JSType looseFunctionType =
         builder.addRetType(looseRetType).addLoose().buildType();
     looseFunctionType.getFunType().checkValid();
     println("loose function type is ", looseFunctionType);
     EnvTypePair calleePair = analyzeExprBwd(callee, tmpEnv, looseFunctionType);
-    return new EnvTypePair(calleePair.env,
-        retType.isTop() ? JSType.UNKNOWN : retType);
+    return new EnvTypePair(calleePair.env, retType);
   }
 
   private EnvTypePair analyzeExprBwd(Node expr, TypeEnv outEnv) {
-    return analyzeExprBwd(expr, outEnv, JSType.TOP);
+    return analyzeExprBwd(expr, outEnv, JSType.UNKNOWN);
   }
 
   /**
@@ -1469,7 +1541,7 @@ public class NewTypeInference implements CompilerPass {
              key = expr.getChildBefore(key)) {
           String pname = NodeUtil.getObjectLitKeyName(key);
           JSType reqPtype = requiredType.mayHaveProp(pname) ?
-              requiredType.getProp(pname) : JSType.TOP;
+              requiredType.getProp(pname) : JSType.UNKNOWN;
           EnvTypePair pair = analyzeExprBwd(key.getLastChild(), env, reqPtype);
           result = result.withProperty(pname, pair.type);
           env = pair.env;
@@ -1492,7 +1564,7 @@ public class NewTypeInference implements CompilerPass {
 
         JSType inferredType = envGetType(outEnv, varName);
         if (inferredType == null) { // Needed for the free vars in the tests
-          inferredType = JSType.TOP;
+          inferredType = JSType.UNKNOWN;
         }
 
         JSType preciseType = inferredType.specialize(requiredType);
@@ -1678,16 +1750,24 @@ public class NewTypeInference implements CompilerPass {
         } else if (funType.isTopFunction()) {
           return new EnvTypePair(outEnv, requiredType);
         }
-        int arity = funType.getMaxArity();
+        int numArgs = expr.getChildCount() - 1;
+        if (numArgs < funType.getMinArity() ||
+            numArgs > funType.getMaxArity()) {
+          return new EnvTypePair(outEnv, requiredType);
+        }
+        if (funType.isGeneric()) {
+          Map<String, JSType> typeMap = calcTypeInstantiation(
+              funType.getTypeParameters(), expr, funType, outEnv, false);
+          funType = funType.instantiateGenerics(typeMap);
+        }
         TypeEnv tmpEnv = outEnv;
         // In bwd direction, analyze arguments in reverse
         for (int i = expr.getChildCount() - 2; i >= 0; i--) {
-          JSType formalType =
-              i < arity ? funType.getFormalType(i) : JSType.TOP;
+          JSType formalType = funType.getFormalType(i);
           // The type of a formal can be BOTTOM as the result of a join.
           // Don't use this as a requiredType.
           if (formalType.isBottom()) {
-            formalType = JSType.TOP;
+            formalType = JSType.UNKNOWN;
           }
           Node arg = expr.getChildAtIndex(i + 1);
           tmpEnv = analyzeExprBwd(arg, tmpEnv, formalType).env;
@@ -1702,7 +1782,7 @@ public class NewTypeInference implements CompilerPass {
               tmpEnv = collectTypesForFreeVarsBwd(callee, tmpEnv);
             } else if (expr.isCall()) {
               Scope s = currentScope.getScope(calleeName);
-              JSType expectedRetType = JSType.TOP;
+              JSType expectedRetType = JSType.UNKNOWN;
               if (s.getDeclaredType().getReturnType() == null) {
                 expectedRetType = requiredType;
               }

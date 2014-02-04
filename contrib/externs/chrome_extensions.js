@@ -490,6 +490,23 @@ chrome.app.window.onRestored;
 
 
 /**
+ * @see http://developer.chrome.com/extensions/commands.html
+ * @const
+ */
+chrome.commands = {};
+
+
+/**
+ * @param {function(Array.<string>): void} callback Callback function.
+ */
+chrome.commands.getAll = function(callback) {};
+
+
+/** @type {!ChromeEvent} */
+chrome.commands.onCommand;
+
+
+/**
  * @see http://code.google.com/chrome/extensions/extension.html
  * @const
  */
@@ -2827,15 +2844,11 @@ chrome.webNavigation.onCommitted;
 
 
 /** @type {ChromeEvent} */
-chrome.webNavigation.onCompleted;
-
-
-/** @type {ChromeEvent} */
-chrome.webNavigation.onCreatedNavigationTarget;
-
-
-/** @type {ChromeEvent} */
 chrome.webNavigation.onDOMContentLoaded;
+
+
+/** @type {ChromeEvent} */
+chrome.webNavigation.onCompleted;
 
 
 /** @type {ChromeEvent} */
@@ -2843,7 +2856,19 @@ chrome.webNavigation.onErrorOccurred;
 
 
 /** @type {ChromeEvent} */
+chrome.webNavigation.onCreatedNavigationTarget;
+
+
+/** @type {ChromeEvent} */
 chrome.webNavigation.onReferenceFragmentUpdated;
+
+
+/** @type {ChromeEvent} */
+chrome.webNavigation.onTabReplaced;
+
+
+/** @type {ChromeEvent} */
+chrome.webNavigation.onHistoryStateUpdated;
 
 
 

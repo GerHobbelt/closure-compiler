@@ -216,8 +216,9 @@ class ScopedAliases implements HotSwapCompilerPass {
     @Override
     public void applyAlias() {
       Node aliasDefinition = aliasVar.getInitialValue();
-      aliasReference.getParent().replaceChild(
-          aliasReference, aliasDefinition.cloneTree());
+      Node replacement = aliasDefinition.cloneTree();
+      replacement.useSourceInfoFromForTree(aliasReference);
+      aliasReference.getParent().replaceChild(aliasReference, replacement);
     }
   }
 
@@ -379,6 +380,9 @@ class ScopedAliases implements HotSwapCompilerPass {
               null;
           Node varNode = null;
 
+          // Grab the docinfo before we do any AST manipulation.
+          JSDocInfo varDocInfo = v.getJSDocInfo();
+
           String name = n.getString();
           int nameCount = scopedAliasNames.count(name);
           scopedAliasNames.add(name);
@@ -416,12 +420,12 @@ class ScopedAliases implements HotSwapCompilerPass {
 
           // Add $jscomp.scope.name = EXPR;
           // Make sure we copy over all the jsdoc and debug info.
-          if (value != null || v.getJSDocInfo() != null) {
+          if (value != null || varDocInfo != null) {
             Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(
                 compiler.getCodingConvention(),
                 globalName,
                 value,
-                v.getJSDocInfo())
+                varDocInfo)
                 .useSourceInfoIfMissingFromForTree(n);
             NodeUtil.setDebugInformation(
                 newDecl.getFirstChild().getFirstChild(), n, name);

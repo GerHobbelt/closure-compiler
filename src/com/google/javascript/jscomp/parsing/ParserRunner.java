@@ -19,6 +19,7 @@ package com.google.javascript.jscomp.parsing;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
+import com.google.javascript.jscomp.parsing.parser.Parser.Config.Mode;
 import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
 import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
@@ -186,13 +187,15 @@ public class ParserRunner {
     private ErrorReporter reporter;
     private boolean errorSeen = false;
     private boolean isIdeMode;
-    private String sourceString;
+    private com.google.javascript.jscomp.parsing.parser.SourceFile source;
 
     Es6ErrorReporter(
-        ErrorReporter reporter, String sourceString, Config config) {
+        ErrorReporter reporter,
+        com.google.javascript.jscomp.parsing.parser.SourceFile source,
+        Config config) {
       this.reporter = reporter;
       this.isIdeMode = config.isIdeMode;
-      this.sourceString = sourceString;
+      this.source = source;
     }
 
     @Override
@@ -201,23 +204,20 @@ public class ParserRunner {
         Object... arguments) {
       String message = SimpleFormat.format("%s",
           SimpleFormat.format(format, arguments));
-
-      // TODO(johnlenz): get source line from source string.
-      String sourceLine = "";
-
+      String sourceLine = source.getSnippet(location);
       switch (kind) {
         case "Error":
           if (isIdeMode || !errorSeen) {
             errorSeen = true;
             this.reporter.error(
                 message, location.source.name,
-                location.line, sourceLine, location.offset);
+                location.line + 1, sourceLine, location.column);
           }
           break;
         case "Warning":
           this.reporter.warning(
               message, location.source.name,
-              location.line, sourceLine, location.offset);
+              location.line + 1, sourceLine, location.column);
           break;
         default:
           throw new IllegalStateException("Unexpected:" + kind);
@@ -244,14 +244,14 @@ public class ParserRunner {
                                   Config config,
                                   ErrorReporter errorReporter,
                                   Logger logger) throws IOException {
-    Es6ErrorReporter es6ErrorReporter =
-        new Es6ErrorReporter(errorReporter, sourceString, config);
     com.google.javascript.jscomp.parsing.parser.SourceFile file =
         new com.google.javascript.jscomp.parsing.parser.SourceFile(
             sourceFile.getName(), sourceString);
+    Es6ErrorReporter es6ErrorReporter =
+        new Es6ErrorReporter(errorReporter, file, config);
     com.google.javascript.jscomp.parsing.parser.Parser.Config es6config =
-        new com.google.javascript.jscomp.parsing.parser.Parser.Config(
-            config.languageMode == LanguageMode.ECMASCRIPT3);
+        new com.google.javascript.jscomp.parsing.parser.Parser.Config(mode(
+            config.languageMode));
     com.google.javascript.jscomp.parsing.parser.Parser p =
         new com.google.javascript.jscomp.parsing.parser.Parser(
             es6config, es6ErrorReporter, file);
@@ -269,6 +269,24 @@ public class ParserRunner {
       root.setIsSyntheticBlock(true);
     }
     return new ParseResult(root, null);
+  }
+
+  private static Mode mode(
+      LanguageMode mode) {
+    switch (mode) {
+      case ECMASCRIPT3:
+        return Mode.ES3;
+      case ECMASCRIPT5:
+        return Mode.ES5;
+      case ECMASCRIPT5_STRICT:
+        return Mode.ES5_STRICT;
+      case ECMASCRIPT6:
+        return Mode.ES6;
+      case ECMASCRIPT6_STRICT:
+        return Mode.ES5_STRICT;
+      default:
+        throw new IllegalStateException("unexpected");
+    }
   }
 
   /**

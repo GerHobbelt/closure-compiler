@@ -2180,6 +2180,15 @@ public class IntegrationTest extends IntegrationTestCase {
         "for( ; function(){} ; );");
   }
 
+  public void testIssue1198() throws Exception {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.SIMPLE_OPTIMIZATIONS
+        .setOptionsForCompilationLevel(options);
+    test(options,
+         "function f(x) { return 1; do { x(); } while (true); }",
+         "function f(a) { return 1; }");
+  }
+
   public void testIssue1131() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS
@@ -2229,6 +2238,20 @@ public class IntegrationTest extends IntegrationTestCase {
         "/** @const */ a.b.c = {};" +
         "a.b.c.MyType;" +
         "a.b.c.myFunc = function(x) {};");
+  }
+
+  public void testIssue1204() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS
+        .setOptionsForCompilationLevel(options);
+    WarningLevel.VERBOSE
+        .setOptionsForWarningLevel(options);
+    test(options,
+         "goog.scope(function () {" +
+         "  /** @constructor */ function F(x) { this.x = x; }" +
+         "  alert(new F(1));" +
+         "});",
+         "alert(new function(){}(1));");
   }
 
   public void testCodingConvention() {

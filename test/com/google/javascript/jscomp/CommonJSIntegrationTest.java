@@ -53,6 +53,48 @@ public class CommonJSIntegrationTest extends IntegrationTestCase {
          TypeCheck.WRONG_ARGUMENT_COUNT);
   }
 
+  public void testCrossModuleTypeAnnotation() {
+    test(createCompilerOptions(),
+         new String[] {
+           "/** @constructor */ function Hello() {} " +
+           "/** @type {!Hello} */ var hello = new Hello();" +
+           "module.exports = Hello;"
+         },
+         new String[] {
+           "function Hello$$module$i0(){}" +
+           "var hello$$module$i0 = new Hello$$module$i0();" +
+           "var module$i0 = Hello$$module$i0;"
+         });
+  }
+
+  public void testCrossModuleTypeAnnotation2() {
+    test(createCompilerOptions(),
+         new String[] {
+           "/** @constructor */ function Hello() {} " +
+           "module.exports = Hello;",
+           "/** @const */ var Hello = require('./i0');" +
+           "/** @type {!Hello} */ var hello = new Hello();"
+         },
+         new String[] {
+           "function Hello$$module$i0(){}" +
+           "var module$i0 = Hello$$module$i0;",
+           "var module$i1 = {};" +
+           "var Hello$$module$i1 = module$i0;" +
+           "var hello$$module$i1 = new Hello$$module$i1();"
+         });
+  }
+
+  public void testCrossModuleTypeAnnotation3() {
+    test(createCompilerOptions(),
+         new String[] {
+           "/** @constructor */ function Hello() {} " +
+           "module.exports = Hello;",
+           "/** @const */ var Hello = require('./i0');" +
+           "/** @type {!Hello} */ var hello = 1;"
+         },
+         TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
   @Override
   protected CompilerOptions createCompilerOptions() {
     CompilerOptions options = new CompilerOptions();

@@ -5107,6 +5107,19 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "required: number");
   }
 
+  public void testConstructorAlias11() throws Exception {
+    testTypes(
+        "/**\n * @param {number} x \n * @constructor */ " +
+        "var Foo = function(x) {};" +
+        "/** @const */ var FooAlias = Foo;" +
+        "/** @const */ var FooAlias2 = FooAlias;" +
+        "/** @return {FooAlias2} */ function foo() { " +
+        "  return 1; }",
+        "inconsistent return type\n" +
+        "found   : number\n" +
+        "required: (FooAlias2|null)");
+  }
+
   public void testClosure1() throws Exception {
     testClosureTypes(
         CLOSURE_DEFS +
@@ -12664,6 +12677,19 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "new Class().foo(a);");
   }
 
+  public void testDeterminacyIssue() throws Exception {
+    testTypes(
+        "(function() {\n" +
+        "    /** @constructor */\n" +
+        "    var ImageProxy = function() {};\n" +
+        "    /** @constructor */\n" +
+        "    var FeedReader = function() {};\n" +
+        "    /** @type {ImageProxy} */\n" +
+        "    FeedReader.x = new ImageProxy();\n" +
+        "})();");
+  }
+
+
   public void testUnknownTypeReport() throws Exception {
     compiler.getOptions().setWarningLevel(DiagnosticGroups.REPORT_UNKNOWN_TYPES,
         CheckLevel.WARNING);
@@ -12797,6 +12823,26 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "assignment to property prototype of Object\n" +
         "found   : {foo: number}\n" +
         "required: function (): undefined");
+  }
+
+  public void testBug12722936() throws Exception {
+    // Verify we don't use a weaker type when a
+    // stronger type is known for a slot.
+    testTypes(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function X() {}\n" +
+        "/** @constructor */ function C() {\n" +
+        "  /** @type {!X.<boolean>}*/\n" +
+        "  this.a = new X();\n" +
+        "  /** @type {null} */ var x = this.a;\n" +
+        "};\n" +
+        "\n",
+        "initializing variable\n" +
+        "found   : X.<boolean>\n" +
+        "required: null", false);
   }
 
 

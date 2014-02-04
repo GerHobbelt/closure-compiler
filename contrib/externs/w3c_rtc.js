@@ -139,13 +139,19 @@ MediaStreamTrackEvent.prototype.track;
  */
 function MediaStream(streamOrTracks) {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MediaStream.prototype.addEventListener = function(type, listener,
-    useCapture) {};
+    opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MediaStream.prototype.removeEventListener = function(type, listener,
-    useCapture) {};
+    opt_useCapture) {};
 
 /** @override */
 MediaStream.prototype.dispatchEvent = function(evt) {};
@@ -820,13 +826,19 @@ var RTCDataChannelInit;
  */
 function RTCPeerConnection(configuration, constraints) {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 RTCPeerConnection.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 RTCPeerConnection.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 RTCPeerConnection.prototype.dispatchEvent = function(evt) {};

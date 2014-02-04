@@ -27,13 +27,19 @@
  */
 function MediaSource() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MediaSource.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MediaSource.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 MediaSource.prototype.dispatchEvent = function(evt) {};
@@ -79,13 +85,19 @@ MediaSource.isTypeSupported = function(type) {};
  */
 function SourceBuffer() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 SourceBuffer.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 SourceBuffer.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 SourceBuffer.prototype.dispatchEvent = function(evt) {};

@@ -715,13 +715,19 @@ Document.prototype.head;
  */
 function DOMApplicationCache() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 DOMApplicationCache.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 DOMApplicationCache.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 DOMApplicationCache.prototype.dispatchEvent = function(evt) {};
@@ -859,13 +865,19 @@ function Transferable() {}
  */
 function WebWorker() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 WebWorker.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 WebWorker.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 WebWorker.prototype.dispatchEvent = function(evt) {};
@@ -900,13 +912,19 @@ WebWorker.prototype.onerror;
  */
 function Worker(opt_arg0) {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 Worker.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 Worker.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 Worker.prototype.dispatchEvent = function(evt) {};
@@ -952,13 +970,19 @@ Worker.prototype.onerror = function() {};
  */
 function SharedWorker(scriptURL, opt_name) {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 SharedWorker.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 SharedWorker.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 SharedWorker.prototype.dispatchEvent = function(evt) {};
@@ -1433,13 +1457,19 @@ MessageChannel.prototype.port2;
  */
 function MessagePort() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MessagePort.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 MessagePort.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 MessagePort.prototype.dispatchEvent = function(evt) {};
@@ -1737,13 +1767,19 @@ TimeRanges.prototype.end = function(index) { return 0; };
  */
 function WebSocket(url, opt_protocol) {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 WebSocket.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 WebSocket.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 WebSocket.prototype.dispatchEvent = function(evt) {};
@@ -1974,13 +2010,19 @@ XMLHttpRequest.prototype.mozResponseArrayBuffer;
  */
 function XMLHttpRequestEventTarget() {}
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 XMLHttpRequestEventTarget.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
-/** @override */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
 XMLHttpRequestEventTarget.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_useCapture) {};
 
 /** @override */
 XMLHttpRequestEventTarget.prototype.dispatchEvent = function(evt) {};
@@ -3033,7 +3075,7 @@ Document.prototype.msHidden;
  * @param {string} type
  * @param {{extends: (string|undefined), prototype: (Object|undefined)}} options
  */
-Document.prototype.register;
+Document.prototype.registerElement;
 
 
 /**
@@ -3041,3 +3083,43 @@ Document.prototype.register;
  * @typedef {{then: !Function}}
  */
 var Thenable;
+
+
+/**
+ * This is not an official DOM interface. It is used to add generic typing
+ * and respective type inference where available.
+ * {@see goog.labs.Thenable} inherits from this making all promises
+ * interoperate.
+ * @interface
+ * @template TYPE
+ */
+var IThenable = function() {};
+
+
+/**
+ * @param {(function(TYPE):
+ *             (RESULT|IThenable.<RESULT>|Thenable))=} opt_onFulfilled
+ * @param {(function(*): *)=} opt_onRejected
+ * @return {IThenable.<RESULT>}
+ * @template RESULT
+ */
+IThenable.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
+
+
+/**
+ * @see http://dom.spec.whatwg.org/#futures
+ * @param {function(
+ *             function((TYPE|IThenable.<TYPE>|Thenable)),
+ *             function(*))} resolver
+ * @constructor
+ * @implements {IThenable.<TYPE>}
+ * @template TYPE
+ */
+var Promise = function(resolver) {};
+
+
+/** @override */
+Promise.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
+
+// Intentionally omitted until the spec gets clearer.
+// Promise.prototype.catch

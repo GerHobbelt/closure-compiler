@@ -17,9 +17,11 @@
 package com.google.javascript.jscomp.parsing;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.common.collect.UnmodifiableIterator;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
 import com.google.javascript.jscomp.parsing.parser.LiteralToken;
@@ -43,6 +45,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.ExpressionStatementTree
 import com.google.javascript.jscomp.parsing.parser.trees.FinallyTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForInStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.FormalParameterListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FunctionDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.GetAccessorTree;
 import com.google.javascript.jscomp.parsing.parser.trees.IdentifierExpressionTree;
@@ -73,6 +76,8 @@ import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree
 import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
+import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
+import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
@@ -115,6 +120,31 @@ class NewIRFactory {
       "If you are targeting newer versions of JavaScript, " +
       "set the appropriate language_in option.";
 
+  static final String INVALID_ES5_STRICT_OCTAL =
+      "Octal integer literals are not supported in Ecmascript 5 strict mode.";
+
+  static final String STRING_CONTINUATION_WARNING =
+      "String continuations are not supported in this language mode.";
+
+  static final String BINARY_NUMBER_LITERAL_WARNING =
+      "Binary integer literals are not supported in this language mode.";
+
+  static final String OCTAL_NUMBER_LITERAL_WARNING =
+      "Octal integer literals are not supported in this language mode.";
+
+  static final String DUPLICATE_PARAMETER =
+      "Duplicate parameter name \"%s\".";
+
+  static final String UNLABELED_BREAK =
+      "unlabelled break must be inside loop or switch";
+
+  static final String UNEXPECTED_CONTINUE = "continue must be inside loop";
+
+  static final String UNEXPECTED_LABLED_CONTINUE =
+      "continue can only use labeles of iteration statements";
+
+  static final String UNDEFINED_LABEL = "undefined label \"%s\"";
+
   private final String sourceString;
   private final List<Integer> newlines;
   private final StaticSourceFile sourceFile;
@@ -151,11 +181,18 @@ class NewIRFactory {
   // memory footprint associated with these.
   private final Node templateNode;
 
+  private final UnmodifiableIterator<Comment> nextCommentIter;
+
+  private Comment currentComment;
+
   private NewIRFactory(String sourceString,
                     StaticSourceFile sourceFile,
                     Config config,
-                    ErrorReporter errorReporter) {
+                    ErrorReporter errorReporter,
+                    ImmutableList<Comment> comments) {
     this.sourceString = sourceString;
+    this.nextCommentIter = comments.iterator();
+    this.currentComment = nextCommentIter.hasNext() ? nextCommentIter.next() : null;
     this.newlines = Lists.newArrayList();
     this.sourceFile = sourceFile;
 
@@ -187,6 +224,12 @@ class NewIRFactory {
       case ECMASCRIPT5_STRICT:
         reservedKeywords = ES5_STRICT_RESERVED_KEYWORDS;
         break;
+      case ECMASCRIPT6:
+        reservedKeywords = ES5_RESERVED_KEYWORDS;
+        break;
+      case ECMASCRIPT6_STRICT:
+        reservedKeywords = ES5_STRICT_RESERVED_KEYWORDS;
+        break;
       default:
         throw new IllegalStateException("unknown language mode");
     }
@@ -202,29 +245,212 @@ class NewIRFactory {
     return templateNode;
   }
 
-  public static Node transformTree(ProgramTree node,
+  public static Node transformTree(ProgramTree tree,
                                    StaticSourceFile sourceFile,
                                    String sourceString,
                                    Config config,
                                    ErrorReporter errorReporter) {
     NewIRFactory irFactory = new NewIRFactory(sourceString, sourceFile,
-        config, errorReporter);
-    Node irNode = irFactory.transform(node);
+        config, errorReporter, tree.sourceComments);
 
-    if (node.sourceComments != null) {
-      for (Comment comment : node.sourceComments) {
+    // don't call transform as we don't want standard jsdoc handling.
+    Node n = irFactory.justTransform(tree);
+    irFactory.setSourceInfo(n, tree);
+
+    if (tree.sourceComments != null) {
+      for (Comment comment : tree.sourceComments) {
         if (comment.type == Comment.Type.JSDOC &&
             !irFactory.parsedComments.contains(comment)) {
-          irFactory.handlePossibleFileOverviewJsDoc(comment, irNode);
+          irFactory.handlePossibleFileOverviewJsDoc(comment);
         } else if (comment.type == Comment.Type.BLOCK) {
           irFactory.handleBlockComment(comment);
         }
       }
     }
 
-    irFactory.setFileOverviewJsDoc(irNode);
+    irFactory.setFileOverviewJsDoc(n);
 
-    return irNode;
+    irFactory.validateAll(n);
+
+    return n;
+  }
+
+  private void validateAll(Node n) {
+    validate(n);
+    for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
+      validateAll(c);
+    }
+  }
+
+  private void validate(Node n) {
+    validateTypeAnnotations(n);
+    validateParameters(n);
+    validateBreakContinue(n);
+  }
+
+  private void validateBreakContinue(Node n) {
+    if (n.isBreak() || n.isContinue()) {
+      Node labelName = n.getFirstChild();
+      if (labelName != null) {
+        Node parent = n.getParent();
+        while (!parent.isLabel() || !labelsMatch(parent, labelName)) {
+          if (parent.isFunction() || parent.isScript()) {
+            // report missing label
+            errorReporter.error(
+                String.format(UNDEFINED_LABEL, labelName.getString()),
+                sourceName,
+                n.getLineno(), "", n.getCharno());
+            break;
+          }
+          parent = parent.getParent();
+        }
+        if (parent.isLabel() && labelsMatch(parent, labelName)) {
+          if (n.isContinue() && !isContinueTarget(parent.getLastChild())) {
+            // report invalid continue target
+            errorReporter.error(
+                String.format(
+                    UNEXPECTED_LABLED_CONTINUE, labelName.getString()),
+                sourceName,
+                n.getLineno(), "", n.getCharno());
+          }
+        }
+      } else {
+        if (n.isContinue()) {
+          Node parent = n.getParent();
+          while (!isContinueTarget(parent)) {
+            if (parent.isFunction() || parent.isScript()) {
+              // report invalid continue
+              errorReporter.error(
+                  String.format(UNEXPECTED_CONTINUE),
+                  sourceName,
+                  n.getLineno(), "", n.getCharno());
+              break;
+            }
+            parent = parent.getParent();
+          }
+        } else {
+          Node parent = n.getParent();
+          while (!isBreakTarget(parent)) {
+            if (parent.isFunction() || parent.isScript()) {
+              // report invalid break
+              errorReporter.error(
+                  String.format(UNLABELED_BREAK),
+                  sourceName,
+                  n.getLineno(), "", n.getCharno());
+              break;
+            }
+            parent = parent.getParent();
+          }
+        }
+      }
+    }
+  }
+
+  private boolean isBreakTarget(Node n) {
+    switch (n.getType()) {
+      case Token.FOR:
+      case Token.WHILE:
+      case Token.DO:
+      case Token.SWITCH:
+        return true;
+    }
+    return false;
+  }
+
+  private boolean isContinueTarget(Node n) {
+    switch (n.getType()) {
+      case Token.FOR:
+      case Token.WHILE:
+      case Token.DO:
+        return true;
+    }
+    return false;
+  }
+
+
+  private boolean labelsMatch(Node label, Node labelName) {
+    return label.getFirstChild().getString().equals(labelName.getString());
+  }
+
+  private void validateParameters(Node n) {
+    if (n.isParamList()) {
+      Node c = n.getFirstChild();
+      for (; c != null; c = c.getNext()) {
+        if (!c.isName()) {
+          continue;
+        }
+        Node sibling = c.getNext();
+        for (; sibling != null; sibling = sibling.getNext()) {
+          if (sibling.isName() && c.getString().equals(sibling.getString())) {
+            errorReporter.warning(
+                String.format(DUPLICATE_PARAMETER, c.getString()),
+                sourceName,
+                n.getLineno(), "", n.getCharno());
+          }
+        }
+      }
+    }
+  }
+
+  @SuppressWarnings("incomplete-switch")
+  private void validateTypeAnnotations(Node n) {
+    JSDocInfo info = n.getJSDocInfo();
+    if (info != null && info.hasType()) {
+      boolean valid = false;
+      switch (n.getType()) {
+        // Casts are valid
+        case Token.CAST:
+          valid = true;
+          break;
+        // Variable declarations are valid
+        case Token.VAR:
+          valid = true;
+          break;
+        // Function declarations are valid
+        case Token.FUNCTION:
+          valid = isFunctionDeclaration(n);
+          break;
+        // Object literal properties, catch declarations and variable
+        // initializers are valid.
+        case Token.NAME:
+          Node parent = n.getParent();
+          switch (parent.getType()) {
+            case Token.STRING_KEY:
+            case Token.GETTER_DEF:
+            case Token.SETTER_DEF:
+            case Token.CATCH:
+            case Token.FUNCTION:
+            case Token.VAR:
+            case Token.LP:
+              valid = true;
+              break;
+          }
+          break;
+        // Object literal properties are valid
+        case Token.STRING_KEY:
+        case Token.GETTER_DEF:
+        case Token.SETTER_DEF:
+          valid = true;
+          break;
+        // Property assignments are valid, if at the root of an expression.
+        case Token.ASSIGN:
+          valid = n.getParent().isExprResult()
+            && (n.getFirstChild().isGetProp() || n.getFirstChild().isGetElem());
+          break;
+        case Token.GETPROP:
+          valid = n.getParent().isExprResult() && n.getQualifiedName() != null;
+          break;
+        case Token.CALL:
+          valid = info.isDefine();
+          break;
+      }
+
+      if (!valid) {
+        errorReporter.warning(MISPLACED_TYPE_ANNOTATION,
+            sourceName,
+            n.getLineno(), "", n.getCharno());
+      }
+    }
   }
 
   private void setFileOverviewJsDoc(Node irNode) {
@@ -255,9 +481,7 @@ class NewIRFactory {
         irNode.setWasEmptyNode(true);
       } else {
         Node newBlock = newNode(Token.BLOCK, irNode);
-        newBlock.setLineno(irNode.getLineno());
-        newBlock.setCharno(irNode.getCharno());
-        maybeSetLengthFrom(newBlock, node);
+        setSourceInfo(newBlock, irNode);
         irNode = newBlock;
       }
     }
@@ -289,162 +513,124 @@ class NewIRFactory {
     return false;
   }
 
-  private void handlePossibleFileOverviewJsDoc(Comment comment, Node irNode) {
-    JsDocInfoParser jsDocParser = createJsDocInfoParser(comment, irNode);
+  private void handlePossibleFileOverviewJsDoc(Comment comment) {
+    JsDocInfoParser jsDocParser = createJsDocInfoParser(comment);
     parsedComments.add(comment);
     handlePossibleFileOverviewJsDoc(jsDocParser);
   }
 
-  private Comment getJsDocNode(ParseTree tree) {
-    Preconditions.checkNotNull(tree);
-    // TODO(johnlenz): enable associating comments with parse trees.
-    return null;
+  private Comment getJsDoc(SourceRange location) {
+    Comment closestPreviousComment = null;
+    while (currentComment != null &&
+        currentComment.location.end.offset <= location.start.offset) {
+      closestPreviousComment = currentComment;
+      if (this.nextCommentIter.hasNext()) {
+        currentComment = this.nextCommentIter.next();
+      } else {
+        currentComment = null;
+      }
+    }
+
+    return (closestPreviousComment != null
+        && closestPreviousComment.type == Comment.Type.JSDOC)
+        ? closestPreviousComment : null;
   }
 
-  private Comment getJsDocNode(
+  private Comment getJsDoc(ParseTree tree) {
+    return getJsDoc(tree.location);
+  }
+
+  private Comment getJsDoc(
       com.google.javascript.jscomp.parsing.parser.Token token) {
-    Preconditions.checkNotNull(token);
-    // TODO(johnlenz): enable associating comments with parse trees.
-    return null;
+    return getJsDoc(token.location);
   }
 
-  private JSDocInfo handleJsDoc(ParseTree node, Node irNode) {
-    Comment comment = getJsDocNode(node);
+  private JSDocInfo handleJsDoc(Comment comment) {
     if (comment != null) {
-      JsDocInfoParser jsDocParser = createJsDocInfoParser(comment, irNode);
+      JsDocInfoParser jsDocParser = createJsDocInfoParser(comment);
       parsedComments.add(comment);
       if (!handlePossibleFileOverviewJsDoc(jsDocParser)) {
         JSDocInfo info = jsDocParser.retrieveAndResetParsedJSDocInfo();
         if (info != null) {
-          validateTypeAnnotations(info, node);
+          // validateTypeAnnotations(info, node);
         }
         return info;
       }
     }
     return null;
+  }
+
+  private JSDocInfo handleJsDoc(ParseTree node) {
+    if (!shouldAttachJSDocHere(node)) {
+      return null;
+    }
+    return handleJsDoc(getJsDoc(node));
+  }
+
+  private boolean shouldAttachJSDocHere(ParseTree tree) {
+    switch (tree.type) {
+      case EXPRESSION_STATEMENT:
+        return false;
+      case LABELLED_STATEMENT:
+        return false;
+      case CALL_EXPRESSION:
+      case BINARY_OPERATOR:
+      case MEMBER_EXPRESSION:
+      case MEMBER_LOOKUP_EXPRESSION:
+        ParseTree nearest = findNearestNode(tree);
+        if (nearest.type == ParseTreeType.PAREN_EXPRESSION) {
+          return false;
+        }
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  private ParseTree findNearestNode(ParseTree tree) {
+    switch (tree.type) {
+      case EXPRESSION_STATEMENT:
+        return findNearestNode(tree.asExpressionStatement().expression);
+      case CALL_EXPRESSION:
+        return findNearestNode(tree.asCallExpression().operand);
+      case BINARY_OPERATOR:
+        return findNearestNode(tree.asBinaryOperator().left);
+      case MEMBER_EXPRESSION:
+        return findNearestNode(tree.asMemberExpression().operand);
+      case MEMBER_LOOKUP_EXPRESSION:
+        return findNearestNode(tree.asMemberLookupExpression().operand);
+      default:
+        return tree;
+    }
   }
 
   private JSDocInfo handleJsDoc(
-      com.google.javascript.jscomp.parsing.parser.Token token, Node irNode) {
-    Comment comment = getJsDocNode(token);
-    if (comment != null) {
-      JsDocInfoParser jsDocParser = createJsDocInfoParser(comment, irNode);
-      parsedComments.add(comment);
-      if (!handlePossibleFileOverviewJsDoc(jsDocParser)) {
-        JSDocInfo info = jsDocParser.retrieveAndResetParsedJSDocInfo();
-        if (info != null) {
-          // Associate JSDoc with tokens?
-          // validateTypeAnnotations(info, token);
-        }
-        return info;
-      }
+      com.google.javascript.jscomp.parsing.parser.Token token) {
+    return handleJsDoc(getJsDoc(token));
+  }
+
+  private boolean isFunctionDeclaration(Node n) {
+    return n.isFunction() && isStmtContainer(n.getParent());
+  }
+
+  private boolean isStmtContainer(Node n) {
+    return n.isBlock() || n.isScript();
+  }
+
+  private Node transform(ParseTree tree) {
+    JSDocInfo info = handleJsDoc(tree);
+    Node node = justTransform(tree);
+    if (info != null) {
+      node = maybeInjectCastNode(tree, info, node);
+      attachJSDoc(info, node);
     }
-    return null;
+    setSourceInfo(node, tree);
+    return node;
   }
 
-  static final boolean ENABLE_TYPE_ANNOTATION_CHECKS = false;
-
-  @SuppressWarnings("incomplete-switch")
-  private void validateTypeAnnotations(JSDocInfo info, ParseTree node) {
-    // TODO(johnlenz) : reenable this check.
-    if (!ENABLE_TYPE_ANNOTATION_CHECKS) {
-      return;
-    }
-
-    if (info.hasType()) {
-      boolean valid = false;
-      switch (node.type) {
-        // Casts are valid
-        case PAREN_EXPRESSION:
-          valid = true;
-          break;
-        // Variable declarations are valid
-        case VARIABLE_STATEMENT:
-        case VARIABLE_DECLARATION:
-          valid = true;
-          break;
-        // Function declarations are valid
-        case FUNCTION_DECLARATION:
-          valid = isFunctionDeclaration(node.asFunctionDeclaration());
-          break;
-        // Object literal properties, catch declarations and variable
-        // initializers are valid.
-        case IDENTIFIER_EXPRESSION:
-          ParseTree parent = getParent(node);
-          valid = parent.type == ParseTreeType.PROPERTY_NAME_ASSIGNMENT
-              || parent.type == ParseTreeType.GET_ACCESSOR
-              || parent.type == ParseTreeType.SET_ACCESSOR
-              || parent.type == ParseTreeType.CATCH
-              || parent.type == ParseTreeType.FUNCTION_DECLARATION
-              || (parent.type == ParseTreeType.VARIABLE_DECLARATION &&
-                  node == (parent.asVariableDeclaration()).lvalue);
-          break;
-        // Object literal properties are valid
-        case PROPERTY_NAME_ASSIGNMENT:
-          valid = true;
-          break;
-
-        // Property assignments are valid, if at the root of an expression.
-        case BINARY_OPERATOR:
-          BinaryOperatorTree binop = node.asBinaryOperator();
-          if (binop.operator.type == TokenType.EQUAL) {
-            valid = isExpressionStatement(getParent(node))
-                && isPropAccess(binop.left);
-          }
-          break;
-
-        // Property definitions are valid, if at the root of an expression.
-        case MEMBER_EXPRESSION:
-        case MEMBER_LOOKUP_EXPRESSION:
-          valid = isExpressionStatement(getParent(node));
-          break;
-
-        case CALL_EXPRESSION:
-          valid = info.isDefine();
-          break;
-      }
-
-      if (!valid) {
-        errorReporter.warning(MISPLACED_TYPE_ANNOTATION,
-            sourceName,
-            node.location.start.line, "", 0);
-      }
-    }
-  }
-
-  private boolean isExpressionStatement(ParseTree node) {
-    return node.type == ParseTreeType.EXPRESSION_STATEMENT;
-  }
-
-  private boolean isFunctionDeclaration(FunctionDeclarationTree node) {
-    return isStmtContainer(getParent(node));
-  }
-
-  private boolean isStmtContainer(ParseTree node) {
-    return node.type == ParseTreeType.BLOCK ||
-        node.type == ParseTreeType.PROGRAM;
-  }
-
-  private ParseTree getParent(ParseTree tree) {
-    Preconditions.checkNotNull(tree);
-    // TODO(johnlenz): keep track of the current stack of nodes being visited.
-    return null;
-  }
-
-  private static boolean isPropAccess(ParseTree node) {
-    return node.type == ParseTreeType.MEMBER_EXPRESSION
-        || node.type == ParseTreeType.MEMBER_LOOKUP_EXPRESSION;
-  }
-
-  private Node transform(ParseTree node) {
-    Node irNode = justTransform(node);
-    JSDocInfo jsDocInfo = handleJsDoc(node, irNode);
-    if (jsDocInfo != null) {
-      irNode = maybeInjectCastNode(node, jsDocInfo, irNode);
-      irNode.setJSDocInfo(jsDocInfo);
-    }
-    setSourceInfo(irNode, node);
-    return irNode;
+  private void attachJSDoc(JSDocInfo info, Node n) {
+    info.setAssociatedNode(n);
+    n.setJSDocInfo(info);
   }
 
   private Node maybeInjectCastNode(ParseTree node, JSDocInfo info, Node irNode) {
@@ -465,24 +651,42 @@ class NewIRFactory {
    * @see <a href="http://code.google.com/p/jsdoc-toolkit/wiki/InlineDocs">
    *   Using Inline Doc Comments</a>
    */
-  private Node transformNodeWithInlineJsDoc(ParseTree node) {
+  private Node transformNodeWithInlineJsDoc(
+      ParseTree node, boolean optionalInline) {
+    JSDocInfo info = handleInlineJsDoc(node, optionalInline);
     Node irNode = justTransform(node);
-    Comment comment = getJsDocNode(node);
-    if (comment != null) {
-      JSDocInfo info = parseInlineTypeDoc(comment, irNode);
-      if (info != null) {
-        irNode.setJSDocInfo(info);
-      }
+    if (info != null) {
+      irNode.setJSDocInfo(info);
     }
     setSourceInfo(irNode, node);
     return irNode;
   }
 
+  private JSDocInfo handleInlineJsDoc(ParseTree node, boolean optional) {
+    return handleInlineJsDoc(node.location, optional);
+  }
+
+  private JSDocInfo handleInlineJsDoc(
+      com.google.javascript.jscomp.parsing.parser.Token token,
+      boolean optional) {
+    return handleInlineJsDoc(token.location, optional);
+  }
+
+  private JSDocInfo handleInlineJsDoc(
+      SourceRange location,
+      boolean optional) {
+    Comment comment = getJsDoc(location);
+    if (comment != null && (!optional || !comment.value.contains("@"))) {
+      return parseInlineTypeDoc(comment);
+    } else {
+      return handleJsDoc(comment);
+    }
+  }
+
   private Node transformNumberAsString(LiteralToken token) {
-    // TODO(johnlenz): parse number value correctly
-    double value = Double.valueOf(token.toString());
+    double value = normalizeNumber(token);
     Node irNode = newStringNode(getStringValue(value));
-    JSDocInfo jsDocInfo = handleJsDoc(token, irNode);
+    JSDocInfo jsDocInfo = handleJsDoc(token);
     if (jsDocInfo != null) {
       irNode.setJSDocInfo(jsDocInfo);
     }
@@ -503,51 +707,50 @@ class NewIRFactory {
 
   private int lineno(ParseTree node) {
     // location lines start at zero, our AST starts at 1.
-    return node.location.start.line + 1;
+    return lineno(node.location.start);
   }
 
   private int charno(ParseTree node) {
-    return node.location.start.column;
+    return charno(node.location.start);
   }
 
-  private int lineno(com.google.javascript.jscomp.parsing.parser.Token token) {
+  private int lineno(SourcePosition location) {
     // location lines start at zero, our AST starts at 1.
-    return token.location.start.line + 1;
+    return location.line + 1;
   }
 
-  private int charno(com.google.javascript.jscomp.parsing.parser.Token token) {
-    return token.location.start.column;
+  private int charno(SourcePosition location) {
+    return location.column;
+  }
+
+  private void setSourceInfo(Node node, Node ref) {
+    node.setLineno(ref.getLineno());
+    node.setCharno(ref.getCharno());
+    maybeSetLengthFrom(node, ref);
   }
 
   private void setSourceInfo(Node irNode, ParseTree node) {
     if (irNode.getLineno() == -1) {
-      // TODO(johnlenz): remove this check
-      if (node.location == null || node.location.start == null) {
-        return;
-      }
-
-      // If we didn't already set the line, then set it now. This avoids
-      // cases like ParenthesizedExpression where we just return a previous
-      // node, but don't want the new node to get its parent's line number.
-      int lineno = lineno(node);
-      irNode.setLineno(lineno);
-      int charno = charno(node);
-      irNode.setCharno(charno);
-      maybeSetLengthFrom(irNode, node);
+      setSourceInfo(irNode, node.location.start, node.location.end);
     }
   }
 
   private void setSourceInfo(
       Node irNode, com.google.javascript.jscomp.parsing.parser.Token token) {
-    if (irNode.getLineno() == -1) {
+    setSourceInfo(irNode, token.location.start, token.location.end);
+  }
+
+  private void setSourceInfo(
+      Node node, SourcePosition start, SourcePosition end) {
+    if (node.getLineno() == -1) {
       // If we didn't already set the line, then set it now. This avoids
       // cases like ParenthesizedExpression where we just return a previous
       // node, but don't want the new node to get its parent's line number.
-      int lineno = lineno(token);
-      irNode.setLineno(lineno);
-      int charno = charno(token);
-      irNode.setCharno(charno);
-      maybeSetLengthFrom(irNode, token);
+      int lineno = lineno(start);
+      node.setLineno(lineno);
+      int charno = charno(start);
+      node.setCharno(charno);
+      maybeSetLength(node, start, end);
     }
   }
 
@@ -558,11 +761,10 @@ class NewIRFactory {
    * file-level JSDoc comments (@fileoverview and @license).
    *
    * @param node The JsDoc Comment node to parse.
-   * @param irNode
    * @return A JsDocInfoParser. Will contain either fileoverview JsDoc, or
    *     normal JsDoc, or no JsDoc (if the method parses to the wrong level).
    */
-  private JsDocInfoParser createJsDocInfoParser(Comment node, Node irNode) {
+  private JsDocInfoParser createJsDocInfoParser(Comment node) {
     String comment = node.value;
     int lineno = node.location.start.line;
     int charno = node.location.start.column;
@@ -577,7 +779,8 @@ class NewIRFactory {
                                charno + numOpeningChars),
           comment,
           position,
-          irNode,
+          null,
+          sourceFile,
           config,
           errorReporter);
     jsdocParser.setFileLevelJsDocBuilder(fileLevelJsDocBuilder);
@@ -589,7 +792,7 @@ class NewIRFactory {
   /**
    * Parses inline type info.
    */
-  private JSDocInfo parseInlineTypeDoc(Comment node, Node irNode) {
+  private JSDocInfo parseInlineTypeDoc(Comment node) {
     String comment = node.value;
     int lineno = node.location.start.line + 1;
     int charno = node.location.start.column;
@@ -603,23 +806,24 @@ class NewIRFactory {
                                charno + numOpeningChars),
           comment,
           node.location.start.offset,
-          irNode,
+          null,
+          sourceFile,
           config,
           errorReporter);
     return parser.parseInlineTypeDoc();
   }
 
   // Set the length on the node if we're in IDE mode.
-  private void maybeSetLengthFrom(Node node, ParseTree source) {
+  private void maybeSetLength(
+      Node node, SourcePosition start, SourcePosition end) {
     if (config.isIdeMode) {
-      node.setLength(source.location.end.offset - source.location.start.offset);
+      node.setLength(end.offset - start.offset);
     }
   }
 
-  private void maybeSetLengthFrom(Node node,
-      com.google.javascript.jscomp.parsing.parser.Token source) {
+  private void maybeSetLengthFrom(Node node, Node ref) {
     if (config.isIdeMode) {
-      node.setLength(source.location.end.offset - source.location.start.offset);
+      node.setLength(ref.getLength());
     }
   }
 
@@ -673,7 +877,8 @@ class NewIRFactory {
         ret = transformNumberAsString(token.asLiteral());
         ret.putBooleanProp(Node.QUOTED_PROP, true);
       } else {
-        ret = newStringNode(Token.STRING, token.asLiteral().toString());
+        ret = newStringNode(Token.STRING,
+            normalizeString(token.asLiteral()));
         ret.putBooleanProp(Node.QUOTED_PROP, true);
       }
       Preconditions.checkState(ret.isString());
@@ -844,61 +1049,37 @@ class NewIRFactory {
     }
 
     @Override
-    Node processFunction(FunctionDeclarationTree functionNode) {
-      IdentifierToken name = functionNode.name;
-      Boolean isUnnamedFunction = false;
+    Node processFunction(FunctionDeclarationTree functionTree) {
+      IdentifierToken name = functionTree.name;
       Node newName;
       if (name != null) {
-        // TODO(johnlenz): handle inline jsdoc
-        // newName = transformNodeWithInlineJsDoc(name);
-        newName = processName(name);
+        newName = processNameWithInlineJSDoc(name);
       } else {
-        /*
-        int functionType = functionNode.getFunctionType();
-        if (functionType != FunctionNode.FUNCTION_EXPRESSION) {
+        if (!functionTree.isExpression) {
           errorReporter.error(
             "unnamed function statement",
             sourceName,
-            functionNode.getLineno(), "", 0);
+            lineno(functionTree), "", charno(functionTree));
 
           // Return the bare minimum to put the AST in a valid state.
           return newNode(Token.EXPR_RESULT, Node.newNumber(0));
         }
-        */
-        isUnnamedFunction = true;
 
         newName = newStringNode(Token.NAME, "");
 
         // Old Rhino tagged the empty name node with the line number of the
         // declaration.
-        newName.setLineno(lineno(functionNode));
-        newName.setCharno(charno(functionNode));
-        /*
-        // TODO(bowdidge) Mark line number of paren correctly.
-        // Same problem as below - the left paren might not be on the
-        // same line as the function keyword.
-        int lpColumn = functionNode.getAbsolutePosition() +
-            functionNode.getLp();
-        newName.setCharno(position2charno(lpColumn));
-        */
+        newName.setLineno(lineno(functionTree));
+        newName.setCharno(charno(functionTree));
         maybeSetLength(newName, 0);
       }
 
       Node node = newNode(Token.FUNCTION);
 
       node.addChildToBack(newName);
-      Node lp = newNode(Token.PARAM_LIST);
-      // setSourceInfo(lp, functionNode.formalParameterList);
+      node.addChildToBack(transform(functionTree.formalParameterList));
 
-      for (ParseTree param : functionNode.formalParameterList.parameters) {
-        Node paramNode = transformNodeWithInlineJsDoc(param);
-        // We only support simple names for the moment.
-        Preconditions.checkState(paramNode.isName());
-        lp.addChildToBack(paramNode);
-      }
-      node.addChildToBack(lp);
-
-      Node bodyNode = transform(functionNode.functionBody);
+      Node bodyNode = transform(functionTree.functionBody);
       if (!bodyNode.isBlock()) {
         // When in ideMode the parser tries to parse some constructs the
         // compiler doesn't support, repair it here.
@@ -908,6 +1089,18 @@ class NewIRFactory {
       parseDirectives(bodyNode);
       node.addChildToBack(bodyNode);
      return node;
+    }
+
+    @Override
+    Node processFormalParameterList(FormalParameterListTree tree) {
+      Node params = newNode(Token.PARAM_LIST);
+      for (ParseTree param : tree.parameters) {
+        Node paramNode = transformNodeWithInlineJsDoc(param, false);
+        // We only support simple names for the moment.
+        Preconditions.checkState(paramNode.isName());
+        params.addChildToBack(paramNode);
+      }
+      return params;
     }
 
     @Override
@@ -973,8 +1166,9 @@ class NewIRFactory {
 
     @Override
     Node processLabeledStatement(LabelledStatementTree labelTree) {
-      Node node = newNode(Token.LABEL);
-      node.addChildToBack(transformLabelName(labelTree.name));
+      Node node = newNode(Token.LABEL,
+          transformLabelName(labelTree.name),
+          transform(labelTree.statement));
       return node;
     }
 
@@ -996,6 +1190,7 @@ class NewIRFactory {
       if (asString) {
         node = newStringNode(Token.STRING, identifierToken.toString());
       } else {
+        JSDocInfo info = handleJsDoc(identifierToken);
         if (identifierToken == null ||
             isReservedKeyword(identifierToken.toString())) {
           errorReporter.error(
@@ -1004,6 +1199,29 @@ class NewIRFactory {
             identifierToken.location.start.line, "", 0);
         }
         node = newStringNode(Token.NAME, identifierToken.toString());
+        if (info != null) {
+          // validateTypeAnnotations(info, identifierToken);
+          attachJSDoc(info, node);
+        }
+      }
+      setSourceInfo(node, identifierToken);
+      return node;
+    }
+
+    Node processNameWithInlineJSDoc(IdentifierToken identifierToken) {
+      Node node;
+      JSDocInfo info = handleInlineJsDoc(identifierToken, true);
+      if (identifierToken == null ||
+          isReservedKeyword(identifierToken.toString())) {
+        errorReporter.error(
+          "identifier is a reserved word",
+          sourceName,
+          identifierToken.location.start.line, "", 0);
+      }
+      node = newStringNode(Token.NAME, identifierToken.toString());
+      if (info != null) {
+        // validateTypeAnnotations(info, identifierToken);
+        attachJSDoc(info, node);
       }
       setSourceInfo(node, identifierToken);
       return node;
@@ -1028,16 +1246,17 @@ class NewIRFactory {
       Node node = newNode(
           Token.NEW,
           transform(exprNode.operand));
-      for (ParseTree arg : exprNode.arguments.arguments) {
-        node.addChildToBack(transform(arg));
+      if (exprNode.arguments != null) {
+        for (ParseTree arg : exprNode.arguments.arguments) {
+          node.addChildToBack(transform(arg));
+        }
       }
       return node;
     }
 
     @Override
     Node processNumberLiteral(LiteralExpressionTree literalNode) {
-      // TODO(johnlenz): use the correct translation
-      double value = Double.valueOf(literalNode.literalToken.asLiteral().value);
+      double value = normalizeNumber(literalNode.literalToken.asLiteral());
       return newNumberNode(value);
     }
 
@@ -1055,50 +1274,54 @@ class NewIRFactory {
           }
         }
 
-
-        Node key;
-        Node value;
-        switch (el.type) {
-          case PROPERTY_NAME_ASSIGNMENT: {
-              PropertyNameAssignmentTree prop = el.asPropertyNameAssignment();
-              key = transformAsString(prop.name);
-              key.setType(Token.STRING_KEY);
-              value = transform(prop.value);
-            }
-            break;
-
-          case GET_ACCESSOR: {
-              GetAccessorTree prop = el.asGetAccessor();
-              key = transformAsString(prop.propertyName);
-              key.setType(Token.GETTER_DEF);
-              Node body = transform(prop.body);
-              value = IR.function(IR.name(""), IR.paramList(), body);
-            }
-            break;
-
-          case SET_ACCESSOR: {
-              SetAccessorTree prop = el.asSetAccessor();
-              key = transformAsString(prop.propertyName);
-              key.setType(Token.SETTER_DEF);
-              Node body = transform(prop.body);
-              value = IR.function(IR.name(""), IR.paramList(
-                  safeProcessName(prop.parameter)), body);
-            }
-            break;
-
-         default:
-           throw new IllegalStateException("Unexpected node type: " + el.type);
-        }
-
+        Node key = transform(el);
         if (!key.isQuotedString() && !isAllowedProp(key.getString())) {
           errorReporter.warning(INVALID_ES3_PROP_NAME, sourceName,
               key.getLineno(), "", key.getCharno());
         }
 
-        key.addChildToFront(value);
         node.addChildToBack(key);
       }
       return node;
+    }
+
+    @Override
+    Node processGetAccessor(GetAccessorTree tree) {
+      Node key = transformAsString(tree.propertyName);
+      key.setType(Token.GETTER_DEF);
+      Node body = transform(tree.body);
+      Node dummyName = IR.name("");
+      setSourceInfo(dummyName, tree.body);
+      Node paramList = IR.paramList();
+      setSourceInfo(paramList, tree.body);
+      Node value = IR.function(dummyName, paramList, body);
+      setSourceInfo(value, tree.body);
+      key.addChildToFront(value);
+      return key;
+    }
+
+    @Override
+    Node processSetAccessor(SetAccessorTree tree) {
+      Node key = transformAsString(tree.propertyName);
+      key.setType(Token.SETTER_DEF);
+      Node body = transform(tree.body);
+      Node dummyName = IR.name("");
+      setSourceInfo(dummyName, tree.propertyName);
+      Node paramList = IR.paramList(
+          safeProcessName(tree.parameter));
+      setSourceInfo(paramList, tree.parameter);
+      Node value = IR.function(dummyName, paramList, body);
+      setSourceInfo(value, tree.body);
+      key.addChildToFront(value);
+      return key;
+    }
+
+    @Override
+    Node processPropertyNameAssignment(PropertyNameAssignmentTree tree) {
+      Node key = transformAsString(tree.name);
+      key.setType(Token.STRING_KEY);
+      key.addChildToFront(transform(tree.value));
+      return key;
     }
 
     private Node safeProcessName(IdentifierToken identifierToken) {
@@ -1127,34 +1350,28 @@ class NewIRFactory {
       }
       Node newNode = newNode(
           Token.GETPROP, leftChild, rightChild);
-      // What is this for?
-      //newNode.setLineno(leftChild.getLineno());
-      //newNode.setCharno(leftChild.getCharno());
-      //maybeSetLengthFrom(newNode, getNode);
       return newNode;
     }
 
     @Override
     Node processRegExpLiteral(LiteralExpressionTree literalTree) {
       LiteralToken token = literalTree.literalToken.asLiteral();
-      String rawRegex = token.value;
-
-      // TODO(johnlenz): build a proper regex object in the parser
-      int lastSlash = rawRegex.lastIndexOf('/');
-      String value = rawRegex.substring(1, lastSlash);
-      String flags = "";
-      if (lastSlash < rawRegex.length()) {
-        flags = rawRegex.substring(rawRegex.lastIndexOf('/'));
-      }
-
-      Node literalStringNode = newStringNode(value);
+      Node literalStringNode = newStringNode(normalizeRegex(token));
       // TODO(johnlenz): fix the source location.
       setSourceInfo(literalStringNode, token);
       Node node = newNode(Token.REGEXP, literalStringNode);
+
+      String rawRegex = token.value;
+      int lastSlash = rawRegex.lastIndexOf('/');
+      String flags = "";
+      if (lastSlash < rawRegex.length()) {
+        flags = rawRegex.substring(lastSlash + 1);
+      }
+
       if (!flags.isEmpty()) {
         Node flagsNode = newStringNode(flags);
         // TODO(johnlenz): fix the source location.
-        setSourceInfo(literalStringNode, token);
+        setSourceInfo(flagsNode, token);
         node.addChildToBack(flagsNode);
       }
       return node;
@@ -1172,7 +1389,7 @@ class NewIRFactory {
     @Override
     Node processStringLiteral(LiteralExpressionTree literalTree) {
       LiteralToken token = literalTree.literalToken.asLiteral();
-      String value = normalizeString(token.value);
+      String value = normalizeString(token);
 
       Node n = newStringNode(value);
       if (value.indexOf('\u000B') != -1) {
@@ -1200,99 +1417,6 @@ class NewIRFactory {
       return n;
     }
 
-    private String normalizeString(String value) {
-      StringBuilder result = new StringBuilder();
-      int start = 1; // skip the leading quote
-      int cur = value.indexOf('\\');
-      if (cur == -1) {
-        // short circuit no escapes.
-        return value;
-      }
-      while (cur != -1) {
-        if (cur - start > 0) {
-          result.append(value.substring(start, cur));
-        }
-        cur += 1; // skip the escape char.
-        char c = value.charAt(cur);
-        switch (c) {
-          case '\'':
-          case '"':
-          case '\\':
-            result.append(c);
-            break;
-          case 'b':
-            result.append('\b');
-            break;
-          case 'f':
-            result.append('\f');
-            break;
-          case 'n':
-            result.append('\n');
-            break;
-          case 'r':
-            result.append('\r');
-            break;
-          case 't':
-            result.append('\t');
-            break;
-          case 'v':
-            result.append('\u000B');
-            break;
-          case '\n':
-            // line continuation, skip the line break
-            break;
-          case '0':
-            // TODO(johnlenz): support octal?
-            result.append('\0');
-            break;
-          case 'x':
-            result.append((char)(
-                hexdigit(value.charAt(cur + 1)) * 16
-                + hexdigit(value.charAt(cur + 2))));
-            cur += 2;
-            break;
-          case 'u':
-            result.append((char)(
-                hexdigit(value.charAt(cur + 1)) * 16 * 16 * 16
-                + hexdigit(value.charAt(cur + 2)) * 16 * 16
-                + hexdigit(value.charAt(cur + 3)) * 16
-                + hexdigit(value.charAt(cur + 4))));
-            cur += 4;
-            break;
-          default:
-            result.append(c);
-            break;
-        }
-        start = cur + 1;
-        cur = value.indexOf('\\', start);
-      }
-      result.append(value.substring(start, value.length() -1));
-      // skip the trailing quote.
-
-      return result.toString();
-    }
-
-    int hexdigit(char c) {
-      switch (c) {
-        case '0': return 0;
-        case '1': return 1;
-        case '2': return 2;
-        case '3': return 3;
-        case '4': return 4;
-        case '5': return 5;
-        case '6': return 6;
-        case '7': return 7;
-        case '8': return 8;
-        case '9': return 9;
-        case 'a': case 'A': return 10;
-        case 'b': case 'B': return 11;
-        case 'c': case 'C': return 12;
-        case 'd': case 'D': return 13;
-        case 'e': case 'E': return 14;
-        case 'f': case 'F': return 15;
-      }
-      throw new IllegalStateException("unexpected: " + c);
-    }
 
     @Override
     Node processSwitchCase(CaseClauseTree caseNode) {
@@ -1300,9 +1424,7 @@ class NewIRFactory {
       Node node = newNode(Token.CASE, transform(expr));
       Node block = newNode(Token.BLOCK);
       block.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
-      block.setLineno(lineno(caseNode));
-      block.setCharno(charno(caseNode));
-      maybeSetLengthFrom(block, caseNode);
+      setSourceInfo(block, caseNode);
       if (caseNode.statements != null) {
         for (ParseTree child : caseNode.statements) {
           block.addChildToBack(transform(child));
@@ -1317,9 +1439,7 @@ class NewIRFactory {
       Node node = newNode(Token.DEFAULT_CASE);
       Node block = newNode(Token.BLOCK);
       block.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
-      block.setLineno(lineno(caseNode));
-      block.setCharno(charno(caseNode));
-      maybeSetLengthFrom(block, caseNode);
+      setSourceInfo(block, caseNode);
       if (caseNode.statements != null) {
         for (ParseTree child : caseNode.statements) {
           block.addChildToBack(transform(child));
@@ -1353,14 +1473,15 @@ class NewIRFactory {
       boolean lineSet = false;
 
       ParseTree cc = statementNode.catchBlock;
-
-      // Mark the enclosing block at the same line as the first catch
-      // clause.
-      if (lineSet == false) {
-        setSourceInfo(block, cc);
-        lineSet = true;
+      if (cc != null) {
+        // Mark the enclosing block at the same line as the first catch
+        // clause.
+        if (lineSet == false) {
+          setSourceInfo(block, cc);
+          lineSet = true;
+        }
+        block.addChildToBack(transform(cc));
       }
-      block.addChildToBack(transform(cc));
 
       node.addChildToBack(block);
 
@@ -1460,7 +1581,8 @@ class NewIRFactory {
 
     @Override
     Node processVariableStatement(VariableStatementTree stmt) {
-      return processVariableDeclarationList(stmt.declarations);
+      // skip the special handling so the doc is attached in the right place.
+      return justTransform(stmt.declarations);
     }
 
     @Override
@@ -1474,22 +1596,15 @@ class NewIRFactory {
 
       Node node = newNode(Token.VAR);
       for (VariableDeclarationTree child : decl.declarations) {
-        node.addChildToBack(transform(child));
+        node.addChildToBack(
+            transformNodeWithInlineJsDoc(child, true));
       }
       return node;
     }
 
     @Override
     Node processVariableDeclaration(VariableDeclarationTree decl) {
-      Node node;
-      Comment comment = getJsDocNode(decl.lvalue);
-      // TODO(user): At some point, consider allowing only inline jsdocs for
-      // variable initializers
-      if (comment != null && !comment.value.contains("@")) {
-        node = transformNodeWithInlineJsDoc(decl.lvalue);
-      } else {
-        node = transform(decl.lvalue);
-      }
+      Node node = transformNodeWithInlineJsDoc(decl.lvalue, true);
       if (decl.initializer != null) {
         Node initalizer = transform(decl.initializer);
         node.addChildToBack(initalizer);
@@ -1576,12 +1691,17 @@ class NewIRFactory {
     @Override
     Node processCommaExpression(CommaExpressionTree tree) {
       Node root = newNode(Token.COMMA);
+      SourcePosition start = tree.expressions.get(0).location.start;
+      SourcePosition end = tree.expressions.get(1).location.end;
+      setSourceInfo(root, start, end);
       for (ParseTree expr : tree.expressions) {
         int count = root.getChildCount();
         if (count < 2) {
           root.addChildrenToBack(transform(expr));
         } else {
+          end = expr.location.end;
           root = newNode(Token.COMMA, root, transform(expr));
+          setSourceInfo(root, start, end);
         }
       }
       return root;
@@ -1595,6 +1715,211 @@ class NewIRFactory {
           lineno(node), "", charno(node));
       return createMissingExpressionNode();
     }
+  }
+
+  private String normalizeRegex(LiteralToken token) {
+    String value = token.value;
+    int lastSlash = value.lastIndexOf('/');
+    return value.substring(1, lastSlash);
+  }
+
+
+  private String normalizeString(LiteralToken token) {
+    String value = token.value;
+    int start = 1; // skip the leading quote
+    int cur = value.indexOf('\\');
+    if (cur == -1) {
+      // short circuit no escapes.
+      return value.substring(1, value.length() - 1);
+    }
+    StringBuilder result = new StringBuilder();
+    while (cur != -1) {
+      if (cur - start > 0) {
+        result.append(value.substring(start, cur));
+      }
+      cur += 1; // skip the escape char.
+      char c = value.charAt(cur);
+      switch (c) {
+        case '\'':
+        case '"':
+        case '\\':
+          result.append(c);
+          break;
+        case 'b':
+          result.append('\b');
+          break;
+        case 'f':
+          result.append('\f');
+          break;
+        case 'n':
+          result.append('\n');
+          break;
+        case 'r':
+          result.append('\r');
+          break;
+        case 't':
+          result.append('\t');
+          break;
+        case 'v':
+          result.append('\u000B');
+          break;
+        case '\n':
+          if (!isEs5OrBetterMode()) {
+            errorReporter.warning(STRING_CONTINUATION_WARNING,
+                sourceName,
+                lineno(token.location.start), "", charno(token.location.start));
+          }
+          // line continuation, skip the line break
+          break;
+        case '0':
+          // TODO(johnlenz): support octal?
+          result.append('\0');
+          break;
+        case 'x':
+          result.append((char) (
+              hexdigit(value.charAt(cur + 1)) * 16
+              + hexdigit(value.charAt(cur + 2))));
+          cur += 2;
+          break;
+        case 'u':
+          result.append((char) (
+              hexdigit(value.charAt(cur + 1)) * 16 * 16 * 16
+              + hexdigit(value.charAt(cur + 2)) * 16 * 16
+              + hexdigit(value.charAt(cur + 3)) * 16
+              + hexdigit(value.charAt(cur + 4))));
+          cur += 4;
+          break;
+        default:
+          result.append(c);
+          break;
+      }
+      start = cur + 1;
+      cur = value.indexOf('\\', start);
+    }
+    // skip the trailing quote.
+    result.append(value.substring(start, value.length() - 1));
+
+    return result.toString();
+  }
+
+  boolean isEs6Mode() {
+    return config.languageMode == LanguageMode.ECMASCRIPT6
+        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT;
+  }
+
+  boolean isEs5OrBetterMode() {
+    return config.languageMode != LanguageMode.ECMASCRIPT3;
+  }
+
+  double normalizeNumber(LiteralToken token) {
+    String value = token.value;
+    SourceRange location = token.location;
+    int length = value.length();
+    Preconditions.checkState(length > 0);
+    Preconditions.checkState(value.charAt(0) != '-'
+        && value.charAt(0) != '+');
+    if (value.charAt(0) == '.') {
+      return Double.valueOf("0" + value);
+    } else if (value.charAt(0) == '0' && length > 1) {
+      // TODO(johnlenz): accept octal numbers in es3 etc.
+      switch (value.charAt(1)) {
+        case '.':
+          return Double.valueOf(value);
+        case 'b':
+        case 'B': {
+          if (!isEs6Mode()) {
+            errorReporter.warning(BINARY_NUMBER_LITERAL_WARNING,
+                sourceName,
+                lineno(token.location.start), "", charno(token.location.start));
+          }
+          long v = 0;
+          int c = 1;
+          while (++c < length) {
+            v = (v * 2) + binarydigit(value.charAt(c));
+          }
+          return Double.valueOf(v);
+        }
+        case 'o':
+        case 'O': {
+          if (!isEs6Mode()) {
+            errorReporter.warning(OCTAL_NUMBER_LITERAL_WARNING,
+                sourceName,
+                lineno(token.location.start), "", charno(token.location.start));
+          }
+          long v = 0;
+          int c = 1;
+          while (++c < length) {
+            v = (v * 8) + octaldigit(value.charAt(c));
+          }
+          return Double.valueOf(v);
+        }
+        case 'x':
+        case 'X': {
+          long v = 0;
+          int c = 1;
+          while (++c < length) {
+            v = (v * 16) + hexdigit(value.charAt(c));
+          }
+          return Double.valueOf(v);
+        }
+        case '0': case '1': case '2': case '3':
+        case '4': case '5': case '6': case '7':
+          errorReporter.warning(INVALID_ES5_STRICT_OCTAL, sourceName,
+              lineno(location.start), "", charno(location.start));
+          long v = 0;
+          int c = 0;
+          while (++c < length) {
+            v = (v * 8) + octaldigit(value.charAt(c));
+          }
+          return Double.valueOf(v);
+      }
+    } else {
+      return Double.valueOf(value);
+    }
+    throw new IllegalStateException("unexpected");
+  }
+
+  int binarydigit(char c) {
+    if (c >= '0' && c <= '1') {
+      return (c - '0');
+    }
+    throw new IllegalStateException("unexpected: " + c);
+  }
+
+  int octaldigit(char c) {
+    if (c >= '0' && c <= '7') {
+      return (c - '0');
+    }
+    throw new IllegalStateException("unexpected: " + c);
+  }
+
+  int digit(char c) {
+    if (c >= '0' && c <= '9') {
+      return (c - '0');
+    }
+    throw new IllegalStateException("unexpected: " + c);
+  }
+
+  int hexdigit(char c) {
+    switch (c) {
+      case '0': return 0;
+      case '1': return 1;
+      case '2': return 2;
+      case '3': return 3;
+      case '4': return 4;
+      case '5': return 5;
+      case '6': return 6;
+      case '7': return 7;
+      case '8': return 8;
+      case '9': return 9;
+      case 'a': case 'A': return 10;
+      case 'b': case 'B': return 11;
+      case 'c': case 'C': return 12;
+      case 'd': case 'D': return 13;
+      case 'e': case 'E': return 14;
+      case 'f': case 'F': return 15;
+    }
+    throw new IllegalStateException("unexpected: " + c);
   }
 
   private static int transformBooleanTokenType(TokenType token) {

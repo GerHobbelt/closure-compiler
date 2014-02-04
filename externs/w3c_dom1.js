@@ -116,11 +116,17 @@ DOMImplementation.prototype.hasFeature = function(feature, version) {};
  */
 function Node() {}
 
-/** @override */
-Node.prototype.addEventListener = function(type, listener, useCapture) {};
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
+Node.prototype.addEventListener = function(type, listener, opt_useCapture) {};
 
-/** @override */
-Node.prototype.removeEventListener = function(type, listener, useCapture) {};
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
+Node.prototype.removeEventListener = function(type, listener, opt_useCapture) {};
 
 /** @override */
 Node.prototype.dispatchEvent = function(evt) {};
@@ -806,11 +812,18 @@ ProcessingInstruction.prototype.target;
  */
 function Window() {}
 
-/** @override */
-Window.prototype.addEventListener = function(type, listener, useCapture) {};
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
+Window.prototype.addEventListener = function(type, listener, opt_useCapture) {};
 
-/** @override */
-Window.prototype.removeEventListener = function(type, listener, useCapture) {};
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
+Window.prototype.removeEventListener = function(type, listener, opt_useCapture)
+    {};
 
 /** @override */
 Window.prototype.dispatchEvent = function(evt) {};

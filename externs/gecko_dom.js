@@ -78,6 +78,13 @@ Window.prototype.directories;
  */
 Window.prototype.document;
 
+/**
+ * Evaluates a string of JavaScript code in the context of the specified object.
+ *
+ * @param {string} code
+ * @return {*}
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval
+ */
 Window.prototype.eval;
 
 /**
@@ -911,8 +918,12 @@ Element.prototype.normalize = function() {};
  */
 Element.prototype.removeChild = function(removedNode) {};
 
-/** @override */
-Element.prototype.removeEventListener = function(type, handler, useCapture) {};
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ */
+Element.prototype.removeEventListener = function(type, handler, opt_useCapture)
+    {};
 
 /** @override */
 Element.prototype.replaceChild = function(insertedNode, replacedNode) {};
