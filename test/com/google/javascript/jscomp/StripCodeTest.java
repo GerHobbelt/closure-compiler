@@ -470,4 +470,29 @@ public class StripCodeTest extends CompilerTestCase {
         "");
   }
 
+
+  public void testRegularFunctionRemoval() {
+    test(
+        "function debugWindow(x) { console.log(x); } debugWindow(1);",
+        "function debugWindow(x) { console.log(x)  }");     // the function *definition* is not removed by the stripper
+  }
+
+  public void testRegularSubFunctionsRemoval() {
+    test(
+        "function f(a) { function debugWindow(x) { console.log(x); } a++; debugWindow(a * a); return a; } f(1);",
+        "function f(a) { function debugWindow(x) { console.log(x)  } a++;                     return a  } f(1)");     // the function *definitions* are not removed by the stripper
+  }
+
+  public void testFunctionInvocationViaCall() {
+    test(
+        "function debugWindow(x) { console.log(x); } debugWindow.call(null, 1); var f = debugWindow; f(2); f.call(null, 3);",
+        "function debugWindow(x) { console.log(x)  }");     // the function *definition* is not removed by the stripper
+  }
+
+  public void testFunctionInvocationViaApply() {
+    test(
+        "function debugWindow(x) { console.log(x); } debugWindow.apply(null, [1]); var f = debugWindow; f(2); f.apply(null, [3]);",
+        "function debugWindow(x) { console.log(x)  }");     // the function *definition* is not removed by the stripper
+  }
+
 }

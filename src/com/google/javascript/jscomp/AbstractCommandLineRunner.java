@@ -49,10 +49,13 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 
@@ -242,7 +245,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
 
   /**
    * Sets options based on the configurations set flags API.
-   * Called during the run() run() method.
+   * Called during the run() method.
    * If you want to ignore the flags API, or interpret flags your own way,
    * then you should override this method.
    */
@@ -356,6 +359,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     options.angularPass = config.angularPass;
     options.tracer = config.tracerMode;
     options.useNewTypeInference = config.useNewTypeInference;
+
+    // tweak the individual options using the options file:
+    // THIS IS A DEVELOPMENT FEATURE, USE AT YOUR OWN RISK     
+    if (!config.customOptionsFile.equals("")) {
+      processCustomOptionsFile(options, config.customOptionsFile);
+    }
   }
 
   protected final A getCompiler() {
@@ -1341,6 +1350,45 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
   }
 
+  // 1) load file
+  // 2) filter the lines (remove comment lines, etc.)
+  // 3) split them into components
+  // 4) apply these to the `options` + `config`
+  protected void processCustomOptionsFile(CompilerOptions options, String customOptionsFile)
+            throws FlagUsageException, IOException {
+    File customOptionsFileInput = new File(customOptionsFile);
+    List<String> lines = Files.readLines(customOptionsFileInput, Charset.defaultCharset());
+    Pattern linePattern = Pattern.compile("^\\s*([a-zA-Z0-9]+)\\s*([^\\s].*?)\\s*$");
+    //Pattern quotesPattern = Pattern.compile("^['\"](.*?)['\"]$");
+    Hashtable<String, String> entries = new Hashtable<String, String>();
+
+    for (String line : lines) {
+      Matcher matcher = linePattern.matcher(line);
+      if (matcher.find()) {
+        // remove optional quotes? No, let the individual options handle that.
+        String name = matcher.group(1);
+        String value = matcher.group(2);
+        entries.put(name.toLowerCase(), value);
+      }
+    }
+
+    // Currently we are not supporting this (prevent direct/indirect loops)
+    String label = "flagFile";
+    String entryValue = entries.get(label.toLowerCase());
+    if (entryValue != null && !entryValue.equals("")) {
+      throw new FlagUsageException("ERROR - the custom options file cannot contain "
+          + "any 'flagFile' option line.");
+    }
+    label = "customOptionsFile";
+    entryValue = entries.get(label.toLowerCase());
+    if (entryValue != null && !entryValue.equals("")) {
+      throw new FlagUsageException("ERROR - the custom options file cannot contain "
+          + "any 'customOptionsFile' option line.");
+    }
+
+    // TODO: decode the entries, one by one...
+  }
+
   /**
    * Returns true if and only if a manifest or bundle should be generated
    * for each module, as opposed to one unified manifest.
@@ -2024,6 +2072,16 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
 
     CommandLineConfig setNewTypeInference(boolean useNewTypeInference) {
       this.useNewTypeInference = useNewTypeInference;
+      return this;
+    }
+
+    private String customOptionsFile = "";
+
+    /**
+     * Sets a options file which can configure all options.
+     */
+    CommandLineConfig setCustomOptionsFile(String fileName) {
+      this.customOptionsFile = fileName;
       return this;
     }
   }

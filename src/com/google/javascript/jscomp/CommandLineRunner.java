@@ -442,6 +442,11 @@ public class CommandLineRunner extends
         usage = "In development new type inference pass. DO NOT USE!")
     private boolean useNewTypeInference = false;
 
+    @Option(name = "--custom_options_file",
+        usage = "File listing special option overrides. One option per line, " +
+        "formatted as '<option> <value>' where ' ' can be any whitespace.")
+    private String customOptionsFile = "";
+
     @Argument
     private List<String> arguments = Lists.newArrayList();
 
@@ -803,6 +808,7 @@ public class CommandLineRunner extends
           .setWarningsWhitelistFile(flags.warningsWhitelistFile)
           .setAngularPass(flags.angularPass)
           .setTracerMode(flags.tracerMode)
+          .setCustomOptionsFile(flags.customOptionsFile)
           .setNewTypeInference(flags.useNewTypeInference);
     }
   }

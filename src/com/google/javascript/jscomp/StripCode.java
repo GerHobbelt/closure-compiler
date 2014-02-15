@@ -352,6 +352,41 @@ class StripCode implements CompilerPass {
       //   arguments
       if (isMethodOrCtorCallThatTriggersRemoval(t, n, parent)) {
         replaceHighestNestedCallWithNull(n, parent);
+      } else {
+        Node function = n.getFirstChild();
+        Node nameNode = null;
+        //
+        // WARNING:
+        //
+        // This code does not reckon with side-effects from calls in the expression which delivers the function name (the CALL itself)
+        // e.g. a().b().c() where 'c' is listed as to-be-stripped: as the entire expression is stripped, any side-effects in a() and b()
+        // will be lost!
+        //
+        if (function.isGetProp()) {
+          // we have to check if this is a .call or .apply and then test the one-but-the-last entry for a strip function name match instead:
+          if (NodeUtil.isFunctionObjectApply(n) ||
+              NodeUtil.isFunctionObjectCall(n)) {
+            // get the second-to-last node's name:
+            for (Node p = function.getFirstChild(); p != null; ) {
+              p = p.getNext();
+              if (p != null) {
+                nameNode = p;
+              }
+            }
+          } else if (false) {
+            nameNode = function.getLastChild();
+          }
+        } else if (function.isName()) {
+          nameNode = function;
+        }
+
+        if (nameNode != null) {
+          String name = nameNode.getString();
+          if (isStripName(name)) {
+            // Remove the CALL statement.
+            replaceHighestNestedCallWithNull(n, parent);
+          }
+        }
       }
     }
 
