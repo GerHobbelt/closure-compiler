@@ -2809,6 +2809,16 @@ public class JsDocInfoParserTest extends BaseJSTypeTestCase {
     parse("@template T,V */");
   }
 
+  public void testParserWithInvalidTemplateType() {
+    parse("@template {T} */",
+        "Bad type annotation. Invalid type name(s) for @template annotation");
+  }
+
+  public void testParserWithValidAndInvalidTemplateType() {
+    parse("@template S, {T} */",
+        "Bad type annotation. Invalid type name(s) for @template annotation");
+  }
+
   public void testWhitelistedNewAnnotations() {
     parse("@foobar */",
         "illegal use of unknown JSDoc tag \"foobar\"; ignoring it");
@@ -2890,6 +2900,7 @@ public class JsDocInfoParserTest extends BaseJSTypeTestCase {
       "* @namespace \n" +
       "* @ngInject \n" +
       "* @nocompile \n" +
+      "* @pintomodule \n" +
       "* @property \n" +
       "* @requirecss \n" +
       "* @requires \n" +

@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -49,7 +50,7 @@ public class CodePrinterTest extends TestCase {
     options.setTrustedStrings(trustedStrings);
 
     // Allow getters and setters.
-    options.setLanguageIn(LanguageMode.ECMASCRIPT5);
+    options.setLanguageIn(languageMode);
     compiler.initOptions(options);
     Node n = compiler.parseTestCode(js);
 
@@ -471,6 +472,13 @@ public class CodePrinterTest extends TestCase {
 
     // And in operator inside a hook.
     assertPrintSame("for(a=c?0:(0 in d);;)foo()");
+  }
+
+  public void testForOf() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("for(a of b)c");
+    assertPrintSame("for(var a of b)c");
   }
 
   public void testLiteralProperty() {
@@ -1373,11 +1381,19 @@ public class CodePrinterTest extends TestCase {
     languageMode = LanguageMode.ECMASCRIPT5;
     assertPrintSame("var x={get function(){return 1}}");
 
+  }
+
+  public void testGetterInEs3() {
     // Getters and setters and not supported in ES3 but if someone sets the
     // the ES3 output mode on an AST containing them we still produce them.
     languageMode = LanguageMode.ECMASCRIPT3;
-    assertPrintSame("var x={get function(){return 1}}");
+
+    Node getter = Node.newString(Token.GETTER_DEF, "f");
+    getter.addChildToBack(IR.function(IR.name(""), IR.paramList(), IR.block()));
+    assertPrintNode("({get f(){}})",
+        IR.exprResult(IR.objectlit(getter)));
   }
+
 
   public void testSetter() {
     assertPrint("var x = {}", "var x={}");
@@ -1399,11 +1415,18 @@ public class CodePrinterTest extends TestCase {
 
     languageMode = LanguageMode.ECMASCRIPT5;
     assertPrintSame("var x={set function(x){}}");
+  }
 
+  public void testSetterInEs3() {
     // Getters and setters and not supported in ES3 but if someone sets the
     // the ES3 output mode on an AST containing them we still produce them.
     languageMode = LanguageMode.ECMASCRIPT3;
-    assertPrintSame("var x={set function(x){}}");
+
+    Node getter = Node.newString(Token.SETTER_DEF, "f");
+    getter.addChildToBack(IR.function(
+        IR.name(""), IR.paramList(IR.name("a")), IR.block()));
+    assertPrintNode("({set f(a){}})",
+        IR.exprResult(IR.objectlit(getter)));
   }
 
   public void testNegCollapse() {
@@ -1440,6 +1463,8 @@ public class CodePrinterTest extends TestCase {
   }
 
   public void testUnicodeKeyword() {
+    // TODO(johnlenz): verify this is valid in the latest specs.
+
     // keyword "if"
     assertPrint("var \\u0069\\u0066 = 1;", "var i\\u0066=1");
     // keyword "var"
@@ -1575,7 +1600,13 @@ public class CodePrinterTest extends TestCase {
 
     languageMode = LanguageMode.ECMASCRIPT3;
     assertPrintSame("x.foo=2");
-    assertPrint("x.function=2", "x[\"function\"]=2");
+  }
+
+  public void testKeywordProperties1a() {
+    languageMode = LanguageMode.ECMASCRIPT5;
+    Node nodes = parse("x.function=2");
+    languageMode = LanguageMode.ECMASCRIPT3;
+    assertPrintNode("x[\"function\"]=2", nodes);
   }
 
   public void testKeywordProperties2() {
@@ -1585,10 +1616,162 @@ public class CodePrinterTest extends TestCase {
 
     languageMode = LanguageMode.ECMASCRIPT3;
     assertPrintSame("x={foo:2}");
-    assertPrint("x={function:2}", "x={\"function\":2}");
+  }
+
+  public void testKeywordProperties2a() {
+    languageMode = LanguageMode.ECMASCRIPT5;
+    Node nodes = parse("x={function:2}");
+    languageMode = LanguageMode.ECMASCRIPT3;
+    assertPrintNode("x={\"function\":2}", nodes);
   }
 
   public void testIssue1062() {
     assertPrintSame("3*(4%3*5)");
+  }
+
+  public void testClass() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("class C{}");
+    assertPrintSame("(class C{})");
+    assertPrintSame("class C extends D{}");
+    assertPrintSame("class C{static member(){}}");
+    assertPrintSame("class C{member(){}get f(){}}");
+    assertPrintSame("var x=class C{}");
+  }
+
+  public void testClassPretty() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrettyPrint(
+        "class C{}",
+        "class C {\n}\n");
+    // TODO(johnlenz): fix line breaks
+    assertPrettyPrint(
+        "class C{member(){}get f(){}}",
+        "class C {\n" +
+        "  member() {\n" +
+        "  }get f() {\n" +
+        "  }\n" +
+        "}\n");
+    assertPrettyPrint(
+        "var x=class C{}",
+        "var x = class C {\n};\n");
+  }
+
+  public void testSuper() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("class C extends D{member(){super.foo()}}");
+  }
+
+  public void testGeneratorYield1() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("function*f(){yield 1}");
+    assertPrintSame("function*f(){yield 1?0:2}");
+    assertPrintSame("function*f(){yield 1,0}");
+    assertPrintSame("function*f(){1,yield 0}");
+    assertPrintSame("function*f(){yield(a=0)}");
+    assertPrintSame("function*f(){a=yield 0}");
+    assertPrintSame("function*f(){(yield 1)+(yield 1)}");
+  }
+
+  public void testMemberGeneratorYield1() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("class C{*member(){(yield 1)+(yield 1)}}");
+  }
+
+  public void testArrowFunction() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrint("()=>1", "(()=>1)");
+    assertPrint("()=>{}", "(()=>{})");
+    assertPrint("a=>b", "((a)=>b)");
+    assertPrint("(a,b)=>b", "((a,b)=>b)");
+  }
+
+  public void testDeclarations() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("let x");
+    assertPrintSame("let x,y");
+    assertPrintSame("let x=1");
+    assertPrintSame("let x=1,y=2");
+    assertPrintSame("if(a){let x}");
+
+    assertPrintSame("const x=1");
+    assertPrintSame("const x=1,y=2");
+    assertPrintSame("if(a){const x=1}");
+
+    assertPrintSame("function f(){}");
+    assertPrintSame("if(a){function f(){}}");
+    assertPrintSame("if(a)(function(){})");
+
+    assertPrintSame("class f{}");
+    assertPrintSame("if(a){class f{}}");
+    assertPrintSame("if(a)(class{})");
+  }
+
+  public void testImports() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrint(
+        "import x from 'foo'",
+        "import x from\"foo\"");
+    assertPrint(
+        "import x, {a as b} from 'foo'",
+        "import x,{a as b}from\"foo\"");
+    assertPrint(
+        "import {a as b, c as d} from 'foo'",
+        "import{a as b,c as d}from\"foo\"");
+    assertPrint(
+        "import x, {a} from 'foo'",
+        "import x,{a}from\"foo\"");
+    assertPrint(
+        "import {a, c} from 'foo'",
+        "import{a,c}from\"foo\"");
+  }
+
+  public void testModuleImports() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrint("module x from 'foo'", "module x from\"foo\"");
+  }
+
+  public void testExports() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    // export declarations
+    assertPrintSame("export var x=1");
+    assertPrintSame("export let x=1");
+    assertPrintSame("export const x=1");
+    assertPrintSame("export function f(){}");
+    assertPrintSame("export class f{}");
+
+    // export all from
+    assertPrint("export * from 'a.b.c'", "export*from\"a.b.c\"");
+
+    // from
+    assertPrint(
+        "export { a } from 'a.b.c'",
+        "export{a}from\"a.b.c\"");
+    assertPrint(
+        "export { a as x } from 'a.b.c'",
+        "export{a as x}from\"a.b.c\"");
+
+    assertPrint(
+        "export { a,b } from 'a.b.c'",
+        "export{a,b}from\"a.b.c\"");
+    assertPrint(
+        "export { a as x, b as y } from 'a.b.c'",
+        "export{a as x,b as y}from\"a.b.c\"");
+
+    assertPrintSame("export{a}");
+    assertPrint(
+        "export { a as x }",
+        "export{a as x}");
+
+    assertPrint(
+        "export { a,b }",
+        "export{a,b}");
+    assertPrint(
+        "export { a as x, b as y }",
+        "export{a as x,b as y}");
+
+    // export default
+    assertPrintSame("export default x");
+    assertPrintSame("export default 1");
   }
 }

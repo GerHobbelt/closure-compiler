@@ -18,14 +18,17 @@ package com.google.javascript.jscomp.parsing.parser.trees;
 
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
-public class YieldStatementTree extends ParseTree {
+public class ForOfStatementTree extends ParseTree {
 
-  public final ParseTree expression;
+  public final ParseTree initializer;
+  public final ParseTree collection;
+  public final ParseTree body;
 
-  public YieldStatementTree(SourceRange location, ParseTree expression) {
-    super(ParseTreeType.YIELD_STATEMENT, location);
-
-    this.expression = expression;
+  public ForOfStatementTree(SourceRange location, ParseTree initializer,
+      ParseTree collection, ParseTree body) {
+    super(ParseTreeType.FOR_OF_STATEMENT, location);
+    this.initializer = initializer;
+    this.collection = collection;
+    this.body = body;
   }
-
 }

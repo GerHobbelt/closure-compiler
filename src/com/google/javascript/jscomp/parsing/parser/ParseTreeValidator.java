@@ -248,8 +248,6 @@ public class ParseTreeValidator extends ParseTreeVisitor {
       case FUNCTION_DECLARATION:
       case GET_ACCESSOR:
       case SET_ACCESSOR:
-      case REQUIRES_MEMBER:
-      case FIELD_DECLARATION:
         break;
       default:
         fail(element, "class element expected");
@@ -295,7 +293,7 @@ public class ParseTreeValidator extends ParseTreeVisitor {
     switch (tree.type) {
     case VARIABLE_STATEMENT:
     case FUNCTION_DECLARATION:
-    case MODULE_DEFINITION:
+    case MODULE_IMPORT:
     case CLASS_DECLARATION:
       break;
     default:
@@ -311,24 +309,18 @@ public class ParseTreeValidator extends ParseTreeVisitor {
   }
 
   @Override
-  protected void visit(FieldDeclarationTree tree) {
-    for (ParseTree declaration : tree.declarations) {
-      checkVisit(declaration.type == ParseTreeType.VARIABLE_DECLARATION,
-          declaration, "variable declaration expected");
-    }
-  }
-
-  @Override
   protected void visit(FinallyTree tree) {
     checkVisit(tree.block.type == ParseTreeType.BLOCK, tree.block,
         "block expected");
   }
 
   @Override
-  protected void visit(ForEachStatementTree tree) {
+  protected void visit(ForOfStatementTree tree) {
+    /*
     checkVisit(tree.initializer.declarations.size() <= 1,
         tree.initializer,
         "for-each statement may not have more than one variable declaration");
+        */
     checkVisit(tree.collection.isExpression(), tree.collection,
         "expression expected");
     checkVisit(tree.body.isStatement(), tree.body, "statement expected");
@@ -449,16 +441,7 @@ public class ParseTreeValidator extends ParseTreeVisitor {
   }
 
   @Override
-  protected void visit(ModuleDefinitionTree tree) {
-    for (ParseTree element : tree.elements) {
-      check((element.isStatement() && element.type != ParseTreeType.BLOCK) ||
-            element.type == ParseTreeType.CLASS_DECLARATION ||
-            element.type == ParseTreeType.EXPORT_DECLARATION ||
-            element.type == ParseTreeType.IMPORT_DECLARATION ||
-            element.type == ParseTreeType.MODULE_DEFINITION,
-            element,
-            "module element expected");
-    }
+  protected void visit(ModuleImportTree tree) {
   }
 
   @Override
@@ -523,7 +506,7 @@ public class ParseTreeValidator extends ParseTreeVisitor {
     for (ParseTree sourceElement : tree.sourceElements) {
       checkVisit(sourceElement.isSourceElement()
           || sourceElement.type == ParseTreeType.CLASS_DECLARATION
-          || sourceElement.type == ParseTreeType.MODULE_DEFINITION,
+          || sourceElement.type == ParseTreeType.MODULE_IMPORT,
           sourceElement,
           "global source element expected");
     }
@@ -627,7 +610,7 @@ public class ParseTreeValidator extends ParseTreeVisitor {
   }
 
   @Override
-  protected void visit(YieldStatementTree tree) {
+  protected void visit(YieldExpressionTree tree) {
     if (tree.expression != null) {
       checkVisit(tree.expression.isExpression(), tree.expression,
           "expression expected");

@@ -16,16 +16,31 @@
 
 package com.google.javascript.jscomp.parsing.parser.trees;
 
+import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.parsing.parser.LiteralToken;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
 public class ExportDeclarationTree extends ParseTree {
 
-  // VariableStatement, FunctionDeclaration or ModuleDeclaration
+  // VariableStatement, Declaration (let, const, function or class),
+  // or default with assignmentExpression
+  public final boolean isDefault;
+  public final boolean isExportAll;
   public final ParseTree declaration;
+  public final ImmutableList<ParseTree> exportSpecifierList;
+  public final LiteralToken from;
 
   public ExportDeclarationTree(SourceRange location,
-      ParseTree declaration) {
+      boolean isDefault,
+      boolean isExportAll,
+      ParseTree declaration,
+      ImmutableList<ParseTree> exportSpecifierList,
+      LiteralToken from) {
     super(ParseTreeType.EXPORT_DECLARATION, location);
-        this.declaration = declaration;
+    this.isDefault = isDefault;
+    this.isExportAll = isExportAll;
+    this.declaration = declaration;
+    this.exportSpecifierList = exportSpecifierList;
+    this.from = from;
   }
 }

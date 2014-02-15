@@ -47,16 +47,21 @@ public class ObjectTypeTest extends TestCase {
   }
 
   public void testClassSubtyping() {
-    ObjectType foo = ObjectType.fromClass(NominalType.makeClass("Foo"));
-    ObjectType bar = ObjectType.fromClass(NominalType.makeClass("Bar"));
+    ObjectType foo = ObjectType.fromNominalType(
+        NominalType.makeClass("Foo", null, 0).finalizeNominalType());
+    ObjectType bar = ObjectType.fromNominalType(
+        NominalType.makeClass("Bar", null, 1).finalizeNominalType());
     assertTrue(foo.isSubtypeOf(foo));
     assertFalse(foo.isSubtypeOf(bar));
   }
 
   public void testObjectUnions() {
-    ObjectType foo = ObjectType.fromClass(NominalType.makeClass("Foo"));
-    ObjectType bar = ObjectType.fromClass(NominalType.makeClass("Bar"));
-    ObjectType baz = ObjectType.fromClass(NominalType.makeClass("Baz"));
+    ObjectType foo = ObjectType.fromNominalType(
+        NominalType.makeClass("Foo", null, 0).finalizeNominalType());
+    ObjectType bar = ObjectType.fromNominalType(
+        NominalType.makeClass("Bar", null, 1).finalizeNominalType());
+    ObjectType baz = ObjectType.fromNominalType(
+        NominalType.makeClass("Baz", null, 2).finalizeNominalType());
     ObjectType topObj = ObjectType.TOP_OBJECT;
     ObjectType withPNum = topObj.withProperty("p", NUMBER);
     ObjectType fooWithPNum = foo.withProperty("p", NUMBER);
@@ -87,15 +92,19 @@ public class ObjectTypeTest extends TestCase {
   }
 
   public void testSimpleClassInheritance() {
-    NominalType parentClass = NominalType.makeClass("Parent");
-    NominalType child1Class = NominalType.makeClass("Child1");
-    NominalType child2Class = NominalType.makeClass("Child2");
+    NominalType parentClass =
+        NominalType.makeClass("Parent", null, 0).finalizeNominalType();
+    NominalType child1Class = NominalType.makeClass("Child1", null, 1);
     child1Class.addSuperClass(parentClass);
+    child1Class.finalizeNominalType();
+    NominalType child2Class = NominalType.makeClass("Child2", null, 2);
     child2Class.addSuperClass(parentClass);
-    ObjectType foo = ObjectType.fromClass(NominalType.makeClass("Foo"));
-    ObjectType parent = ObjectType.fromClass(parentClass);
-    ObjectType child1 = ObjectType.fromClass(child1Class);
-    ObjectType child2 = ObjectType.fromClass(child2Class);
+    child2Class.finalizeNominalType();
+    ObjectType foo = ObjectType.fromNominalType(
+        NominalType.makeClass("Foo", null, 3).finalizeNominalType());
+    ObjectType parent = ObjectType.fromNominalType(parentClass);
+    ObjectType child1 = ObjectType.fromNominalType(child1Class);
+    ObjectType child2 = ObjectType.fromNominalType(child2Class);
     ObjectType parentWithP = parent.withProperty("p", NUMBER);
     ObjectType parentWithOptP = ObjectType.join(parent, parentWithP);
 

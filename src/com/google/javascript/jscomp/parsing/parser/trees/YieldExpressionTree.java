@@ -18,17 +18,15 @@ package com.google.javascript.jscomp.parsing.parser.trees;
 
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
-public class ForEachStatementTree extends ParseTree {
+public class YieldExpressionTree extends ParseTree {
 
-  public final VariableDeclarationListTree initializer;
-  public final ParseTree collection;
-  public final ParseTree body;
+  public final ParseTree expression;
+  public final boolean isYieldFor;
 
-  public ForEachStatementTree(SourceRange location, VariableDeclarationListTree initializer,
-      ParseTree collection, ParseTree body) {
-    super(ParseTreeType.FOR_EACH_STATEMENT, location);
-    this.initializer = initializer;
-    this.collection = collection;
-    this.body = body;
+  public YieldExpressionTree(
+      SourceRange location, boolean isYieldFor, ParseTree expression) {
+    super(ParseTreeType.YIELD_EXPRESSION, location);
+    this.isYieldFor = isYieldFor;
+    this.expression = expression;
   }
 }

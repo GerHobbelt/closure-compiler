@@ -59,7 +59,6 @@ public class ParseTree {
   public CaseClauseTree asCaseClause() { return (CaseClauseTree) this; }
   public CatchTree asCatch() { return (CatchTree) this; }
   public ClassDeclarationTree asClassDeclaration() { return (ClassDeclarationTree) this; }
-  public ClassExpressionTree asClassExpression() { return (ClassExpressionTree) this; }
   public CommaExpressionTree asCommaExpression() { return (CommaExpressionTree) this; }
   public ConditionalExpressionTree asConditionalExpression() {
     return (ConditionalExpressionTree) this; }
@@ -70,10 +69,10 @@ public class ParseTree {
   public DoWhileStatementTree asDoWhileStatement() { return (DoWhileStatementTree) this; }
   public EmptyStatementTree asEmptyStatement() { return (EmptyStatementTree) this; }
   public ExportDeclarationTree asExportDeclaration() { return (ExportDeclarationTree) this; }
+  public ExportSpecifierTree asExportSpecifier() { return (ExportSpecifierTree) this; }
   public ExpressionStatementTree asExpressionStatement() { return (ExpressionStatementTree) this; }
-  public FieldDeclarationTree asFieldDeclaration() { return (FieldDeclarationTree) this; }
   public FinallyTree asFinally() { return (FinallyTree) this; }
-  public ForEachStatementTree asForEachStatement() { return (ForEachStatementTree) this; }
+  public ForOfStatementTree asForOfStatement() { return (ForOfStatementTree) this; }
   public ForInStatementTree asForInStatement() { return (ForInStatementTree) this; }
   public FormalParameterListTree asFormalParameterList() { return (FormalParameterListTree) this; }
   public ForStatementTree asForStatement() { return (ForStatementTree) this; }
@@ -83,7 +82,6 @@ public class ParseTree {
     return (IdentifierExpressionTree) this; }
   public IfStatementTree asIfStatement() { return (IfStatementTree) this; }
   public ImportDeclarationTree asImportDeclaration() { return (ImportDeclarationTree) this; }
-  public ImportPathTree asImportPath() { return (ImportPathTree) this; }
   public ImportSpecifierTree asImportSpecifier() { return (ImportSpecifierTree) this; }
   public LabelledStatementTree asLabelledStatement() { return (LabelledStatementTree) this; }
   public LiteralExpressionTree asLiteralExpression() { return (LiteralExpressionTree) this; }
@@ -92,7 +90,7 @@ public class ParseTree {
     return (MemberLookupExpressionTree) this; }
   public MissingPrimaryExpressionTree asMissingPrimaryExpression() {
     return (MissingPrimaryExpressionTree) this; }
-  public ModuleDefinitionTree asModuleDefinition() { return (ModuleDefinitionTree) this; }
+  public ModuleImportTree asModuleImport() { return (ModuleImportTree) this; }
   public NewExpressionTree asNewExpression() { return (NewExpressionTree) this; }
   public NullTree asNull() { return (NullTree) this; }
   public ObjectLiteralExpressionTree asObjectLiteralExpression() {
@@ -104,7 +102,6 @@ public class ParseTree {
   public ProgramTree asProgram() { return (ProgramTree) this; }
   public PropertyNameAssignmentTree asPropertyNameAssignment() {
     return (PropertyNameAssignmentTree) this; }
-  public RequiresMemberTree asRequiresMember() { return (RequiresMemberTree) this; }
   public RestParameterTree asRestParameter() { return (RestParameterTree) this; }
   public ReturnStatementTree asReturnStatement() { return (ReturnStatementTree) this; }
   public SetAccessorTree asSetAccessor() { return (SetAccessorTree) this; }
@@ -124,7 +121,7 @@ public class ParseTree {
   public VariableStatementTree asVariableStatement() { return (VariableStatementTree) this; }
   public WhileStatementTree asWhileStatement() { return (WhileStatementTree) this; }
   public WithStatementTree asWithStatement() { return (WithStatementTree) this; }
-  public YieldStatementTree asYieldStatement() { return (YieldStatementTree) this; }
+  public YieldExpressionTree asYieldStatement() { return (YieldExpressionTree) this; }
 
   public final boolean isNull() {
     return this.type == ParseTreeType.NULL;
@@ -145,7 +142,6 @@ public class ParseTree {
   public boolean isLeftHandSideExpression() {
     switch (this.type) {
     case THIS_EXPRESSION:
-    case CLASS_EXPRESSION:
     case SUPER_EXPRESSION:
     case IDENTIFIER_EXPRESSION:
     case LITERAL_EXPRESSION:
@@ -201,7 +197,6 @@ public class ParseTree {
     switch (this.type) {
       // PrimaryExpression
       case THIS_EXPRESSION:
-      case CLASS_EXPRESSION:
       case SUPER_EXPRESSION:
       case IDENTIFIER_EXPRESSION:
       case LITERAL_EXPRESSION:
@@ -266,13 +261,13 @@ public class ParseTree {
     case IF_STATEMENT:
     case DO_WHILE_STATEMENT:
     case WHILE_STATEMENT:
-    case FOR_EACH_STATEMENT:
+    case FOR_OF_STATEMENT:
     case FOR_IN_STATEMENT:
     case FOR_STATEMENT:
     case CONTINUE_STATEMENT:
     case BREAK_STATEMENT:
     case RETURN_STATEMENT:
-    case YIELD_STATEMENT:
+    case YIELD_EXPRESSION:
     case WITH_STATEMENT:
     case SWITCH_STATEMENT:
     case LABELLED_STATEMENT:

@@ -35,30 +35,38 @@ import java.util.Map;
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public class FunctionTypeBuilder {
+  class WrongParameterOrderException extends RuntimeException {
+    WrongParameterOrderException(String message) {
+      super(message);
+    }
+  }
+
   private final List<JSType> requiredFormals = Lists.newArrayList();
   private final List<JSType> optionalFormals = Lists.newArrayList();
   private final Map<String, JSType> outerVars = Maps.newHashMap();
   private JSType restFormals = null;
   private JSType returnType = null;
   private boolean loose = false;
-  private NominalType klass;
+  private NominalType nominalType;
   // Only used to build DeclaredFunctionType for prototype methods
   private NominalType receiverType;
   // Non-null iff this function has an @template annotation
   private ImmutableList<String> typeParameters;
 
-  public FunctionTypeBuilder addReqFormal(JSType t) {
+  public FunctionTypeBuilder addReqFormal(JSType t)
+      throws WrongParameterOrderException {
     if (!optionalFormals.isEmpty() || restFormals != null) {
-      throw new IllegalStateException(
+      throw new WrongParameterOrderException(
           "Cannot add required formal after optional or rest args");
     }
     requiredFormals.add(t);
     return this;
   }
 
-  public FunctionTypeBuilder addOptFormal(JSType t) {
+  public FunctionTypeBuilder addOptFormal(JSType t)
+      throws WrongParameterOrderException {
     if (restFormals != null) {
-      throw new IllegalStateException(
+      throw new WrongParameterOrderException(
           "Cannot add optional formal after rest args");
     }
     optionalFormals.add(t);
@@ -85,8 +93,8 @@ public class FunctionTypeBuilder {
     return this;
   }
 
-  public FunctionTypeBuilder addClass(NominalType cl) {
-    klass = cl;
+  public FunctionTypeBuilder addNominalType(NominalType cl) {
+    nominalType = cl;
     return this;
   }
 
@@ -106,13 +114,13 @@ public class FunctionTypeBuilder {
     Preconditions.checkState(outerVars.isEmpty());
     return DeclaredFunctionType.make(
         requiredFormals, optionalFormals, restFormals, returnType,
-        klass, receiverType, typeParameters);
+        nominalType, receiverType, typeParameters);
   }
 
   public FunctionType buildFunction() {
     FunctionType result = FunctionType.normalized(
         requiredFormals, optionalFormals,
-        restFormals, returnType, klass, outerVars, typeParameters, loose);
+        restFormals, returnType, nominalType, outerVars, typeParameters, loose);
     result.checkValid();
     return result;
   }

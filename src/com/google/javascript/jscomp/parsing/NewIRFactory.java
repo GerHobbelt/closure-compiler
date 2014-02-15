@@ -33,6 +33,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CallExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CaseClauseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CatchTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ClassDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CommaExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.Comment;
 import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
@@ -41,20 +42,26 @@ import com.google.javascript.jscomp.parsing.parser.trees.DebuggerStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DefaultClauseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DoWhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.EmptyStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportSpecifierTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ExpressionStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FinallyTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForInStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ForOfStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FormalParameterListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FunctionDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.GetAccessorTree;
 import com.google.javascript.jscomp.parsing.parser.trees.IdentifierExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.IfStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportSpecifierTree;
 import com.google.javascript.jscomp.parsing.parser.trees.LabelledStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.LiteralExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
@@ -66,6 +73,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ReturnStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SetAccessorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SuperExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SwitchStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
@@ -76,6 +84,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree
 import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 import com.google.javascript.rhino.IR;
@@ -83,9 +92,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-
 import com.google.javascript.rhino.head.ErrorReporter;
-
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.util.List;
@@ -272,6 +279,10 @@ class NewIRFactory {
 
     irFactory.validateAll(n);
 
+    // DEBUG: remove this, verify the tree can be print, remove this.
+    n.toStringTree();
+    //
+
     return n;
   }
 
@@ -308,8 +319,7 @@ class NewIRFactory {
           if (n.isContinue() && !isContinueTarget(parent.getLastChild())) {
             // report invalid continue target
             errorReporter.error(
-                String.format(
-                    UNEXPECTED_LABLED_CONTINUE, labelName.getString()),
+                UNEXPECTED_LABLED_CONTINUE,
                 sourceName,
                 n.getLineno(), "", n.getCharno());
           }
@@ -523,7 +533,9 @@ class NewIRFactory {
     Comment closestPreviousComment = null;
     while (currentComment != null &&
         currentComment.location.end.offset <= location.start.offset) {
-      closestPreviousComment = currentComment;
+      if (currentComment.type == Comment.Type.JSDOC) {
+        closestPreviousComment = currentComment;
+      }
       if (this.nextCommentIter.hasNext()) {
         currentComment = this.nextCommentIter.next();
       } else {
@@ -531,9 +543,7 @@ class NewIRFactory {
       }
     }
 
-    return (closestPreviousComment != null
-        && closestPreviousComment.type == Comment.Type.JSDOC)
-        ? closestPreviousComment : null;
+    return closestPreviousComment;
   }
 
   private Comment getJsDoc(ParseTree tree) {
@@ -866,7 +876,7 @@ class NewIRFactory {
      * the string 'a' is quoted, while the name b is turned into a string, but
      * unquoted.
      */
-    private Node transformAsString(
+    private Node processObjecLitKeyAsString(
         com.google.javascript.jscomp.parsing.parser.Token token) {
       Node ret;
       if (token == null) {
@@ -877,8 +887,7 @@ class NewIRFactory {
         ret = transformNumberAsString(token.asLiteral());
         ret.putBooleanProp(Node.QUOTED_PROP, true);
       } else {
-        ret = newStringNode(Token.STRING,
-            normalizeString(token.asLiteral()));
+        ret = processString(token.asLiteral());
         ret.putBooleanProp(Node.QUOTED_PROP, true);
       }
       Preconditions.checkState(ret.isString());
@@ -1024,18 +1033,31 @@ class NewIRFactory {
     }
 
     @Override
+    Node processForOf(ForOfStatementTree loopNode) {
+      return newNode(
+          Token.FOR_OF,
+          transform(loopNode.initializer),
+          transform(loopNode.collection),
+          transformBlock(loopNode.body));
+    }
+
+    @Override
     Node processForLoop(ForStatementTree loopNode) {
       Node node = newNode(
           Token.FOR,
-          tranformOrEmpty(loopNode.initializer),
-          tranformOrEmpty(loopNode.condition),
-          tranformOrEmpty(loopNode.increment));
+          transformOrEmpty(loopNode.initializer),
+          transformOrEmpty(loopNode.condition),
+          transformOrEmpty(loopNode.increment));
       node.addChildToBack(transformBlock(loopNode.body));
       return node;
     }
 
-    Node tranformOrEmpty(ParseTree tree) {
+    Node transformOrEmpty(ParseTree tree) {
       return (tree == null) ? newNode(Token.EMPTY) : transform(tree);
+    }
+
+    Node transformOrEmpty(IdentifierToken token) {
+      return (token == null) ? newNode(Token.EMPTY) : processName(token);
     }
 
     @Override
@@ -1050,22 +1072,41 @@ class NewIRFactory {
 
     @Override
     Node processFunction(FunctionDeclarationTree functionTree) {
+      boolean isDeclaration = (functionTree.kind == FunctionDeclarationTree.Kind.DECLARATION);
+      boolean isMember = (functionTree.kind == FunctionDeclarationTree.Kind.MEMBER);
+      boolean isArrow = (functionTree.kind == FunctionDeclarationTree.Kind.ARROW);
+      boolean isGenerator = functionTree.isGenerator;
+
+      if (!isEs6Mode()) {
+        if (isGenerator) {
+          maybeWarnEs6Feature(functionTree, "generators");
+        }
+
+        if (isMember) {
+          maybeWarnEs6Feature(functionTree, "member declarations");
+        }
+
+        if (isArrow) {
+          maybeWarnEs6Feature(functionTree, "short function syntax");
+        }
+      }
+
       IdentifierToken name = functionTree.name;
       Node newName;
       if (name != null) {
         newName = processNameWithInlineJSDoc(name);
       } else {
-        if (!functionTree.isExpression) {
+        if (isDeclaration || isMember) {
           errorReporter.error(
             "unnamed function statement",
             sourceName,
             lineno(functionTree), "", charno(functionTree));
 
           // Return the bare minimum to put the AST in a valid state.
-          return newNode(Token.EXPR_RESULT, Node.newNumber(0));
+          newName = createMissingNameNode();
+        } else {
+          newName = newStringNode(Token.NAME, "");
         }
-
-        newName = newStringNode(Token.NAME, "");
 
         // Old Rhino tagged the empty name node with the line number of the
         // declaration.
@@ -1075,12 +1116,19 @@ class NewIRFactory {
       }
 
       Node node = newNode(Token.FUNCTION);
-
-      node.addChildToBack(newName);
+      if (!isMember) {
+        node.addChildToBack(newName);
+      } else {
+        Node emptyName = newStringNode(Token.NAME, "");
+        emptyName.setLineno(lineno(functionTree));
+        emptyName.setCharno(charno(functionTree));
+        maybeSetLength(emptyName, 0);
+        node.addChildToBack(emptyName);
+      }
       node.addChildToBack(transform(functionTree.formalParameterList));
 
       Node bodyNode = transform(functionTree.functionBody);
-      if (!bodyNode.isBlock()) {
+      if (!isArrow && !bodyNode.isBlock()) {
         // When in ideMode the parser tries to parse some constructs the
         // compiler doesn't support, repair it here.
         Preconditions.checkState(config.isIdeMode);
@@ -1088,7 +1136,23 @@ class NewIRFactory {
       }
       parseDirectives(bodyNode);
       node.addChildToBack(bodyNode);
-     return node;
+
+      Node result;
+
+      if (functionTree.kind == FunctionDeclarationTree.Kind.MEMBER) {
+        setSourceInfo(node, functionTree);
+        Node member = newStringNode(Token.MEMBER_DEF, name.value);
+        member.addChildToBack(node);
+        member.setStaticMember(functionTree.isStatic);
+        result = member;
+      } else {
+        result = node;
+      }
+
+      result.setIsGeneratorFunction(isGenerator);
+      result.setIsArrowFunction(isArrow);
+
+      return result;
     }
 
     @Override
@@ -1188,7 +1252,7 @@ class NewIRFactory {
     Node processName(IdentifierToken identifierToken, boolean asString) {
       Node node;
       if (asString) {
-        node = newStringNode(Token.STRING, identifierToken.toString());
+        node = newStringNode(Token.STRING, identifierToken.value);
       } else {
         JSDocInfo info = handleJsDoc(identifierToken);
         if (identifierToken == null ||
@@ -1198,13 +1262,20 @@ class NewIRFactory {
             sourceName,
             identifierToken.location.start.line, "", 0);
         }
-        node = newStringNode(Token.NAME, identifierToken.toString());
+        node = newStringNode(Token.NAME, identifierToken.value);
         if (info != null) {
           // validateTypeAnnotations(info, identifierToken);
           attachJSDoc(info, node);
         }
       }
       setSourceInfo(node, identifierToken);
+      return node;
+    }
+
+    Node processString(LiteralToken token) {
+      Preconditions.checkState(token.type == TokenType.STRING);
+      Node node = newStringNode(Token.STRING, normalizeString(token));
+      setSourceInfo(node, token);
       return node;
     }
 
@@ -1287,7 +1358,7 @@ class NewIRFactory {
 
     @Override
     Node processGetAccessor(GetAccessorTree tree) {
-      Node key = transformAsString(tree.propertyName);
+      Node key = processObjecLitKeyAsString(tree.propertyName);
       key.setType(Token.GETTER_DEF);
       Node body = transform(tree.body);
       Node dummyName = IR.name("");
@@ -1297,12 +1368,13 @@ class NewIRFactory {
       Node value = IR.function(dummyName, paramList, body);
       setSourceInfo(value, tree.body);
       key.addChildToFront(value);
+      key.setStaticMember(tree.isStatic);
       return key;
     }
 
     @Override
     Node processSetAccessor(SetAccessorTree tree) {
-      Node key = transformAsString(tree.propertyName);
+      Node key = processObjecLitKeyAsString(tree.propertyName);
       key.setType(Token.SETTER_DEF);
       Node body = transform(tree.body);
       Node dummyName = IR.name("");
@@ -1313,12 +1385,13 @@ class NewIRFactory {
       Node value = IR.function(dummyName, paramList, body);
       setSourceInfo(value, tree.body);
       key.addChildToFront(value);
+      key.setStaticMember(tree.isStatic);
       return key;
     }
 
     @Override
     Node processPropertyNameAssignment(PropertyNameAssignmentTree tree) {
-      Node key = transformAsString(tree.name);
+      Node key = processObjecLitKeyAsString(tree.name);
       key.setType(Token.STRING_KEY);
       key.addChildToFront(transform(tree.value));
       return key;
@@ -1342,7 +1415,7 @@ class NewIRFactory {
     Node processPropertyGet(MemberExpressionTree getNode) {
       Node leftChild = transform(getNode.operand);
       IdentifierToken nodeProp = getNode.memberName;
-      Node rightChild = transformAsString(nodeProp);
+      Node rightChild = processObjecLitKeyAsString(nodeProp);
       if (!rightChild.isQuotedString() && !isAllowedProp(
           rightChild.getString())) {
         errorReporter.warning(INVALID_ES3_PROP_NAME, sourceName,
@@ -1389,9 +1462,9 @@ class NewIRFactory {
     @Override
     Node processStringLiteral(LiteralExpressionTree literalTree) {
       LiteralToken token = literalTree.literalToken.asLiteral();
-      String value = normalizeString(token);
 
-      Node n = newStringNode(value);
+      Node n = processString(token);
+      String value = n.getString();
       if (value.indexOf('\u000B') != -1) {
         // NOTE(nicksantos): In JavaScript, there are 3 ways to
         // represent a vertical tab: \v, \x0B, \u000B.
@@ -1587,14 +1660,26 @@ class NewIRFactory {
 
     @Override
     Node processVariableDeclarationList(VariableDeclarationListTree decl) {
-      if (!config.acceptConstKeyword
-          && decl.declarationType == TokenType.CONST) {
-        unsupportedLanguageFeature(decl, "const declarations");
-      } else if (decl.declarationType == TokenType.LET) {
-        unsupportedLanguageFeature(decl, "let declarations");
+      int declType;
+      switch (decl.declarationType) {
+        case CONST:
+          if (!config.acceptConstKeyword) {
+            maybeWarnEs6Feature(decl, "const declarations");
+          }
+          declType = Token.CONST;
+          break;
+        case LET:
+          maybeWarnEs6Feature(decl, "let declarations");
+          declType = Token.LET;
+          break;
+        case VAR:
+          declType = Token.VAR;
+          break;
+        default:
+          throw new IllegalStateException();
       }
 
-      Node node = newNode(Token.VAR);
+      Node node = newNode(declType);
       for (VariableDeclarationTree child : decl.declarations) {
         node.addChildToBack(
             transformNodeWithInlineJsDoc(child, true));
@@ -1634,6 +1719,10 @@ class NewIRFactory {
       // Try to create something valid that ide mode might be able to
       // continue with.
       return createMissingExpressionNode();
+    }
+
+    private Node createMissingNameNode() {
+      return newStringNode(Token.NAME, "__missing_name__");
     }
 
     private Node createMissingExpressionNode() {
@@ -1705,6 +1794,137 @@ class NewIRFactory {
         }
       }
       return root;
+    }
+
+    @Override
+    Node processClassDeclaration(ClassDeclarationTree tree) {
+      if (!isEs6Mode()) {
+        maybeWarnEs6Feature(tree, "class");
+      }
+
+      Node name = transformOrEmpty(tree.name);
+      Node superClass = transformOrEmpty(tree.superClass);
+
+      Node body = newNode(Token.CLASS_MEMBERS);
+      setSourceInfo(body, tree);
+      for (ParseTree child : tree.elements) {
+        body.addChildToBack(transform(child));
+      }
+
+      return newNode(Token.CLASS, name, superClass, body);
+    }
+
+    @Override
+    Node processSuper(SuperExpressionTree tree) {
+      if (!isEs6Mode()) {
+        maybeWarnEs6Feature(tree, "super");
+      }
+
+      return newNode(Token.SUPER);
+    }
+
+    @Override
+    Node processYield(YieldExpressionTree tree) {
+      Node yield = new Node(Token.YIELD);
+      if (tree.expression != null) {
+        yield.addChildToBack(transform(tree.expression));
+      }
+      yield.setYieldFor(tree.isYieldFor);
+      return yield;
+    }
+
+    @Override
+    Node processExportDecl(ExportDeclarationTree tree) {
+      maybeWarnEs6Feature(tree, "modules");
+      Node decls = null;
+      if (tree.isExportAll) {
+        Preconditions.checkState(
+            tree.declaration == null &&
+            tree.exportSpecifierList == null);
+      } else if (tree.declaration != null) {
+        Preconditions.checkState(tree.exportSpecifierList == null);
+        decls = transform(tree.declaration);
+      } else {
+        decls = transformList(Token.EXPORT_SPECS, tree.exportSpecifierList);
+      }
+      if (decls == null) {
+        decls = newNode(Token.EMPTY);
+      }
+      Node export = newNode(Token.EXPORT, decls);
+      if (tree.from != null) {
+        Node from = processString(tree.from);
+        export.addChildToBack(from);
+      }
+
+      export.putBooleanProp(Node.EXPORT_ALL_FROM, tree.isExportAll);
+      export.putBooleanProp(Node.EXPORT_DEFAULT, tree.isDefault);
+      return export;
+    }
+
+    @Override
+    Node processExportSpec(ExportSpecifierTree tree) {
+      Node importSpec = newNode(Token.EXPORT_SPEC,
+          processName(tree.importedName));
+      if (tree.destinationName != null) {
+        importSpec.addChildToBack(processName(tree.destinationName));
+      }
+      return importSpec;
+    }
+
+    @Override
+    Node processImportDecl(ImportDeclarationTree tree) {
+      maybeWarnEs6Feature(tree, "modules");
+      Node export = newNode(Token.IMPORT,
+          transformOrEmpty(tree.defaultBindingIndentifier),
+          transformListOrEmpty(Token.IMPORT_SPECS, tree.importSpecifierList),
+          processString(tree.moduleSpecifier));
+      return export;
+    }
+
+    @Override
+    Node processImportSpec(ImportSpecifierTree tree) {
+      Node importSpec = newNode(Token.IMPORT_SPEC,
+          processName(tree.importedName));
+      if (tree.destinationName != null) {
+        importSpec.addChildToBack(processName(tree.destinationName));
+      }
+      return importSpec;
+    }
+
+    @Override
+    Node processModuleImport(ModuleImportTree tree) {
+      maybeWarnEs6Feature(tree, "modules");
+      Node module = newNode(Token.MODULE,
+          processName(tree.name),
+          processString(tree.from));
+      return module;
+    }
+
+    private Node transformList(
+        int type, ImmutableList<ParseTree> list) {
+      Node n = newNode(type);
+      for (ParseTree tree : list) {
+        n.addChildToBack(transform(tree));
+      }
+      return n;
+    }
+
+    private Node transformListOrEmpty(
+        int type, ImmutableList<ParseTree> list) {
+      if (list != null) {
+        return transformList(type, list);
+      } else {
+        return newNode(Token.EMPTY);
+      }
+    }
+
+    void maybeWarnEs6Feature(ParseTree node, String feature) {
+      if (!isEs6Mode()) {
+        errorReporter.warning(
+            "this language feature is only supported in es6 mode: " + feature,
+            sourceName,
+            lineno(node), "", charno(node));
+      }
     }
 
     @Override
@@ -1811,6 +2031,13 @@ class NewIRFactory {
     return config.languageMode != LanguageMode.ECMASCRIPT3;
   }
 
+  private boolean inStrictContext() {
+    // TODO(johnlenz): in ECMASCRIPT5/6 is a "mixed" mode and we should track the context
+    // that we are in, if we want to support it.
+    return config.languageMode == LanguageMode.ECMASCRIPT5_STRICT
+        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT;
+  }
+
   double normalizeNumber(LiteralToken token) {
     String value = token.value;
     SourceRange location = token.location;
@@ -1866,12 +2093,16 @@ class NewIRFactory {
         case '4': case '5': case '6': case '7':
           errorReporter.warning(INVALID_ES5_STRICT_OCTAL, sourceName,
               lineno(location.start), "", charno(location.start));
-          long v = 0;
-          int c = 0;
-          while (++c < length) {
-            v = (v * 8) + octaldigit(value.charAt(c));
+          if (!inStrictContext()) {
+            long v = 0;
+            int c = 0;
+            while (++c < length) {
+              v = (v * 8) + octaldigit(value.charAt(c));
+            }
+            return Double.valueOf(v);
+          } else {
+            return Double.valueOf(value);
           }
-          return Double.valueOf(v);
       }
     } else {
       return Double.valueOf(value);

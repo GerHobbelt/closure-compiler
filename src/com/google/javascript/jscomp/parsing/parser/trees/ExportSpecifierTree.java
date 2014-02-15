@@ -16,12 +16,18 @@
 
 package com.google.javascript.jscomp.parsing.parser.trees;
 
+import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
-public class ClassExpressionTree extends ParseTree {
+public class ExportSpecifierTree extends ParseTree {
 
-  public ClassExpressionTree(SourceRange location) {
-    super(ParseTreeType.CLASS_EXPRESSION, location);
+  public final IdentifierToken importedName;
+  public final IdentifierToken destinationName;
+
+  public ExportSpecifierTree(SourceRange location,
+      IdentifierToken importedName, IdentifierToken destinationName) {
+    super(ParseTreeType.EXPORT_SPECIFIER, location);
+    this.importedName = importedName;
+    this.destinationName = destinationName;
   }
-
 }

@@ -46,7 +46,6 @@ public class ParseTreeTransformer {
     case CASE_CLAUSE: return transform(tree.asCaseClause());
     case CATCH: return transform(tree.asCatch());
     case CLASS_DECLARATION: return transform(tree.asClassDeclaration());
-    case CLASS_EXPRESSION: return transform(tree.asClassExpression());
     case COMMA_EXPRESSION: return transform(tree.asCommaExpression());
     case CONDITIONAL_EXPRESSION: return transform(tree.asConditionalExpression());
     case CONTINUE_STATEMENT: return transform(tree.asContinueStatement());
@@ -57,9 +56,8 @@ public class ParseTreeTransformer {
     case EMPTY_STATEMENT: return transform(tree.asEmptyStatement());
     case EXPORT_DECLARATION: return transform(tree.asExportDeclaration());
     case EXPRESSION_STATEMENT: return transform(tree.asExpressionStatement());
-    case FIELD_DECLARATION: return transform(tree.asFieldDeclaration());
     case FINALLY: return transform(tree.asFinally());
-    case FOR_EACH_STATEMENT: return transform(tree.asForEachStatement());
+    case FOR_OF_STATEMENT: return transform(tree.asForOfStatement());
     case FOR_IN_STATEMENT: return transform(tree.asForInStatement());
     case FOR_STATEMENT: return transform(tree.asForStatement());
     case FORMAL_PARAMETER_LIST: return transform(tree.asFormalParameterList());
@@ -68,14 +66,13 @@ public class ParseTreeTransformer {
     case IDENTIFIER_EXPRESSION: return transform(tree.asIdentifierExpression());
     case IF_STATEMENT: return transform(tree.asIfStatement());
     case IMPORT_DECLARATION: return transform(tree.asImportDeclaration());
-    case IMPORT_PATH: return transform(tree.asImportPath());
     case IMPORT_SPECIFIER: return transform(tree.asImportSpecifier());
     case LABELLED_STATEMENT: return transform(tree.asLabelledStatement());
     case LITERAL_EXPRESSION: return transform(tree.asLiteralExpression());
     case MEMBER_EXPRESSION: return transform(tree.asMemberExpression());
     case MEMBER_LOOKUP_EXPRESSION: return transform(tree.asMemberLookupExpression());
     case MISSING_PRIMARY_EXPRESSION: return transform(tree.asMissingPrimaryExpression());
-    case MODULE_DEFINITION: return transform(tree.asModuleDefinition());
+    case MODULE_IMPORT: return transform(tree.asModuleImport());
     case NEW_EXPRESSION: return transform(tree.asNewExpression());
     case NULL: return transform(tree.asNull());
     case OBJECT_LITERAL_EXPRESSION: return transform(tree.asObjectLiteralExpression());
@@ -85,7 +82,6 @@ public class ParseTreeTransformer {
     case POSTFIX_EXPRESSION: return transform(tree.asPostfixExpression());
     case PROGRAM: return transform(tree.asProgram());
     case PROPERTY_NAME_ASSIGNMENT: return transform(tree.asPropertyNameAssignment());
-    case REQUIRES_MEMBER: return transform(tree.asRequiresMember());
     case REST_PARAMETER: return transform(tree.asRestParameter());
     case RETURN_STATEMENT: return transform(tree.asReturnStatement());
     case SET_ACCESSOR: return transform(tree.asSetAccessor());
@@ -102,7 +98,7 @@ public class ParseTreeTransformer {
     case VARIABLE_STATEMENT: return transform(tree.asVariableStatement());
     case WHILE_STATEMENT: return transform(tree.asWhileStatement());
     case WITH_STATEMENT: return transform(tree.asWithStatement());
-    case YIELD_STATEMENT: return transform(tree.asYieldStatement());
+    case YIELD_EXPRESSION: return transform(tree.asYieldStatement());
     default:
       throw new RuntimeException("Should never get here!");
     }
@@ -243,10 +239,6 @@ public class ParseTreeTransformer {
     return createClassDeclaration(tree.name, superClass, elements);
   }
 
-  protected ParseTree transform(ClassExpressionTree tree) {
-    return tree;
-  }
-
   protected ParseTree transform(CommaExpressionTree tree) {
     ImmutableList<ParseTree> expressions = transformList(tree.expressions);
     if (expressions == tree.expressions) {
@@ -307,7 +299,10 @@ public class ParseTreeTransformer {
     if (tree.declaration == declaration) {
       return tree;
     }
-    return new ExportDeclarationTree(null, declaration);
+    return new ExportDeclarationTree(null, tree.isDefault, tree.isExportAll,
+        declaration,
+        tree.exportSpecifierList,
+        tree.from);
   }
 
   protected ParseTree transform(ExpressionStatementTree tree) {
@@ -318,14 +313,6 @@ public class ParseTreeTransformer {
     return createExpressionStatement(expression);
   }
 
-  protected ParseTree transform(FieldDeclarationTree tree) {
-    ImmutableList<VariableDeclarationTree> declarations = transformList(tree.declarations);
-    if (declarations == tree.declarations) {
-      return tree;
-    }
-    return createFieldDeclaration(tree.isStatic, tree.isConst, declarations);
-  }
-
   protected ParseTree transform(FinallyTree tree) {
     ParseTree block = transformAny(tree.block);
     if (block == tree.block) {
@@ -334,7 +321,7 @@ public class ParseTreeTransformer {
     return createFinally(block);
   }
 
-  protected ParseTree transform(ForEachStatementTree tree) {
+  protected ParseTree transform(ForOfStatementTree tree) {
     ParseTree initializer = transformAny(tree.initializer);
     ParseTree collection = transformAny(tree.collection);
     ParseTree body = transformAny(tree.body);
@@ -404,22 +391,13 @@ public class ParseTreeTransformer {
   }
 
   protected ParseTree transform(ImportDeclarationTree tree) {
-    ImmutableList<ParseTree> importPathList = transformList(tree.importPathList);
-    if (importPathList == tree.importPathList) {
+    ImmutableList<ParseTree> importSpecifierList = transformList(tree.importSpecifierList);
+    if (importSpecifierList == tree.importSpecifierList) {
       return tree;
     }
-    return new ImportDeclarationTree(null, importPathList);
-  }
-
-  protected ParseTree transform(ImportPathTree tree) {
-    if (tree.importSpecifierSet != null) {
-      ImmutableList<ParseTree> importSpecifierSet = transformList(tree.importSpecifierSet);
-      if (importSpecifierSet != tree.importSpecifierSet) {
-        return new ImportPathTree(null, tree.qualifiedPath, importSpecifierSet);
-      }
-    }
-
-    return tree;
+    return new ImportDeclarationTree(
+        null, tree.defaultBindingIndentifier,
+        importSpecifierList, tree.moduleSpecifier);
   }
 
   protected ParseTree transform(ImportSpecifierTree tree) {
@@ -459,13 +437,8 @@ public class ParseTreeTransformer {
     throw new RuntimeException("Should never transform trees that had errors during parse");
   }
 
-  protected ParseTree transform(ModuleDefinitionTree tree) {
-    ImmutableList<ParseTree> elements = transformList(tree.elements);
-    if (elements == tree.elements) {
-      return tree;
-    }
-
-    return new ModuleDefinitionTree(null, tree.name, elements);
+  protected ParseTree transform(ModuleImportTree tree) {
+    return new ModuleImportTree(null, tree.name, tree.from);
   }
 
   protected ParseTree transform(NewExpressionTree tree) {
@@ -536,10 +509,6 @@ public class ParseTreeTransformer {
       return tree;
     }
     return createPropertyNameAssignment(tree.name, value);
-  }
-
-  protected ParseTree transform(RequiresMemberTree tree) {
-    return tree;
   }
 
   protected ParseTree transform(RestParameterTree tree) {
@@ -666,7 +635,7 @@ public class ParseTreeTransformer {
     return createWithStatement(expression, body);
   }
 
-  protected ParseTree transform(YieldStatementTree tree) {
+  protected ParseTree transform(YieldExpressionTree tree) {
     ParseTree expression = transformAny(tree.expression);
     if (expression == tree.expression) {
       return tree;

@@ -23,6 +23,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CallExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CaseClauseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CatchTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ClassDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CommaExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ContinueStatementTree;
@@ -30,20 +31,26 @@ import com.google.javascript.jscomp.parsing.parser.trees.DebuggerStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DefaultClauseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DoWhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.EmptyStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportSpecifierTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ExpressionStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FinallyTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForInStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ForOfStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ForStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FormalParameterListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.FunctionDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.GetAccessorTree;
 import com.google.javascript.jscomp.parsing.parser.trees.IdentifierExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.IfStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportSpecifierTree;
 import com.google.javascript.jscomp.parsing.parser.trees.LabelledStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.LiteralExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
@@ -54,6 +61,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ReturnStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SetAccessorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SuperExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SwitchStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
@@ -64,6 +72,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree
 import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
 
 /**
  * Type safe dispatcher interface for use with new ES6 parser ASTs.
@@ -120,6 +129,17 @@ abstract class NewTypeSafeDispatcher<T> {
   abstract T processSetAccessor(SetAccessorTree tree);
   abstract T processPropertyNameAssignment(PropertyNameAssignmentTree tree);
   abstract T processFormalParameterList(FormalParameterListTree tree);
+
+  abstract T processClassDeclaration(ClassDeclarationTree tree);
+  abstract T processSuper(SuperExpressionTree tree);
+  abstract T processYield(YieldExpressionTree tree);
+  abstract T processForOf(ForOfStatementTree tree);
+
+  abstract T processExportDecl(ExportDeclarationTree tree);
+  abstract T processExportSpec(ExportSpecifierTree tree);
+  abstract T processImportDecl(ImportDeclarationTree tree);
+  abstract T processImportSpec(ImportSpecifierTree tree);
+  abstract T processModuleImport(ModuleImportTree tree);
 
   abstract T processMissingExpression(MissingPrimaryExpressionTree tree);
 
@@ -248,16 +268,31 @@ abstract class NewTypeSafeDispatcher<T> {
       case FORMAL_PARAMETER_LIST:
         return processFormalParameterList(node.asFormalParameterList());
 
+      case CLASS_DECLARATION:
+        return processClassDeclaration(node.asClassDeclaration());
+      case SUPER_EXPRESSION:
+        return processSuper(node.asSuperExpression());
+      case YIELD_EXPRESSION:
+        return processYield(node.asYieldStatement());
+      case FOR_OF_STATEMENT:
+        return processForOf(node.asForOfStatement());
+
+      case EXPORT_DECLARATION:
+        return processExportDecl(node.asExportDeclaration());
+      case EXPORT_SPECIFIER:
+        return processExportSpec(node.asExportSpecifier());
+      case IMPORT_DECLARATION:
+        return processImportDecl(node.asImportDeclaration());
+      case IMPORT_SPECIFIER:
+        return processImportSpec(node.asImportSpecifier());
+      case MODULE_IMPORT:
+        return processModuleImport(node.asModuleImport());
+
       case ARRAY_PATTERN:
       case OBJECT_PATTERN:
       case OBJECT_PATTERN_FIELD:
       case SPREAD_PATTERN_ELEMENT:
         return unsupportedLanguageFeature(node, "destructuring");
-
-      case CLASS_DECLARATION:
-      case CLASS_EXPRESSION:
-      case SUPER_EXPRESSION:
-        return unsupportedLanguageFeature(node, "classes");
 
       case DEFAULT_PARAMETER:
         return unsupportedLanguageFeature(node, "default parameters");
@@ -266,28 +301,12 @@ abstract class NewTypeSafeDispatcher<T> {
       case SPREAD_EXPRESSION:
         return unsupportedLanguageFeature(node, "spread parameters");
 
-      case MODULE_DEFINITION:
-      case EXPORT_DECLARATION:
-      case IMPORT_DECLARATION:
-      case IMPORT_PATH:
-      case IMPORT_SPECIFIER:
-      case REQUIRES_MEMBER:
-        return unsupportedLanguageFeature(node, "modules");
-
-      case YIELD_STATEMENT:
-        return unsupportedLanguageFeature(node, "generators");
-
       // TODO(johnlenz): handle these or remove parser support
       case ARGUMENT_LIST:
-        break;
-      case FIELD_DECLARATION:
-        break;
-      case FOR_EACH_STATEMENT:
         break;
 
       default:
         break;
-
     }
     return processIllegalToken(node);
   }

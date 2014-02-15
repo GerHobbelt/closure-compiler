@@ -16,12 +16,18 @@
 
 package com.google.javascript.jscomp.newtypes;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  *
@@ -39,21 +45,36 @@ public class NominalType {
   private Map<String, Property> ctorProps = Maps.newHashMap();
   boolean isFinalized = false;
   private NominalType superClass = null;
-  private ImmutableSet<NominalType> interfaces = null;
+  private ImmutableCollection<NominalType> interfaces = null;
   private final boolean isInterface;
   private ImmutableSet<String> allProps = null;
+  private final ImmutableList<String> templateVars;
+  // Each class-definition site has a unique id.
+  // All classes instantiated from the same polymorphic class have the same id.
+  private final int id;
 
-  private NominalType(String name, boolean isInterface) {
+  private NominalType(
+      String name, ImmutableList<String> templateVars,
+      int id, boolean isInterface) {
     this.name = name;
+    this.templateVars =
+        (templateVars == null || templateVars.isEmpty()) ? null : templateVars;
+    this.id = id;
     this.isInterface = isInterface;
   }
 
-  public static NominalType makeClass(String name) {
-    return new NominalType(name, false);
+  public static NominalType makeClass(
+      String name, ImmutableList<String> templateVars, int id) {
+    return new NominalType(name, templateVars, id, false);
   }
 
-  public static NominalType makeInterface(String name) {
-    return new NominalType(name, true);
+  public static NominalType makeInterface(
+      String name, ImmutableList<String> templateVars, int id) {
+    return new NominalType(name, templateVars, id, true);
+  }
+
+  public int getId() {
+    return id;
   }
 
   public boolean isClass() {
@@ -65,22 +86,68 @@ public class NominalType {
     return isFinalized;
   }
 
-  public void addSuperClass(NominalType superClass) {
-    Preconditions.checkState(!isFinalized);
-    Preconditions.checkState(this.superClass == null);
-    this.superClass = superClass;
+  ImmutableList<String> getTemplateVars() {
+    return templateVars;
   }
 
-  public void addInterfaces(ImmutableSet<NominalType> interfaces) {
+  private boolean hasAncestorClass(NominalType ancestor) {
+    Preconditions.checkState(ancestor.isClass());
+    if (this.id == ancestor.id) {
+      return true;
+    } else if (this.superClass == null) {
+      return false;
+    } else {
+      return this.superClass.hasAncestorClass(ancestor);
+    }
+  }
+
+  /** @return Whether the superclass can be added without creating a cycle. */
+  public boolean addSuperClass(NominalType superClass) {
+    Preconditions.checkState(!isFinalized);
+    Preconditions.checkState(this.superClass == null);
+    if (superClass.hasAncestorClass(this)) {
+      return false;
+    }
+    this.superClass = superClass;
+    return true;
+  }
+
+  private boolean hasAncestorInterface(NominalType ancestor) {
+    Preconditions.checkState(ancestor.isInterface);
+    if (this.id == ancestor.id) {
+      return true;
+    } else if (this.interfaces == null) {
+      return false;
+    } else {
+      for (NominalType superInter : interfaces) {
+        if (superInter.hasAncestorInterface(ancestor)) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+
+  /** @return Whether the interface can be added without creating a cycle. */
+  public boolean addInterfaces(ImmutableCollection<NominalType> interfaces) {
+    Preconditions.checkState(!isFinalized);
     Preconditions.checkState(this.interfaces == null);
+    if (this.isInterface) {
+      for (NominalType interf : interfaces) {
+        if (interf.hasAncestorInterface(this)) {
+          return false;
+        }
+      }
+    }
     this.interfaces = interfaces;
+    return true;
   }
 
   public NominalType getSuperClass() {
     return superClass;
   }
 
-  public ImmutableSet<NominalType> getInterfaces() {
+  public ImmutableCollection<NominalType> getInterfaces() {
     return this.interfaces;
   }
 
@@ -124,7 +191,7 @@ public class NominalType {
     return null;
   }
 
-  private Property getProp(String pname) {
+  Property getProp(String pname) {
     if (isInterface) {
       return getPropFromInterface(pname);
     }
@@ -290,6 +357,49 @@ public class NominalType {
         ObjectType.makeObjectType(null, ctorProps, ctorFn, ctorFn.isLoose()));
   }
 
+  NominalType instantiateGenerics(List<JSType> types) {
+    Preconditions.checkState(types.size() == templateVars.size());
+    Map<String, JSType> typeMap = Maps.newHashMap();
+    for (int i = 0; i < templateVars.size(); i++) {
+      typeMap.put(templateVars.get(i), types.get(i));
+    }
+    return instantiateGenerics(typeMap);
+  }
+
+  NominalType instantiateGenerics(Map<String, JSType> typeMap) {
+    Preconditions.checkState(templateVars != null);
+    for (String typeParam: typeMap.keySet()) {
+      Preconditions.checkState(templateVars.contains(typeParam));
+    }
+    for (String typeParam: templateVars) {
+      Preconditions.checkState(typeMap.containsKey(typeParam));
+    }
+    NominalType result = new NominalType(
+        this.name + genericSuffix(typeMap), null, id, this.isInterface);
+    // To implement
+    Preconditions.checkState(superClass == null);
+    Preconditions.checkState(interfaces.isEmpty(),
+        "Interfaces not supported: " + interfaces);
+    for (String propName : this.classProps.keySet()) {
+      result.classProps.put(propName,
+          this.classProps.get(propName).substituteGenerics(typeMap));
+    }
+    for (String propName : this.protoProps.keySet()) {
+      result.protoProps.put(propName,
+          this.protoProps.get(propName).substituteGenerics(typeMap));
+    }
+    return result.finalizeNominalType();
+  }
+
+  private String genericSuffix(Map<String, JSType> typeMap) {
+    List<String> names = Lists.newArrayList();
+    for (String templateVar : templateVars) {
+      names.add(typeMap.get(templateVar).toString());
+    }
+    Preconditions.checkState(!names.isEmpty());
+    return ".<" + Joiner.on(",").join(names) + ">";
+  }
+
   // If we try to mutate the class after the AST-preparation phase, error.
   public NominalType finalizeNominalType() {
     // System.out.println("Class " + name +
@@ -297,14 +407,46 @@ public class NominalType {
     //     " and prototype properties: " + protoProps);
     this.classProps = ImmutableMap.copyOf(classProps);
     this.protoProps = ImmutableMap.copyOf(protoProps);
+    if (this.interfaces == null) {
+      this.interfaces = ImmutableList.of();
+    }
     addCtorProperty("prototype", createProtoObject());
     this.ctorProps = ImmutableMap.copyOf(ctorProps);
     this.isFinalized = true;
+    this.allProps = null;
     return this;
   }
 
   @Override
   public String toString() {
-    return name;
+    return name + (templateVars == null ? "" :
+        ".<" + Joiner.on(",").join(templateVars) + ">");
+  }
+
+  // Consider the following class. The instantiations Foo.<number> and
+  // Foo.<string> are identical except the name field, so we must use the name
+  // in hashCode and equals. Unlikely to happen in practice because classes have
+  // properties.
+  //
+  // /**
+  //  * @template T
+  //  * @constructor
+  //  * @param {T} x
+  //  */
+  // function Foo(x) {}
+
+  @Override
+  public int hashCode() {
+    // Since we want NominalTypes to have a consistent hashCode even in the
+    // face of mutation, we limit it to be based only on the immutable
+    // fields.
+    return Objects.hash(id, name);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    Preconditions.checkState(o instanceof NominalType);
+    NominalType other = (NominalType) o;
+    return id == other.id && Objects.equals(name, other.name);
   }
 }

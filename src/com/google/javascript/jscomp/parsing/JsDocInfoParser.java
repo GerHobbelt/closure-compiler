@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp.parsing;
 
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
@@ -876,12 +877,19 @@ public final class JsDocInfoParser {
                   .trimResults()
                   .split(templateInfo.string));
 
-          if (names.size() == 0 || names.get(0).length() == 0) {
+          if (names.size() == 1 && names.get(0).length() == 0) {
             parser.addTypeWarning("msg.jsdoc.templatemissing",
                   stream.getLineno(), stream.getCharno());
           } else if (!jsdocBuilder.recordTemplateTypeNames(names)) {
             parser.addTypeWarning("msg.jsdoc.template.at.most.once",
                 stream.getLineno(), stream.getCharno());
+          } else {
+            for (String typeName : names) {
+              if (!validTemplateTypeName(typeName)) {
+                parser.addTypeWarning("msg.jsdoc.template.invalid.type.name",
+                    stream.getLineno(), stream.getCharno());
+              }
+            }
           }
 
           token = templateInfo.token;
@@ -1086,6 +1094,15 @@ public final class JsDocInfoParser {
     }
 
     return next();
+  }
+
+  /**
+   * The types in @template annotations must start with a capital letter, and contain
+   * only letters, digits, and underscores.
+   */
+  private static boolean validTemplateTypeName(String name) {
+    return name.length() != 0 && CharMatcher.JAVA_UPPER_CASE.matches(name.charAt(0)) &&
+        CharMatcher.JAVA_LETTER_OR_DIGIT.or(CharMatcher.is('_')).matchesAllOf(name);
   }
 
   /**
@@ -2066,7 +2083,8 @@ public final class JsDocInfoParser {
     }
 
     skipEOLs();
-    Node resultType = parseResultType(next());
+    next();
+    Node resultType = parseResultType();
     if (resultType == null) {
       return null;
     } else {
@@ -2166,13 +2184,13 @@ public final class JsDocInfoParser {
   /**
    * ResultType := <empty> | ':' void | ':' TypeExpression
    */
-  private Node parseResultType(JsDocToken token) {
+  private Node parseResultType() {
     skipEOLs();
     if (!match(JsDocToken.COLON)) {
       return newNode(Token.EMPTY);
     }
 
-    token = next();
+    next();
     skipEOLs();
     if (match(JsDocToken.STRING) && "void".equals(stream.getString())) {
       next();
@@ -2371,8 +2389,12 @@ public final class JsDocInfoParser {
   private Node parseFieldName(JsDocToken token) {
     switch (token) {
       case STRING:
-        String string = stream.getString();
-        return newStringNode(string);
+        String s = stream.getString();
+        Node n = Node.newString(
+            Token.STRING_KEY, s, stream.getLineno(), stream.getCharno())
+            .clonePropsFrom(templateNode);
+        n.setLength(s.length());
+        return n;
 
       default:
         return null;

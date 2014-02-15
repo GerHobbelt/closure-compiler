@@ -46,6 +46,11 @@ Window.prototype.JSON;
  */
 function HTMLCanvasElement() {}
 
+/**
+ * @type {function(new:HTMLCanvasElement)}
+ */
+Window.prototype.HTMLCanvasElement;
+
 /** @type {number} */
 HTMLCanvasElement.prototype.width;
 
@@ -2925,7 +2930,11 @@ Document.prototype.webkitFullScreenKeyboardInputAllowed;
 
 // IE 11 implementation.
 // http://msdn.microsoft.com/en-us/library/ie/dn265028(v=vs.85).aspx
+/** @return {void} */
 Element.prototype.msRequestFullscreen = function() {};
+
+/** @return {void} */
+Element.prototype.msExitFullscreen = function() {};
 
 /** @type {boolean} */
 Document.prototype.msFullscreenEnabled;
@@ -3077,6 +3086,14 @@ Document.prototype.msHidden;
  */
 Document.prototype.registerElement;
 
+/**
+ * This method is deprecated and should be removed by the end of 2014.
+ * @see http://www.w3.org/TR/components-intro/
+ * @see http://w3c.github.io/webcomponents/spec/custom/#extensions-to-document-interface-to-register
+ * @param {string} type
+ * @param {{extends: (string|undefined), prototype: (Object|undefined)}} options
+ */
+Document.prototype.register;
 
 /**
  * @see https://github.com/promises-aplus/promises-spec
@@ -3088,7 +3105,7 @@ var Thenable;
 /**
  * This is not an official DOM interface. It is used to add generic typing
  * and respective type inference where available.
- * {@see goog.labs.Thenable} inherits from this making all promises
+ * {@see goog.Thenable} inherits from this making all promises
  * interoperate.
  * @interface
  * @template TYPE

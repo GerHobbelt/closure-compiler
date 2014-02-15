@@ -782,8 +782,9 @@ public class NewParserTest extends BaseJSTypeTestCase {
   }
 
   public void testConstForbidden() {
-    parseError("const x = 3;",
-        "unsupported language feature: const declarations");
+    parse("const x = 3;",
+        "this language feature is only supported in es6 mode: " +
+        "const declarations");
   }
 
   public void testDestructuringAssignForbidden() {
@@ -807,23 +808,35 @@ public class NewParserTest extends BaseJSTypeTestCase {
   }
 
   public void testLetForbidden1() {
-    parseError("let x = 3;", "unsupported language feature: let declarations");
+    parse("let x = 3;",
+        "this language feature is only supported in es6 mode: " +
+        "let declarations");
   }
 
   public void testLetForbidden2() {
-    parseError("function f() { let x = 3; };",
-        "unsupported language feature: let declarations");
+    parse("function f() { let x = 3; };",
+        "this language feature is only supported in es6 mode: " +
+        "let declarations");
   }
 
   public void testLetForbidden3() {
     mode = LanguageMode.ECMASCRIPT5_STRICT;
     parseError("function f() { var let = 3; }",
         "'identifier' expected");
+
+    mode = LanguageMode.ECMASCRIPT6_STRICT;
+    parseError("function f() { var let = 3; }",
+        "'identifier' expected");
   }
 
   public void testYieldForbidden() {
     parseError("function f() { yield 3; }",
-        "unsupported language feature: generators");
+        "primary expression expected");
+  }
+
+  public void testGenerator() {
+    parse("function* f() { yield 3; }",
+        "this language feature is only supported in es6 mode: generators");
   }
 
   public void testBracelessFunctionForbidden() {
@@ -947,7 +960,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parseError("var let", "'identifier' expected");
   }
 
-  public void testYield() {
+  public void testYield1() {
     mode = LanguageMode.ECMASCRIPT3;
     parse("var yield");
 
@@ -962,6 +975,28 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
     mode = LanguageMode.ECMASCRIPT6_STRICT;
     parseError("var yield", "'identifier' expected");
+  }
+
+  public void testYield2() {
+    mode = LanguageMode.ECMASCRIPT6_STRICT;
+    parse("function * f() { yield; }");
+    parse("function * f() { yield /a/b; }");
+
+    parseError("function * f() { 1 + yield; }", "primary expression expected");
+    parseError("function * f() { 1 + yield 2; }", "primary expression expected");
+    parseError("function * f() { yield 1 + yield 2; }", "primary expression expected");
+    parseError("function * f() { yield(1) + yield(2); }", "primary expression expected");
+    parse("function * f() { (yield 1) + (yield 2); }"); // OK
+    parse("function * f() { yield * yield; }"); // OK  (yield * (yield))
+    parseError("function * f() { yield + yield; }", "primary expression expected");
+    parse("function * f() { (yield) + (yield); }"); // OK
+  }
+
+  public void testYield3() {
+    mode = LanguageMode.ECMASCRIPT6_STRICT;
+    // TODO(johnlenz): validate "yield" parsing. Firefox rejects this
+    // use of "yield".
+    parseError("function * f() { yield , yield; }");
   }
 
   public void testStringContinuations() {
@@ -1279,6 +1314,100 @@ public class NewParserTest extends BaseJSTypeTestCase {
     assertNodeEquality(parse("/[\\]]/"), script(expr(regex("[\\]]"))));
   }
 
+  public void testClass1() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("class C {}");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parse("class C {}",
+        "this language feature is only supported in es6 mode: class");
+
+    mode = LanguageMode.ECMASCRIPT3;
+    parse("class C {}",
+        "this language feature is only supported in es6 mode: class");
+
+  }
+
+  public void testClass2() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("class C {}");
+
+    parse("class C {\n" +
+          "  member() {}\n" +
+          "  get field() {}\n" +
+          "  set field(a) {}\n" +
+          "}\n");
+
+    parse("class C {\n" +
+        "  static member() {}\n" +
+        "  static get field() {}\n" +
+        "  static set field(a) {}\n" +
+        "}\n");
+  }
+
+  public void testSuper1() {
+    mode = LanguageMode.ECMASCRIPT6;
+
+    // TODO(johnlenz): super in global scope should be a syntax error
+    parse("super;");
+
+    parse("function f() {super;};");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parse("super;",
+        "this language feature is only supported in es6 mode: super");
+
+    mode = LanguageMode.ECMASCRIPT3;
+    parse("super;",
+        "this language feature is only supported in es6 mode: super");
+  }
+
+  public void testArrow1() {
+    mode = LanguageMode.ECMASCRIPT6;
+
+    parse("()=>1;");
+    parse("()=>{}");
+    parse("(a,b) => a + b;");
+    parse("a => b");
+    parse("a => { return b }");
+    parse("a => b");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parse("a => b",
+        "this language feature is only supported in es6 mode: " +
+        "short function syntax");
+
+    mode = LanguageMode.ECMASCRIPT3;
+    parse("a => b;",
+        "this language feature is only supported in es6 mode: " +
+        "short function syntax");
+  }
+
+  public void testArrow2() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("*()=>1;", "primary expression expected");
+  }
+
+  public void testForOf1() {
+    mode = LanguageMode.ECMASCRIPT6;
+
+    parse("for(a of b) c;");
+    parse("for(let a of b) c;");
+    parse("for(const a of b) c;");
+  }
+
+  public void testForOf2() {
+    mode = LanguageMode.ECMASCRIPT6;
+
+    // TODO(johnlenz): is this valid?
+    // parse("for(a=1 of b) c;",
+    //     "for-of statement may not have initializer");
+    parseError("for(let a=1 of b) c;",
+        "for-of statement may not have initializer");
+    parseError("for(const a=1 of b) c;",
+        "for-of statement may not have initializer");
+  }
+
   private Node script(Node stmt) {
     Node n = new Node(Token.SCRIPT, stmt);
     n.setIsSyntheticBlock(true);
@@ -1291,10 +1420,6 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
   private Node regex(String regex) {
     return new Node(Token.REGEXP, Node.newString(regex));
-  }
-
-  private Node regex(String regex, String flags) {
-    return new Node(Token.REGEXP, Node.newString(regex), Node.newString(flags));
   }
 
   /**

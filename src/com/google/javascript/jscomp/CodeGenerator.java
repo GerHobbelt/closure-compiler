@@ -203,6 +203,16 @@ class CodeGenerator {
         }
         break;
 
+      case Token.CONST:
+        add("const ");
+        addList(first, false, getContextForNoInOperator(context));
+        break;
+
+      case Token.LET:
+        add("let ");
+        addList(first, false, getContextForNoInOperator(context));
+        break;
+
       case Token.LABEL_NAME:
         Preconditions.checkState(!n.getString().isEmpty());
         addIdentifier(n.getString());
@@ -310,15 +320,28 @@ class CodeGenerator {
           throw new Error("Unexpected Node subclass.");
         }
         Preconditions.checkState(childCount == 3);
-        boolean funcNeedsParens = (context == Context.START_OF_EXPR);
+
+        boolean isArrow = n.isArrowFunction();
+        // TODO(johnlenz): properly parenthesize arrow functions
+        boolean funcNeedsParens = (context == Context.START_OF_EXPR)
+            || isArrow;
         if (funcNeedsParens) {
           add("(");
         }
 
-        add("function");
+        if (!isArrow) {
+          add("function");
+        }
+        if (n.isGeneratorFunction()) {
+          add("*");
+        }
+
         add(first);
 
         add(first.getNext());
+        if (isArrow) {
+          add("=>");
+        }
         add(last, Context.PRESERVE_BLOCK);
         cc.endFunction(context == Context.STATEMENT);
 
@@ -327,22 +350,143 @@ class CodeGenerator {
         }
         break;
 
+      case Token.EXPORT:
+        add("export");
+        if (n.getBooleanProp(Node.EXPORT_DEFAULT)) {
+          add("default");
+        }
+        if (n.getBooleanProp(Node.EXPORT_ALL_FROM)) {
+          add("*");
+          Preconditions.checkState(first != null && first.isEmpty());
+        } else {
+          add(first);
+        }
+        if (childCount == 2) {
+          add("from");
+          add(last);
+        }
+        cc.endStatement();
+        break;
+
+      case Token.MODULE:
+        add("module");
+        add(first);
+        add("from");
+        add(last);
+        cc.endStatement();
+        break;
+
+      case Token.IMPORT:
+        add("import");
+        Node specList = first.getNext();
+        if (!first.isEmpty()) {
+          add(first);
+          if (specList.hasChildren()) {
+            cc.listSeparator();
+          }
+        }
+        if (specList.hasChildren()) {
+          add(specList);
+        }
+        add("from");
+        add(last);
+        cc.endStatement();
+        break;
+
+      case Token.EXPORT_SPECS:
+      case Token.IMPORT_SPECS:
+        add("{");
+        for (Node c = first; c != null; c = c.getNext()) {
+          if (c != first) {
+            cc.listSeparator();
+          }
+          add(c);
+        }
+        add("}");
+        break;
+
+      case Token.EXPORT_SPEC:
+      case Token.IMPORT_SPEC:
+        add(first);
+        if (first != last) {
+          add("as");
+          add(last);
+        }
+        break;
+
+      // CLASS -> NAME,EXPR|EMPTY,BLOCK
+      case Token.CLASS: {
+          Preconditions.checkState(childCount == 3);
+          boolean classNeedsParens = (context == Context.START_OF_EXPR);
+          if (classNeedsParens) {
+            add("(");
+          }
+
+          Node name = first;
+          Node superClass = first.getNext();
+          Node members = last;
+
+          add("class");
+          if (!name.isEmpty()) {
+            add(name);
+          }
+          if (!superClass.isEmpty()) {
+            add("extends");
+            add(superClass);
+          }
+          add(members);
+          cc.endClass(context == Context.STATEMENT);
+
+          if (classNeedsParens) {
+            add(")");
+          }
+        }
+        break;
+
+      case Token.CLASS_MEMBERS:
+        cc.beginBlock();
+        for (Node c = first; c != null; c = c.getNext()) {
+          add(c);
+          cc.maybeLineBreak();
+        }
+        cc.endBlock(false);
+        break;
+
       case Token.GETTER_DEF:
       case Token.SETTER_DEF:
-        Preconditions.checkState(n.getParent().isObjectLit());
+      case Token.MEMBER_DEF:
+        n.getParent().toStringTree();
+        Preconditions.checkState(n.getParent().isObjectLit()
+            || n.getParent().isClassMembers());
         Preconditions.checkState(childCount == 1);
         Preconditions.checkState(first.isFunction());
 
-        // Get methods are unnamed
+        // The function referenced by the definition should always be unnamed.
         Preconditions.checkState(first.getFirstChild().getString().isEmpty());
-        if (type == Token.GETTER_DEF) {
-          // Get methods have no parameters.
-          Preconditions.checkState(!first.getChildAtIndex(1).hasChildren());
-          add("get ");
-        } else {
-          // Set methods have one parameter.
-          Preconditions.checkState(first.getChildAtIndex(1).hasOneChild());
-          add("set ");
+
+        if (n.isStaticMember()) {
+          add("static ");
+        }
+
+        if (n.isGeneratorFunction()) {
+          Preconditions.checkState(type == Token.MEMBER_DEF);
+          add("*");
+        }
+
+        switch (type) {
+          case Token.GETTER_DEF:
+            // Get methods have no parameters.
+            Preconditions.checkState(!first.getChildAtIndex(1).hasChildren());
+            add("get ");
+            break;
+          case Token.SETTER_DEF:
+            // Set methods have one parameter.
+            Preconditions.checkState(first.getChildAtIndex(1).hasOneChild());
+            add("set ");
+            break;
+          case Token.MEMBER_DEF:
+            // nothing to do.
+            break;
         }
 
         // The name is on the GET or SET node.
@@ -392,11 +536,11 @@ class CodeGenerator {
           add(c, Context.STATEMENT);
 
           // VAR doesn't include ';' since it gets used in expressions
-          if (c.isVar()) {
+          if (c.isVar() || c.isLet() || c.isConst()) {
             cc.endStatement();
           }
 
-          if (c.isFunction()) {
+          if (c.isFunction() || c.isClass()) {
             cc.maybeLineBreak();
           }
 
@@ -441,6 +585,19 @@ class CodeGenerator {
           addNonEmptyStatement(
               last, getContextForNonEmptyExpression(context), false);
         }
+        break;
+
+      case Token.FOR_OF:
+        Preconditions.checkState(childCount == 3);
+        add("for");
+        cc.maybeInsertSpace();
+        add("(");
+        add(first);
+        add("of");
+        add(first.getNext());
+        add(")");
+        addNonEmptyStatement(
+            last, getContextForNonEmptyExpression(context), false);
         break;
 
       case Token.DO:
@@ -597,6 +754,20 @@ class CodeGenerator {
       case Token.THIS:
         Preconditions.checkState(childCount == 0);
         add("this");
+        break;
+
+      case Token.SUPER:
+        Preconditions.checkState(childCount == 0);
+        add("super");
+        break;
+
+      case Token.YIELD:
+        Preconditions.checkState(childCount == 1);
+        add("yield");
+        if (n.isYieldFor()) {
+          add("*");
+        }
+        addExpr(first, NodeUtil.precedence(type), Context.OTHER);
         break;
 
       case Token.FALSE:
@@ -878,7 +1049,7 @@ class CodeGenerator {
         //   IE6/7 needs a block around DOs.
         Node firstAndOnlyChild = getFirstNonEmptyChild(n);
         boolean alwaysWrapInBlock = cc.shouldPreserveExtraBlocks();
-        if (alwaysWrapInBlock || isOneExactlyFunctionOrDo(firstAndOnlyChild)) {
+        if (alwaysWrapInBlock || isBlockDeclOrDo(firstAndOnlyChild)) {
           cc.beginBlock();
           add(firstAndOnlyChild, Context.STATEMENT);
           cc.maybeLineBreak();
@@ -909,20 +1080,20 @@ class CodeGenerator {
   }
 
   /**
-   * @return Whether the Node is a DO or FUNCTION (with or without
-   * labels).
+   * @return Whether the Node is a DO or a declaration that is only allowed
+   * in restricted contexts.
    */
-  private boolean isOneExactlyFunctionOrDo(Node n) {
+  private boolean isBlockDeclOrDo(Node n) {
     if (n.isLabel()) {
       Node labeledStatement = n.getLastChild();
       if (!labeledStatement.isBlock()) {
-        return isOneExactlyFunctionOrDo(labeledStatement);
+        return isBlockDeclOrDo(labeledStatement);
       } else {
         // For labels with block children, we need to ensure that a
         // labeled FUNCTION or DO isn't generated when extraneous BLOCKs
         // are skipped.
         if (getNonEmptyChildCount(n, 2) == 1) {
-          return isOneExactlyFunctionOrDo(getFirstNonEmptyChild(n));
+          return isBlockDeclOrDo(getFirstNonEmptyChild(n));
         } else {
           // Either a empty statement or an block with more than one child,
           // way it isn't a FUNCTION or DO.
@@ -930,7 +1101,16 @@ class CodeGenerator {
         }
       }
     } else {
-      return (n.isFunction() || n.isDo());
+      switch (n.getType()){
+        case Token.LET:
+        case Token.CONST:
+        case Token.FUNCTION:
+        case Token.CLASS:
+        case Token.DO:
+          return true;
+        default:
+          return false;
+      }
     }
   }
 

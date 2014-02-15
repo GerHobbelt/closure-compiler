@@ -52,8 +52,7 @@ package com.google.javascript.rhino;
 public class Token {
 
     /**
-     * Token types.  These values correspond to JSTokenType values in
-     * jsscan.c.
+     * Token types.
      */
     public final static int
         ERROR          = -1,
@@ -156,6 +155,29 @@ public class Token {
         LABEL_NAME     = 153,
         STRING_KEY     = 154, // object literal key
         CAST           = 155,
+
+        // ES6
+        ARRAY_PATTERN  = 156, // destructuring patterns
+        OBJECT_PATTERN = 157,
+
+        CLASS          = 158, // classes
+        CLASS_MEMBERS  = 159, // class member container
+        MEMBER_DEF     = 160,
+        SUPER          = 161,
+
+        LET            = 162, // block scoped vars
+
+        FOR_OF         = 163, // for-of
+
+        YIELD          = 164, // generators
+
+        IMPORT         = 165, // modules
+        IMPORT_SPECS   = 166,
+        IMPORT_SPEC    = 167,
+        EXPORT         = 168,
+        EXPORT_SPECS   = 169,
+        EXPORT_SPEC    = 170,
+        MODULE         = 171,
 
         // JSDoc-only tokens
         ANNOTATION     = 300,
@@ -281,6 +303,23 @@ public class Token {
           case LB:              return "LB";
           case LC:              return "LC";
           case COLON:           return "COLON";
+
+          case ARRAY_PATTERN:   return "ARRAY_PATTERN";
+          case OBJECT_PATTERN:  return "OBJECT_PATTERN";
+          case CLASS:           return "CLASS";
+          case CLASS_MEMBERS:   return "CLASS_MEMBERS";
+          case MEMBER_DEF:      return "MEMBER_DEF";
+          case SUPER:           return "SUPER";
+          case LET:             return "LET";
+          case FOR_OF:          return "FOR_OF";
+          case YIELD:           return "YIELD";
+          case IMPORT:          return "IMPORT";
+          case IMPORT_SPECS:    return "IMPORT_SPECS";
+          case IMPORT_SPEC:     return "IMPORT_SPEC";
+          case EXPORT:          return "EXPORT";
+          case EXPORT_SPECS:    return "EXPORT_SPECS";
+          case EXPORT_SPEC:     return "EXPORT_SPEC";
+          case MODULE:          return "MODULE";
         }
 
         // Token without name

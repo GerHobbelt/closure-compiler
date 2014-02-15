@@ -104,7 +104,14 @@ public class Node implements Cloneable, Serializable {
                                   // have been inferred.
       CHANGE_TIME        = 56,    // For passes that work only on changed funs.
       REFLECTED_OBJECT   = 57,    // An object that's used for goog.object.reflect-style reflection.
-      LAST_PROP          = 57;    // Unused in the compiler, but keep for Rhino.
+      STATIC_MEMBER      = 58,    // Set if class member definition is static
+      GENERATOR_FN       = 59,    // Set if the node is a Generator function or
+                                  // member method.
+      ARROW_FN           = 60,
+      YIELD_FOR          = 61,    // Set if a yield is a "yield all"
+      EXPORT_DEFAULT     = 62,    // Set if a export is a "default" export
+      EXPORT_ALL_FROM    = 63,    // Set if a export is a "*" export
+      LAST_PROP          = 63;    // Unused in the compiler, but keep for Rhino.
 
   public static final int   // flags for INCRDECR_PROP
       DECR_FLAG = 0x1,
@@ -131,13 +138,19 @@ public class Node implements Cloneable, Serializable {
         case DIRECTIVES:         return "directives";
         case DIRECT_EVAL:        return "direct_eval";
         case FREE_CALL:          return "free_call";
-        case STATIC_SOURCE_FILE:    return "source_file";
-        case INPUT_ID:  return "input_id";
-        case LENGTH:    return "length";
-        case SLASH_V:   return "slash_v";
-        case INFERRED_FUNCTION:   return "inferred";
-        case CHANGE_TIME: return "change_time";
-        case REFLECTED_OBJECT: return "reflected_object";
+        case STATIC_SOURCE_FILE: return "source_file";
+        case INPUT_ID:           return "input_id";
+        case LENGTH:             return "length";
+        case SLASH_V:            return "slash_v";
+        case INFERRED_FUNCTION:  return "inferred";
+        case CHANGE_TIME:        return "change_time";
+        case REFLECTED_OBJECT:   return "reflected_object";
+        case STATIC_MEMBER:      return "static_member";
+        case GENERATOR_FN:       return "generator_fn";
+        case ARROW_FN:           return "arrow_fn";
+        case YIELD_FOR:          return "yield_for";
+        case EXPORT_DEFAULT:     return "export_default";
+        case EXPORT_ALL_FROM:    return "export_all_from";
         default:
           throw new IllegalStateException("unexpected prop id " + propType);
       }
@@ -1996,6 +2009,74 @@ public class Node implements Cloneable, Serializable {
     return getBooleanProp(EMPTY_BLOCK);
   }
 
+  /**
+   * Sets whether this node is a static member node. This
+   * method is meaningful only on {@link Token#GETTER_DEF},
+   * {@link Token#SETTER_DEF} or {@link Token#MEMBER_DEF} nodes contained
+   * within {@link Token#CLASS}.
+   */
+  public void setStaticMember(boolean isStatic) {
+    putBooleanProp(STATIC_MEMBER, isStatic);
+  }
+
+  /**
+   * Returns whether this node is a variable length argument node. This
+   * method's return value is meaningful only on {@link Token#NAME} nodes
+   * used to define a {@link Token#FUNCTION}'s argument list.
+   */
+  public boolean isStaticMember() {
+    return getBooleanProp(STATIC_MEMBER);
+  }
+
+  /**
+   * Sets whether this node is a generator node. This
+   * method is meaningful only on {@link Token#FUNCTION} or
+   * {@link Token#MEMBER_DEF} nodes.
+   */
+  public void setIsGeneratorFunction(boolean isGenerator) {
+    putBooleanProp(GENERATOR_FN, isGenerator);
+  }
+
+  /**
+   * Returns whether this node is a generator function node.
+   */
+  public boolean isGeneratorFunction() {
+    return getBooleanProp(GENERATOR_FN);
+  }
+
+  /**
+   * Sets whether this node is a arrow function node. This
+   * method is meaningful only on {@link Token#FUNCTION}
+   */
+  public void setIsArrowFunction(boolean isArrow) {
+    putBooleanProp(ARROW_FN, isArrow);
+  }
+
+  /**
+   * Returns whether this node is a arrow function node.
+   */
+  public boolean isArrowFunction() {
+    return getBooleanProp(ARROW_FN);
+  }
+
+  /**
+   * Sets whether this node is a generator node. This
+   * method is meaningful only on {@link Token#FUNCTION} or
+   * {@link Token#MEMBER_DEF} nodes.
+   */
+  public void setYieldFor(boolean isGenerator) {
+    putBooleanProp(YIELD_FOR, isGenerator);
+  }
+
+  /**
+   * Returns whether this node is a variable length argument node. This
+   * method's return value is meaningful only on {@link Token#NAME} nodes
+   * used to define a {@link Token#FUNCTION}'s argument list.
+   */
+  public boolean isYieldFor() {
+    return getBooleanProp(YIELD_FOR);
+  }
+
   // There are four values of interest:
   //   global state changes
   //   this state changes
@@ -2262,12 +2343,24 @@ public class Node implements Cloneable, Serializable {
     return this.getType() == Token.CATCH;
   }
 
+  public boolean isClass() {
+    return this.getType() == Token.CLASS;
+  }
+
+  public boolean isClassMembers() {
+    return this.getType() == Token.CLASS_MEMBERS;
+  }
+
   public boolean isComma() {
     return this.getType() == Token.COMMA;
   }
 
   public boolean isContinue() {
     return this.getType() == Token.CONTINUE;
+  }
+
+  public boolean isConst() {
+    return this.getType() == Token.CONST;
   }
 
   public boolean isDebugger() {
@@ -2304,6 +2397,10 @@ public class Node implements Cloneable, Serializable {
 
   public boolean isFor() {
     return this.getType() == Token.FOR;
+  }
+
+  public boolean isForOf() {
+    return this.getType() == Token.FOR_OF;
   }
 
   public boolean isFunction() {
@@ -2348,6 +2445,14 @@ public class Node implements Cloneable, Serializable {
 
   public boolean isLabelName() {
     return this.getType() == Token.LABEL_NAME;
+  }
+
+  public boolean isLet() {
+    return this.getType() == Token.LET;
+  }
+
+  public boolean isMemberDef() {
+    return this.getType() == Token.MEMBER_DEF;
   }
 
   public boolean isName() {
@@ -2408,6 +2513,10 @@ public class Node implements Cloneable, Serializable {
 
   public boolean isStringKey() {
     return this.getType() == Token.STRING_KEY;
+  }
+
+  public boolean isSuper() {
+    return this.getType() == Token.SUPER;
   }
 
   public boolean isSwitch() {

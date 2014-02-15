@@ -45,7 +45,6 @@ public class ParseTreeVisitor {
     case CASE_CLAUSE: visit(tree.asCaseClause()); break;
     case CATCH: visit(tree.asCatch()); break;
     case CLASS_DECLARATION: visit(tree.asClassDeclaration()); break;
-    case CLASS_EXPRESSION: visit(tree.asClassExpression()); break;
     case COMMA_EXPRESSION: visit(tree.asCommaExpression()); break;
     case CONDITIONAL_EXPRESSION: visit(tree.asConditionalExpression()); break;
     case CONTINUE_STATEMENT: visit(tree.asContinueStatement()); break;
@@ -56,9 +55,8 @@ public class ParseTreeVisitor {
     case EMPTY_STATEMENT: visit(tree.asEmptyStatement()); break;
     case EXPORT_DECLARATION: visit(tree.asExportDeclaration()); break;
     case EXPRESSION_STATEMENT: visit(tree.asExpressionStatement()); break;
-    case FIELD_DECLARATION: visit(tree.asFieldDeclaration()); break;
     case FINALLY: visit(tree.asFinally()); break;
-    case FOR_EACH_STATEMENT: visit(tree.asForEachStatement()); break;
+    case FOR_OF_STATEMENT: visit(tree.asForOfStatement()); break;
     case FOR_IN_STATEMENT: visit(tree.asForInStatement()); break;
     case FOR_STATEMENT: visit(tree.asForStatement()); break;
     case FORMAL_PARAMETER_LIST: visit(tree.asFormalParameterList()); break;
@@ -67,14 +65,13 @@ public class ParseTreeVisitor {
     case IDENTIFIER_EXPRESSION: visit(tree.asIdentifierExpression()); break;
     case IF_STATEMENT: visit(tree.asIfStatement()); break;
     case IMPORT_DECLARATION: visit(tree.asImportDeclaration()); break;
-    case IMPORT_PATH: visit(tree.asImportPath()); break;
     case IMPORT_SPECIFIER: visit(tree.asImportSpecifier()); break;
     case LABELLED_STATEMENT: visit(tree.asLabelledStatement()); break;
     case LITERAL_EXPRESSION: visit(tree.asLiteralExpression()); break;
     case MEMBER_EXPRESSION: visit(tree.asMemberExpression()); break;
     case MEMBER_LOOKUP_EXPRESSION: visit(tree.asMemberLookupExpression()); break;
     case MISSING_PRIMARY_EXPRESSION: visit(tree.asMissingPrimaryExpression()); break;
-    case MODULE_DEFINITION: visit(tree.asModuleDefinition()); break;
+    case MODULE_IMPORT: visit(tree.asModuleImport()); break;
     case NEW_EXPRESSION: visit(tree.asNewExpression()); break;
     case OBJECT_LITERAL_EXPRESSION: visit(tree.asObjectLiteralExpression()); break;
     case OBJECT_PATTERN: visit(tree.asObjectPattern()); break;
@@ -83,7 +80,6 @@ public class ParseTreeVisitor {
     case POSTFIX_EXPRESSION: visit(tree.asPostfixExpression()); break;
     case PROGRAM: visit(tree.asProgram()); break;
     case PROPERTY_NAME_ASSIGNMENT: visit(tree.asPropertyNameAssignment()); break;
-    case REQUIRES_MEMBER: visit(tree.asRequiresMember()); break;
     case REST_PARAMETER: visit(tree.asRestParameter()); break;
     case RETURN_STATEMENT: visit(tree.asReturnStatement()); break;
     case SET_ACCESSOR: visit(tree.asSetAccessor()); break;
@@ -100,7 +96,7 @@ public class ParseTreeVisitor {
     case VARIABLE_STATEMENT: visit(tree.asVariableStatement()); break;
     case WHILE_STATEMENT: visit(tree.asWhileStatement()); break;
     case WITH_STATEMENT: visit(tree.asWithStatement()); break;
-    case YIELD_STATEMENT: visit(tree.asYieldStatement()); break;
+    case YIELD_EXPRESSION: visit(tree.asYieldStatement()); break;
     case NULL: visit(tree.asNull()); break;
     default:
       throw new RuntimeException("Unimplemented");
@@ -158,9 +154,6 @@ public class ParseTreeVisitor {
     visitList(tree.elements);
   }
 
-  protected void visit(ClassExpressionTree tree) {
-  }
-
   protected void visit(CommaExpressionTree tree) {
     visitList(tree.expressions);
   }
@@ -202,15 +195,11 @@ public class ParseTreeVisitor {
     visitAny(tree.expression);
   }
 
-  protected void visit(FieldDeclarationTree tree) {
-    visitList(tree.declarations);
-  }
-
   protected void visit(FinallyTree tree) {
     visitAny(tree.block);
   }
 
-  protected void visit(ForEachStatementTree tree) {
+  protected void visit(ForOfStatementTree tree) {
     visitAny(tree.initializer);
     visitAny(tree.collection);
     visitAny(tree.body);
@@ -251,13 +240,7 @@ public class ParseTreeVisitor {
   }
 
   protected void visit(ImportDeclarationTree tree) {
-    visitList(tree.importPathList);
-  }
-
-  protected void visit(ImportPathTree tree) {
-    if (tree.importSpecifierSet != null) {
-      visitList(tree.importSpecifierSet);
-    }
+    visitList(tree.importSpecifierList);
   }
 
   protected void visit(ImportSpecifierTree tree) {
@@ -282,8 +265,7 @@ public class ParseTreeVisitor {
   protected void visit(MissingPrimaryExpressionTree tree) {
   }
 
-  protected void visit(ModuleDefinitionTree tree) {
-    visitList(tree.elements);
+  protected void visit(ModuleImportTree tree) {
   }
 
   protected void visit(NewExpressionTree tree) {
@@ -320,9 +302,6 @@ public class ParseTreeVisitor {
 
   protected void visit(PropertyNameAssignmentTree tree) {
     visitAny(tree.value);
-  }
-
-  protected void visit(RequiresMemberTree tree) {
   }
 
   protected void visit(RestParameterTree tree) {
@@ -392,7 +371,7 @@ public class ParseTreeVisitor {
     visitAny(tree.body);
   }
 
-  protected void visit(YieldStatementTree tree) {
+  protected void visit(YieldExpressionTree tree) {
     visitAny(tree.expression);
   }
 }
