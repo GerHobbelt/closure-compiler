@@ -94,11 +94,11 @@ public class ConstCheckTest extends CompilerTestCase {
   }
 
   public void testConstantPreIncremented1() {
-    testError("var XYZ = 1; XYZ++;");
+    testError("var XYZ = 1; ++XYZ;");
   }
 
   public void testConstantPreIncremented2() {
-    testError("var a$b$XYZ = 1; a$b$XYZ++;");
+    testError("var a$b$XYZ = 1; ++a$b$XYZ;");
   }
 
   public void testConstantPostDecremented1() {
@@ -110,11 +110,11 @@ public class ConstCheckTest extends CompilerTestCase {
   }
 
   public void testConstantPreDecremented1() {
-    testError("var XYZ = 1; XYZ--;");
+    testError("var XYZ = 1; --XYZ;");
   }
 
   public void testConstantPreDecremented2() {
-    testError("var a$b$XYZ = 1; a$b$XYZ--;");
+    testError("var a$b$XYZ = 1; --a$b$XYZ;");
   }
 
   public void testAbbreviatedArithmeticAssignment1() {
@@ -151,6 +151,12 @@ public class ConstCheckTest extends CompilerTestCase {
              " * @suppress {const}\n" +
              " */\n" +
              "/** @const */ var xyz = 1; xyz = 3;");
+  }
+
+  public void testConstNameInExterns() {
+    String externs = "/** @const */ var FOO;";
+    String js = "FOO = 1;";
+    test(externs, js, (String) null, ConstCheck.CONST_REASSIGNED_VALUE_ERROR, null);
   }
 
   private void testError(String js) {

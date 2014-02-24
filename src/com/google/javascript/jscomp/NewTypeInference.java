@@ -438,10 +438,18 @@ public class NewTypeInference implements CompilerPass {
             if (rhs == null || currentScope.isLocalFunDef(varName)) {
               continue;
             }
-            JSType requiredType = (declType == null) ?
-                JSType.UNKNOWN : declType;
-            inEnv = analyzeExprBwd(rhs, inEnv,
-                JSType.meet(requiredType, envGetType(outEnv, varName))).env;
+            JSType inferredType = envGetType(outEnv, varName);
+            JSType requiredType;
+            if (declType == null) {
+              requiredType = inferredType;
+            } else {
+              // TODO(user): look if the meet is needed
+              requiredType = JSType.meet(declType, inferredType);
+              if (requiredType.isBottom()) {
+                requiredType = JSType.UNKNOWN;
+              }
+            }
+            inEnv = analyzeExprBwd(rhs, inEnv, requiredType).env;
           }
           break;
         }
@@ -1290,6 +1298,16 @@ public class NewTypeInference implements CompilerPass {
           env = analyzeExprFwd(arrayElm, env).env;
         }
         return new EnvTypePair(env, arrayType);
+      case Token.CAST:
+        EnvTypePair pair = analyzeExprFwd(expr.getFirstChild(), inEnv);
+        JSType fromType = pair.type;
+        JSType toType = symbolTable.getCastType(expr);
+        if (!toType.isSubtypeOf(fromType) && !fromType.isSubtypeOf(toType)) {
+          warnings.add(JSError.make(expr, TypeValidator.INVALID_CAST,
+                  fromType.toString(), toType.toString()));
+        }
+        pair.type = toType;
+        return pair;
       default:
         throw new RuntimeException("Unhandled expression type: " +
               Token.name(expr.getType()));
@@ -1612,8 +1630,8 @@ public class NewTypeInference implements CompilerPass {
    */
   private EnvTypePair analyzeExprBwd(
       Node expr, TypeEnv outEnv, JSType requiredType) {
-    Preconditions.checkArgument(
-        requiredType != null && !requiredType.isBottom());
+    Preconditions.checkArgument(requiredType != null);
+    Preconditions.checkArgument(!requiredType.isBottom());
     int exprKind = expr.getType();
     switch (exprKind) {
       case Token.EMPTY: // can be created by a FOR with empty condition
@@ -1949,6 +1967,10 @@ public class NewTypeInference implements CompilerPass {
           env = analyzeExprBwd(arrayElm, env).env;
         }
         return new EnvTypePair(env, arrayType);
+      case Token.CAST:
+        EnvTypePair pair = analyzeExprBwd(expr.getFirstChild(), outEnv);
+        pair.type = symbolTable.getCastType(expr);
+        return pair;
       default:
         throw new RuntimeException("BWD: Unhandled expression type: "
             + Token.name(expr.getType()) + " with parent: " + expr.getParent());
