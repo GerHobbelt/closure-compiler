@@ -20,6 +20,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -38,6 +39,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -59,11 +61,6 @@ public class DefaultPassConfig extends PassConfig {
 
   /* Constant name for Closure's locale */
   private static final String CLOSURE_LOCALE_CONSTANT_NAME = "goog.LOCALE";
-
-  // Compiler errors when invalid combinations of passes are run.
-  static final DiagnosticType TIGHTEN_TYPES_WITHOUT_TYPE_CHECK =
-      DiagnosticType.error("JSC_TIGHTEN_TYPES_WITHOUT_TYPE_CHECK",
-          "TightenTypes requires type checking. Please use --check_types.");
 
   static final DiagnosticType CANNOT_USE_PROTOTYPE_AND_VAR =
       DiagnosticType.error("JSC_CANNOT_USE_PROTOTYPE_AND_VAR",
@@ -100,11 +97,6 @@ public class DefaultPassConfig extends PassConfig {
    * preprocessing.
    */
   private PreprocessorSymbolTable preprocessorSymbolTable = null;
-
-  /**
-   * A type-tightener to share across optimization passes.
-   */
-  private TightenTypes tightenTypes = null;
 
   /** Names exported by goog.exportSymbol. */
   private Set<String> exportedNames = null;
@@ -430,11 +422,6 @@ public class DefaultPassConfig extends PassConfig {
       passes.add(collapseProperties);
     }
 
-    // Tighten types based on actual usage.
-    if (options.tightenTypes) {
-      passes.add(tightenTypesBuilder);
-    }
-
     // Running this pass before disambiguate properties allow the removing
     // unused methods that share the same name as methods called from unused
     // code.
@@ -478,13 +465,6 @@ public class DefaultPassConfig extends PassConfig {
     // Detects whether invocations of the method goog.string.Const.from are done
     // with an argument which is a string literal.
     passes.add(checkConstParams);
-
-    // The Caja library adds properties to Object.prototype, which breaks
-    // most for-in loops.  This adds a check to each loop that skips
-    // any property matching /___$/.
-    if (options.ignoreCajaProperties) {
-      passes.add(ignoreCajaProperties);
-    }
 
     assertAllOneTimePasses(passes);
 
@@ -1432,10 +1412,11 @@ public class DefaultPassConfig extends PassConfig {
       return new CompilerPass() {
         @Override
         public void process(Node externs, Node jsRoot) {
-          Map<String, Node> replacements = getAdditionalReplacements(options);
+          HashMap<String, Node> replacements = new HashMap<>();
+          replacements.putAll(compiler.getDefaultDefineValues());
+          replacements.putAll(getAdditionalReplacements(options));
           replacements.putAll(options.getDefineReplacements());
-
-          new ProcessDefines(compiler, replacements)
+          new ProcessDefines(compiler, ImmutableMap.copyOf(replacements))
               .injectNamespace(namespaceForChecks).process(externs, jsRoot);
         }
       };
@@ -1496,15 +1477,6 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return ((functionNames = new FunctionNames(compiler)));
-    }
-  };
-
-  /** Skips Caja-private properties in for-in loops */
-  final PassFactory ignoreCajaProperties =
-      new PassFactory("ignoreCajaProperties", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new IgnoreCajaProperties(compiler);
     }
   };
 
@@ -1616,22 +1588,6 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /**
-   * Try to infer the actual types, which may be narrower
-   * than the declared types.
-   */
-  final PassFactory tightenTypesBuilder =
-      new PassFactory("tightenTypes", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      if (!options.checkTypes) {
-        return new ErrorPass(compiler, TIGHTEN_TYPES_WITHOUT_TYPE_CHECK);
-      }
-      tightenTypes = new TightenTypes(compiler);
-      return tightenTypes;
-    }
-  };
-
   /** Disambiguate property names based on the coding convention. */
   final PassFactory disambiguatePrivateProperties =
       new PassFactory("disambiguatePrivateProperties", true) {
@@ -1646,13 +1602,8 @@ public class DefaultPassConfig extends PassConfig {
       new PassFactory("disambiguateProperties", true) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      if (tightenTypes == null) {
-        return DisambiguateProperties.forJSTypeSystem(compiler,
-            options.propertyInvalidationErrors);
-      } else {
-        return DisambiguateProperties.forConcreteTypeSystem(
-            compiler, tightenTypes, options.propertyInvalidationErrors);
-      }
+      return DisambiguateProperties.forJSTypeSystem(compiler,
+          options.propertyInvalidationErrors);
     }
   };
 

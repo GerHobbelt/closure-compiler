@@ -727,12 +727,6 @@ public class IntegrationTest extends IntegrationTestCase {
         "JSCompiler_object_inline_bar_1=3}");
   }
 
-  public void testTightenTypesWithoutTypeCheck() {
-    CompilerOptions options = createCompilerOptions();
-    options.tightenTypes = true;
-    test(options, "", DefaultPassConfig.TIGHTEN_TYPES_WITHOUT_TYPE_CHECK);
-  }
-
   public void testDisambiguateProperties() {
     String code =
         "/** @constructor */ function Foo(){} Foo.prototype.bar = 3;" +
@@ -2789,6 +2783,63 @@ public class IntegrationTest extends IntegrationTestCase {
         "    return !1\n" +
         "  }}\n" +
         "}\n" +
+        "";
+
+    test(options, code, result);
+  }
+
+  public void testClosureDefines() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
+    level.setOptionsForCompilationLevel(options);
+    WarningLevel warnings = WarningLevel.DEFAULT;
+    warnings.setOptionsForWarningLevel(options);
+
+    String code = "" +
+        "var CLOSURE_DEFINES = {\n" +
+        "  'FOO': 1,\n" +
+        "  'BAR': true\n" +
+        "};\n" +
+        "\n" +
+        "/** @define {number} */ var FOO = 0;\n" +
+        "/** @define {boolean} */ var BAR = false;\n" +
+        "";
+
+    String result = "" +
+        "var CLOSURE_DEFINES = {\n" +
+        "  FOO: 1,\n" +
+        "  BAR: !0\n" +
+        "}," +
+        "FOO = 1," +
+        "BAR = !0" +
+        "";
+
+    test(options, code, result);
+  }
+
+  public void testClosureDefinesDuplicates2() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
+    level.setOptionsForCompilationLevel(options);
+    WarningLevel warnings = WarningLevel.DEFAULT;
+    warnings.setOptionsForWarningLevel(options);
+    options.setDefineToNumberLiteral("FOO", 3);
+
+    String code = "" +
+        "var CLOSURE_DEFINES = {\n" +
+        "  'FOO': 1,\n" +
+        "  'FOO': 2\n" +
+        "};\n" +
+        "\n" +
+        "/** @define {number} */ var FOO = 0;\n" +
+        "";
+
+    String result = "" +
+        "var CLOSURE_DEFINES = {\n" +
+        "  FOO: 1,\n" +
+        "  FOO: 2\n" +
+        "}," +
+        "FOO = 3" +
         "";
 
     test(options, code, result);

@@ -1348,8 +1348,8 @@ angular.$interpolateProvider.endSymbol;
  *   port: function():number,
  *   protocol: function():string,
  *   replace: function(),
- *   search: function((string|Object.<string, string>)=, ?string=):
- *       (string|!Object.<string, string>),
+ *   search: function((string|Object.<string, string>)=,
+ *       ?(string|Array.<string>)=): (string|!Object.<string, string>),
  *   url: function(string=):string
  *   }}
  */
@@ -1394,7 +1394,7 @@ angular.$location.replace = function() {};
 
 /**
  * @param {(string|Object.<string, string>)=} opt_search
- * @param {?string=} opt_paramValue
+ * @param {?(string|Array.<string>)=} opt_paramValue
  * @return {string|!Object.<string, string>}
  */
 angular.$location.search = function(opt_search, opt_paramValue) {};
@@ -1792,7 +1792,9 @@ angular.$route.routes;
  *   locals: Object.<string, *>,
  *   params: Object.<string, string>,
  *   pathParams: Object.<string, string>,
- *   scope: Object.<string, *>
+ *   scope: Object.<string, *>,
+ *   originalPath: (string|undefined),
+ *   regexp: (RegExp|undefined)
  * }}
  */
 angular.$route.Route;
@@ -1811,6 +1813,12 @@ angular.$route.Route.pathParams;
 
 /** @type {Object.<string, *>} */
 angular.$route.Route.scope;
+
+/** @type {string|undefined} */
+angular.$route.Route.originalPath;
+
+/** @type {RegExp|undefined} */
+angular.$route.Route.regexp;
 
 /******************************************************************************
  * $routeProvider Service

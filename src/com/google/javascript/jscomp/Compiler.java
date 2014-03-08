@@ -22,6 +22,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.CharStreams;
@@ -365,17 +366,6 @@ public class Compiler extends AbstractCompiler {
 
   /**
    * Initializes the instance state needed for a compile job.
-   * @deprecated Convert your arrays to lists and use the list-based API.
-   */
-  @Deprecated
-  public void init(JSSourceFile[] externs, JSSourceFile[] inputs,
-      CompilerOptions options) {
-    init(Lists.<JSSourceFile>newArrayList(externs),
-        Lists.<JSSourceFile>newArrayList(inputs), options);
-  }
-
-  /**
-   * Initializes the instance state needed for a compile job.
    */
   public <T1 extends SourceFile, T2 extends SourceFile> void init(
       List<T1> externs,
@@ -387,18 +377,6 @@ public class Compiler extends AbstractCompiler {
     }
 
     initModules(externs, Lists.newArrayList(module), options);
-  }
-
-  /**
-   * Initializes the instance state needed for a compile job if the sources
-   * are in modules.
-   * @deprecated Convert your arrays to lists and use the list-based API.
-   */
-  @Deprecated
-  public void init(JSSourceFile[] externs, JSModule[] modules,
-      CompilerOptions options) {
-    initModules(Lists.<SourceFile>newArrayList(externs),
-         Lists.<JSModule>newArrayList(modules), options);
   }
 
   /**
@@ -566,40 +544,6 @@ public class Compiler extends AbstractCompiler {
   }
 
   /**
-   * @deprecated Convert your arrays to lists and use the list-based API.
-   */
-  @Deprecated
-  public Result compile(
-      SourceFile extern, JSSourceFile[] input, CompilerOptions options) {
-     return compile(Lists.newArrayList(extern), Lists.newArrayList(input), options);
-  }
-
-  /**
-   * @deprecated Convert your arrays to lists and use the list-based
-   *     compileModules method.
-   */
-  @Deprecated
-  public Result compile(
-      JSSourceFile extern, JSModule[] modules, CompilerOptions options) {
-     return compileModules(
-         Lists.newArrayList(extern), Lists.newArrayList(modules), options);
-  }
-
-  /**
-   * Compiles a list of inputs.
-   * @deprecated Convert your arrays to lists and use the list-based compile
-   *     method.
-   */
-  @Deprecated
-  public Result compile(JSSourceFile[] externs,
-                        JSSourceFile[] inputs,
-                        CompilerOptions options) {
-    return compile(Lists.<SourceFile>newArrayList(externs),
-        Lists.<SourceFile>newArrayList(inputs),
-        options);
-  }
-
-  /**
    * Compiles a list of inputs.
    */
   public <T1 extends SourceFile, T2 extends SourceFile> Result compile(
@@ -618,20 +562,6 @@ public class Compiler extends AbstractCompiler {
       errorManager.generateReport();
       stopTracer(t, "generateReport");
     }
-  }
-
-  /**
-   * Compiles a list of modules.
-   * @deprecated Convert your arrays to lists and use the list-based
-   *     compileModules method.
-   */
-  @Deprecated
-  public Result compile(JSSourceFile[] externs,
-                        JSModule[] modules,
-                        CompilerOptions options) {
-    return compileModules(Lists.<SourceFile>newArrayList(externs),
-        Lists.<JSModule>newArrayList(modules),
-        options);
   }
 
   /**
@@ -2029,6 +1959,8 @@ public class Compiler extends AbstractCompiler {
 
   private CompilerInput synthesizedExternsInput = null;
 
+  private ImmutableMap<String, Node> defaultDefineValues = ImmutableMap.of();
+
   @Override
   void addChangeHandler(CodeChangeHandler handler) {
     codeChangeHandlers.add(handler);
@@ -2677,5 +2609,15 @@ public class Compiler extends AbstractCompiler {
   @Override
   public AstRoot getOldParseTreeByName(String sourceName) {
     return null;
+  }
+
+  @Override
+  void setDefaultDefineValues(ImmutableMap<String, Node> values) {
+    this.defaultDefineValues = values;
+  }
+
+  @Override
+  ImmutableMap<String, Node> getDefaultDefineValues() {
+    return this.defaultDefineValues;
   }
 }

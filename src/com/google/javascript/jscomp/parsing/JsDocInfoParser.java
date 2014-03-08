@@ -376,6 +376,14 @@ public final class JsDocInfoParser {
           }
           return eatUntilEOLIfNotAnnotation();
 
+        case UNRESTRICTED:
+          if (!jsdocBuilder.recordUnrestricted()) {
+            parser.addTypeWarning("msg.jsdoc.incompat.type",
+                                  stream.getLineno(),
+                                  stream.getCharno());
+          }
+          return eatUntilEOLIfNotAnnotation();
+
         case STRUCT:
           if (!jsdocBuilder.recordStruct()) {
             parser.addTypeWarning("msg.jsdoc.incompat.type",
@@ -996,6 +1004,8 @@ public final class JsDocInfoParser {
               }
             }
 
+            boolean isAnnotationNext = lookAheadForAnnotation();
+
             switch (annotation) {
               case CONSTANT:
                 if (!jsdocBuilder.recordConstancy()) {
@@ -1009,7 +1019,10 @@ public final class JsDocInfoParser {
                   parser.addParserWarning("msg.jsdoc.define",
                       lineno, charno);
                 }
-                return recordDescription(token);
+                if (!isAnnotationNext) {
+                  return recordDescription(token);
+                }
+                break;
 
               case PRIVATE:
                 if (!jsdocBuilder.recordVisibility(Visibility.PRIVATE)) {
@@ -1017,7 +1030,10 @@ public final class JsDocInfoParser {
                       "msg.jsdoc.visibility.private",
                       lineno, charno);
                 }
-                return recordDescription(token);
+                if (!isAnnotationNext) {
+                  return recordDescription(token);
+                }
+                break;
 
               case PROTECTED:
                 if (!jsdocBuilder.recordVisibility(Visibility.PROTECTED)) {
@@ -1025,7 +1041,10 @@ public final class JsDocInfoParser {
                       "msg.jsdoc.visibility.protected",
                       lineno, charno);
                 }
-                return recordDescription(token);
+                if (!isAnnotationNext) {
+                  return recordDescription(token);
+                }
+                break;
 
               case PUBLIC:
                 if (!jsdocBuilder.recordVisibility(Visibility.PUBLIC)) {
@@ -1033,7 +1052,10 @@ public final class JsDocInfoParser {
                       "msg.jsdoc.visibility.public",
                       lineno, charno);
                 }
-                return recordDescription(token);
+                if (!isAnnotationNext) {
+                  return recordDescription(token);
+                }
+                break;
 
               case RETURN:
                 if (type == null) {
@@ -1050,8 +1072,6 @@ public final class JsDocInfoParser {
                 // and friends look directly at the stream, regardless of
                 // last token read, so we don't want to read the first
                 // "STRING" out of the stream.
-
-                boolean isAnnotationNext = lookAheadForAnnotation();
 
                 // Find the return's description (if applicable).
                 if (jsdocBuilder.shouldParseDocumentation()

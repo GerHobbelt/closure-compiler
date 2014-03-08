@@ -28,7 +28,6 @@ import com.google.javascript.rhino.SourcePosition;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.text.ParseException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -160,13 +159,6 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** Checks types on expressions */
   public boolean checkTypes;
-
-  boolean tightenTypes;
-
-  /** Tightens types based on a global analysis. Experimental. */
-  public void setTightenTypes(boolean tighten) {
-    tightenTypes = tighten;
-  }
 
   public CheckLevel reportMissingOverride;
 
@@ -626,13 +618,6 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** A CodingConvention to use during the compile. */
   private CodingConvention codingConvention;
 
-  boolean ignoreCajaProperties;
-
-  /** Add code to skip properties that Caja adds to Object.prototype */
-  public void setIgnoreCajaProperties(boolean enabled) {
-    ignoreCajaProperties = enabled;
-  }
-
   public String syntheticBlockStartMarker;
 
   public String syntheticBlockEndMarker;
@@ -868,7 +853,7 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** The detail level for the generated source map. */
   public SourceMap.DetailLevel sourceMapDetailLevel =
-      SourceMap.DetailLevel.SYMBOLS;
+      SourceMap.DetailLevel.ALL;
 
   /** The source map file format */
   public SourceMap.Format sourceMapFormat =
@@ -938,7 +923,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     checkSuspiciousCode = false;
     checkControlStructures = false;
     checkTypes = false;
-    tightenTypes = false;
     reportMissingOverride = CheckLevel.OFF;
     checkRequires = CheckLevel.OFF;
     checkProvides = CheckLevel.OFF;
@@ -1017,7 +1001,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     // Alterations
     runtimeTypeCheck = false;
     runtimeTypeCheckLogFunction = null;
-    ignoreCajaProperties = false;
     syntheticBlockStartMarker = null;
     syntheticBlockEndMarker = null;
     locale = null;
@@ -1378,14 +1361,6 @@ public class CompilerOptions implements Serializable, Cloneable {
   /**
    * Set the variable removal policy for the compiler.
    */
-  @Deprecated
-  public void setRemoveUnusedVariable(Reach reach) {
-    setRemoveUnusedVariables(reach);
-  }
-
-  /**
-   * Set the variable removal policy for the compiler.
-   */
   public void setRemoveUnusedVariables(Reach reach) {
     switch (reach) {
       case ALL:
@@ -1413,10 +1388,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.replaceStringsPlaceholderToken = placeholderToken;
     this.replaceStringsFunctionDescriptions =
         Lists.newArrayList(functionDescriptors);
-  }
-
-  @Deprecated
-  public void setRewriteNewDateGoogNow(boolean rewrite) {
   }
 
   public void setRemoveAbstractMethods(boolean remove) {
@@ -1989,20 +1960,8 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.inputAnonymousFunctionNamingMap = inputMap;
   }
 
-  @Deprecated
-  public void setInputVariableMapSerialized(byte[] inputVariableMapSerialized)
-      throws ParseException {
-    this.inputVariableMap = VariableMap.fromBytes(inputVariableMapSerialized);
-  }
-
   public void setInputVariableMap(VariableMap inputVariableMap) {
     this.inputVariableMap = inputVariableMap;
-  }
-
-  @Deprecated
-  public void setInputPropertyMapSerialized(byte[] inputPropertyMapSerialized)
-      throws ParseException {
-    this.inputPropertyMap = VariableMap.fromBytes(inputPropertyMapSerialized);
   }
 
   public void setInputPropertyMap(VariableMap inputPropertyMap) {

@@ -204,107 +204,188 @@ class GlobalTypeInfo implements CompilerPass {
     compiler.setSymbolTable(this);
   }
 
+  private Collection<PropertyDef> getPropDefsFromInterface(
+      NominalType nominalType, String pname) {
+    Preconditions.checkState(nominalType.isFinalized());
+    Preconditions.checkState(nominalType.isInterface());
+    if (nominalType.getPropDeclaredType(pname) == null) {
+      return ImmutableSet.of();
+    } else if (propertyDefs.get(nominalType.getId(), pname) != null) {
+      return ImmutableSet.of(propertyDefs.get(nominalType.getId(), pname));
+    }
+    ImmutableSet.Builder<PropertyDef> result = ImmutableSet.builder();
+    for (NominalType interf : nominalType.getInstantiatedInterfaces()) {
+      result.addAll(getPropDefsFromInterface(interf, pname));
+    }
+    return result.build();
+  }
+
+  private PropertyDef getPropDefFromClass(
+      NominalType nominalType, String pname) {
+    Preconditions.checkState(nominalType.isFinalized());
+    Preconditions.checkState(nominalType.isClass());
+    if (nominalType.getPropDeclaredType(pname) == null) {
+      return null;
+    } else if (propertyDefs.get(nominalType.getId(), pname) != null) {
+      return propertyDefs.get(nominalType.getId(), pname);
+    }
+    return getPropDefFromClass(nominalType.getInstantiatedSuperclass(), pname);
+  }
+
   /** Report all errors that must be checked at the end of GlobalTypeInfo */
   private void reportInheritanceErrors() {
     Deque<Node> workset = Lists.newLinkedList(nominaltypesByNode.keySet());
+    int iterations = 0;
+    final int MAX_ITERATIONS = 50000;
   workset_loop:
     while (!workset.isEmpty()) {
+      // TODO(blickly): Fix this infinite loop and remove these counters
+      Preconditions.checkState(iterations < MAX_ITERATIONS);
       Node funNode = workset.removeFirst();
       RawNominalType rawNominalType = nominaltypesByNode.get(funNode);
       NominalType superClass = rawNominalType.getSuperClass();
-      if (superClass != null && !superClass.getRawNominalType().isFinalized()) {
+      if (superClass != null && !superClass.isFinalized()) {
         workset.addLast(funNode);
+        iterations++;
         continue workset_loop;
       }
       for (NominalType superInterf : rawNominalType.getInterfaces()) {
-        if (!superInterf.getRawNominalType().isFinalized()) {
+        if (!superInterf.isFinalized()) {
           workset.addLast(funNode);
+          iterations++;
           continue workset_loop;
         }
       }
 
       // Detect bad inheritance for extended classes
       if (superClass != null) {
+        Preconditions.checkState(superClass.isFinalized());
         // TODO(blickly): Can we optimize this to skip unnecessary iterations?
-        for (String pname :
-            superClass.getRawNominalType().getAllPropsOfClass()) {
-          PropertyDef propDef = propertyDefs.get(rawNominalType.getId(), pname);
+        for (String pname : superClass.getAllPropsOfClass()) {
+          PropertyDef localPropDef =
+              propertyDefs.get(rawNominalType.getId(), pname);
           PropertyDef inheritedPropDef =
-              propertyDefs.get(superClass.getRawNominalType().getId(), pname);
-          if (inheritedPropDef != null &&
-              inheritedPropDef.methodScope != null) {
-            // TODO(blickly): Save DeclaredFunctionTypes somewhere other than
-            // inside Scopes so that we can access them even for methods that
-            // do not create a Scope at definition site.
-            DeclaredFunctionType propDeclType;
-            if (propDef == null || propDef.methodScope == null) {
-              propDeclType = inheritedPropDef.methodScope.getDeclaredType();
-            } else {
-              DeclaredFunctionType funDeclType =
-                  propDef.methodScope.getDeclaredType();
-              DeclaredFunctionType inheritedFunDeclType =
-                  inheritedPropDef.methodScope.getDeclaredType();
-              propDeclType =
-                  funDeclType.withTypeInfoFromSuper(inheritedFunDeclType);
-              propDef.methodScope.setDeclaredType(propDeclType);
-            }
-            rawNominalType.addProtoProperty(pname,
-                JSType.fromFunctionType(propDeclType.toFunctionType()));
-          }
+              getPropDefFromClass(superClass, pname);
           JSType inheritedPropType = superClass.getPropDeclaredType(pname);
           if (inheritedPropType == null) {
             // No need to go further for undeclared props.
             continue;
           }
-          JSType localPropType = rawNominalType.getPropDeclaredType(pname);
-          // System.out.println("nominalType: " + rawNominalType + "." + pname +
-          //     " inheritedPropType: " + inheritedPropType +
-          //  " localPropType: " + localPropType);
-          if (!localPropType.isSubtypeOf(inheritedPropType)) {
-            warnings.add(JSError.make(
-                propertyDefs.get(rawNominalType.getId(), pname).defSite,
-                INVALID_PROP_OVERRIDE, pname,
-                inheritedPropType.toString(), localPropType.toString()));
-          }
-        }
-      }
-
-      // Detect bad inheritance for extended/implemented interfaces
-      for (NominalType superInterf: rawNominalType.getInterfaces()) {
-        for (String pname :
-            superInterf.getRawNominalType().getAllPropsOfInterface()) {
-          PropertyDef inheritedPropDef =
-              propertyDefs.get(superInterf.getRawNominalType().getId(), pname);
-          JSType inheritedPropType = superInterf.getPropDeclaredType(pname);
-          if (!rawNominalType.mayHaveProp(pname)) {
-            warnings.add(JSError.make(inheritedPropDef.defSite,
-                    TypeValidator.INTERFACE_METHOD_NOT_IMPLEMENTED,
-                    pname, superInterf.toString(), rawNominalType.toString()));
-            continue;
-          }
-          PropertyDef propDef = propertyDefs.get(rawNominalType.getId(), pname);
-          JSType localPropType = rawNominalType.getPropDeclaredType(pname);
+          JSType localPropType = localPropDef == null ? null :
+              rawNominalType.getPropDeclaredType(pname);
+          System.out.println("nominalType: " + rawNominalType + "'s " + pname +
+              " localPropType: " + localPropType +
+              " with superClass: " + superClass +
+              " inheritedPropType: " + inheritedPropType);
           if (localPropType != null &&
               !localPropType.isSubtypeOf(inheritedPropType)) {
             warnings.add(JSError.make(
-                propDef.defSite, INVALID_PROP_OVERRIDE, pname,
+                localPropDef.defSite, INVALID_PROP_OVERRIDE, pname,
                 inheritedPropType.toString(), localPropType.toString()));
-          } else if (rawNominalType.isClass()) {
-            if (localPropType == null) {
-              // Add property from interface to class
-              rawNominalType.addProtoProperty(pname, inheritedPropType);
-            } else if (propDef.methodScope != null) {
-              // If we are looking at a method definition, munging may be needed
-              DeclaredFunctionType propDeclType =
-                  propDef.methodScope.getDeclaredType();
-              propDeclType = propDeclType.withTypeInfoFromSuper(
-                  inheritedPropDef.methodScope.getDeclaredType());
-              propDef.methodScope.setDeclaredType(propDeclType);
+          } else {
+            if (inheritedPropDef != null &&
+                inheritedPropDef.methodScope != null) {
+              // TODO(blickly): Save DeclaredFunctionTypes somewhere other than
+              // inside Scopes so that we can access them even for methods that
+              // do not create a Scope at definition site.
+              DeclaredFunctionType propDeclType;
+              if (localPropDef == null || localPropDef.methodScope == null) {
+                propDeclType = inheritedPropDef.methodScope.getDeclaredType();
+              } else {
+                DeclaredFunctionType funDeclType =
+                    localPropDef.methodScope.getDeclaredType();
+                DeclaredFunctionType inheritedFunDeclType =
+                    inheritedPropDef.methodScope.getDeclaredType();
+                propDeclType =
+                    funDeclType.withTypeInfoFromSuper(inheritedFunDeclType);
+                localPropDef.methodScope.setDeclaredType(propDeclType);
+              }
               rawNominalType.addProtoProperty(pname,
                   JSType.fromFunctionType(propDeclType.toFunctionType()));
             }
           }
         }
+      }
+
+      Multimap<String, DeclaredFunctionType> propMethodTypesToProcess =
+          HashMultimap.create();
+      Multimap<String, JSType> propTypesToProcess = HashMultimap.create();
+      // Detect bad inheritance for extended/implemented interfaces
+      for (NominalType superInterf: rawNominalType.getInterfaces()) {
+        Preconditions.checkState(superInterf.isFinalized());
+        for (String pname : superInterf.getAllPropsOfInterface()) {
+          Collection<PropertyDef> inheritedPropDefs =
+              getPropDefsFromInterface(superInterf, pname);
+          if (!rawNominalType.mayHaveProp(pname)) {
+            warnings.add(JSError.make(
+                inheritedPropDefs.iterator().next().defSite,
+                TypeValidator.INTERFACE_METHOD_NOT_IMPLEMENTED,
+                pname, superInterf.toString(), rawNominalType.toString()));
+            continue;
+          }
+          PropertyDef localPropDef =
+              propertyDefs.get(rawNominalType.getId(), pname);
+          JSType localPropType = localPropDef == null ? null :
+              rawNominalType.getPropDeclaredType(pname);
+          JSType inheritedPropType = superInterf.getPropDeclaredType(pname);
+          System.out.println("nominalType: " + rawNominalType + "'s " + pname +
+              " localPropType: " + localPropType +
+              " with superInterf: " + superInterf +
+              " inheritedPropType: " + inheritedPropType);
+          if (localPropType != null &&
+              !localPropType.isSubtypeOf(inheritedPropType)) {
+            warnings.add(JSError.make(
+                localPropDef.defSite, INVALID_PROP_OVERRIDE, pname,
+                inheritedPropType.toString(), localPropType.toString()));
+          } else {
+            if (localPropType == null) {
+              // Add property from interface to class
+              propTypesToProcess.put(pname, inheritedPropType);
+            } else if (localPropDef.methodScope != null) {
+              // If we are looking at a method definition, munging may be needed
+              for (PropertyDef inheritedPropDef : inheritedPropDefs) {
+                propMethodTypesToProcess.put(pname,
+                    inheritedPropDef.methodScope.getDeclaredType());
+              }
+            }
+          }
+        }
+      }
+      for (String pname : propMethodTypesToProcess.keySet()) {
+        Collection<DeclaredFunctionType> methodTypes =
+            propMethodTypesToProcess.get(pname);
+        Preconditions.checkState(!methodTypes.isEmpty());
+        PropertyDef localPropDef =
+            propertyDefs.get(rawNominalType.getId(), pname);
+        DeclaredFunctionType propDeclType =
+            localPropDef.methodScope.getDeclaredType();
+        for (DeclaredFunctionType superMethodType : methodTypes) {
+          // TODO(blickly): Do more sophisticated merging with meets.
+          // To find the declared type of a method, we should really
+          // meet declared types from all inherited methods.
+          propDeclType = propDeclType.withTypeInfoFromSuper(superMethodType);
+        }
+        localPropDef.methodScope.setDeclaredType(propDeclType);
+        propTypesToProcess.put(pname,
+            JSType.fromFunctionType(propDeclType.toFunctionType()));
+      }
+    add_interface_props:
+      for (String pname : propTypesToProcess.keySet()) {
+        Collection<JSType> defs = propTypesToProcess.get(pname);
+        Preconditions.checkState(!defs.isEmpty());
+        JSType resultType = JSType.TOP;
+        for (JSType inheritedType : defs) {
+          if (inheritedType.isSubtypeOf(resultType)) {
+            resultType = inheritedType;
+          } else if (!resultType.isSubtypeOf(inheritedType)) {
+            // TOOD(blickly): Fix this error message to include supertype names
+            warnings.add(JSError.make(
+                funNode, TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
+                NodeUtil.getFunctionName(funNode), pname, "", ""));
+            continue add_interface_props;
+          }
+        }
+        rawNominalType.addProtoProperty(pname, resultType);
       }
 
       // Finalize nominal type once all properties are added.
@@ -340,10 +421,10 @@ class GlobalTypeInfo implements CompilerPass {
       }
       JSDocInfo fnDoc = NodeUtil.getFunctionJSDocInfo(fn);
       if (fnDoc != null && (fnDoc.isConstructor() || fnDoc.isInterface())) {
-        ImmutableList<String> templateVars = fnDoc.getTemplateTypeNames();
+        ImmutableList<String> typeParameters = fnDoc.getTemplateTypeNames();
         RawNominalType rawNominalType = fnDoc.isInterface() ?
-            RawNominalType.makeInterface(qname, templateVars, freshId) :
-            RawNominalType.makeClass(qname, templateVars, freshId);
+            RawNominalType.makeInterface(qname, typeParameters) :
+            RawNominalType.makeClass(qname, typeParameters);
         freshId++;
         nominaltypesByNode.put(fn, rawNominalType);
         parentScope.addNominalType(qname, rawNominalType);
@@ -620,6 +701,8 @@ class GlobalTypeInfo implements CompilerPass {
         Node fn, RawNominalType ownerType, Scope parentScope) {
       Preconditions.checkArgument(fn.isFunction());
       JSDocInfo fnDoc = NodeUtil.getFunctionJSDocInfo(fn);
+      ImmutableList<String> typeParameters =
+          fnDoc == null ? null : fnDoc.getTemplateTypeNames();
 
       // TODO(user): warn if multiple jsdocs for a fun
 
@@ -643,12 +726,18 @@ class GlobalTypeInfo implements CompilerPass {
                 fn, EXTENDS_NOT_ON_CTOR_OR_INTERF, functionName));
           } else {
             Node docNode = fnDoc.getBaseType().getRootNode();
-            if (typeParser.hasKnownType(docNode, ownerType, parentScope)) {
-              parentClass =
-                  typeParser.getNominalType(docNode, ownerType, parentScope);
+            if (typeParser.hasKnownType(
+                docNode, ownerType, parentScope, typeParameters)) {
+              parentClass = typeParser.getNominalType(
+                      docNode, ownerType, parentScope, typeParameters);
               if (parentClass == null) {
                 warnings.add(JSError.make(fn, EXTENDS_NON_OBJECT, functionName,
                       docNode.toStringTree()));
+              } else if (!parentClass.isClass()) {
+                warnings.add(JSError.make(
+                    fn, TypeCheck.CONFLICTING_EXTENDED_TYPE,
+                    "constructor", functionName));
+                parentClass = null;
               }
             }
           }
@@ -661,17 +750,45 @@ class GlobalTypeInfo implements CompilerPass {
                   fn, INHERITANCE_CYCLE, rawNominalType.toString()));
             }
           }
-          boolean noCycles =
-              rawNominalType.addInterfaces(typeParser.getImplementedInterfaces(
-                  fnDoc, ownerType, parentScope));
+          Set<NominalType> interfaces = Sets.newHashSet(
+                    typeParser.getImplementedInterfaces(
+                        fnDoc, ownerType, parentScope, typeParameters));
+          for (NominalType interf : interfaces) {
+            if (interf.isClass()) {
+              warnings.add(JSError.make(
+                  fn, TypeCheck.CONFLICTING_IMPLEMENTED_TYPE, functionName));
+              interfaces.remove(interf);
+            }
+          }
+          boolean noCycles = rawNominalType.addInterfaces(
+              ImmutableSet.copyOf(interfaces));
           Preconditions.checkState(noCycles);
           builder.addNominalType(NominalType.fromRaw(rawNominalType));
         } else if (fnDoc.isInterface()) {
           if (!NodeUtil.isEmptyBlock(NodeUtil.getFunctionBody(fn))) {
             warnings.add(JSError.make(fn, INTERFACE_WITH_A_BODY));
           }
-          if (!rawNominalType.addInterfaces(typeParser.getExtendedInterfaces(
-                  fnDoc, ownerType, parentScope))) {
+          ImmutableSet<NominalType> implemented =
+                    typeParser.getImplementedInterfaces(
+                        fnDoc, ownerType, parentScope, typeParameters);
+          if (!implemented.isEmpty()) {
+            warnings.add(JSError.make(
+                fn, TypeCheck.CONFLICTING_IMPLEMENTED_TYPE, functionName));
+          }
+          Set<NominalType> interfaces = Sets.newHashSet(
+                    typeParser.getExtendedInterfaces(
+                        fnDoc, ownerType, parentScope, typeParameters));
+          for (NominalType interf : interfaces) {
+            if (interf.isClass()) {
+              warnings.add(JSError.make(
+                  fn, TypeCheck.CONFLICTING_EXTENDED_TYPE,
+                  "interface", functionName));
+              interfaces.remove(interf);
+            }
+          }
+          boolean noCycles = rawNominalType.addInterfaces(
+              ImmutableSet.copyOf(interfaces));
+          if (!noCycles) {
             warnings.add(JSError.make(
                 fn, INHERITANCE_CYCLE, rawNominalType.toString()));
           }
