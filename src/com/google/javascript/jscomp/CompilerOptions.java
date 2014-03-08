@@ -74,6 +74,15 @@ public class CompilerOptions implements Serializable, Cloneable {
   boolean acceptConstKeyword;
 
   /**
+   * Whether to infer consts. This should not be configurable by
+   * external clients. This is a transitional flag for a new type
+   * of const analysis.
+   *
+   * TODO(nicksantos): Turn this on by default and remove this option.
+   */
+  boolean inferConsts;
+
+  /**
    * Whether the compiler should assume that a function's "this" value
    * never needs coercion (for example in non-strict "null" or "undefined" will
    * be coerced to the global "this" and primitives to objects).
@@ -229,13 +238,6 @@ public class CompilerOptions implements Serializable, Cloneable {
    * Regex of string literals that may only appear in goog.getCssName arguments.
    */
   public String checkMissingGetCssNameBlacklist;
-
-  /** Checks that the syntactic restrictions of Caja are met. */
-  boolean checkCaja;
-
-  public void setCheckCaja(boolean check) {
-    checkCaja = check;
-  }
 
   /**
    * A set of extra annotation names which are accepted and silently ignored
@@ -933,7 +935,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     checkMissingReturn = CheckLevel.OFF;
     checkMissingGetCssNameLevel = CheckLevel.OFF;
     checkMissingGetCssNameBlacklist = null;
-    checkCaja = false;
     computeFunctionSideEffects = false;
     chainCalls = false;
     extraAnnotationNames = null;

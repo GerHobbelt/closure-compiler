@@ -134,8 +134,20 @@ public class DefaultPassConfig extends PassConfig {
   /** Id generator map */
   private String idGeneratorMap = null;
 
+  /**
+   * Whether to protect "hidden" side-effects.
+   * @see CheckSideEffects
+   */
+  private final boolean protectHiddenSideEffects;
+
   public DefaultPassConfig(CompilerOptions options) {
     super(options);
+
+    // The current approach to protecting "hidden" side-effects is to
+    // wrap them in a function call that is stripped later, this shouldn't
+    // be done in IDE mode where AST changes may be unexpected.
+    protectHiddenSideEffects = options != null &&
+        options.protectHiddenSideEffects && !options.ideMode;
   }
 
   @Override
@@ -264,6 +276,11 @@ public class DefaultPassConfig extends PassConfig {
     }
 
     checks.add(checkVars);
+
+    if (options.inferConsts) {
+      checks.add(inferConsts);
+    }
+
     if (options.computeFunctionSideEffects) {
       checks.add(checkRegExp);
     }
@@ -321,7 +338,7 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(checkGlobalNames);
     }
 
-    if (options.enables(DiagnosticGroups.ES5_STRICT) || options.checkCaja) {
+    if (options.enables(DiagnosticGroups.ES5_STRICT)) {
       checks.add(checkStrictMode);
     }
 
@@ -420,6 +437,10 @@ public class DefaultPassConfig extends PassConfig {
     // the main optimization loop.
     if (options.collapseProperties) {
       passes.add(collapseProperties);
+    }
+
+    if (options.inferConsts) {
+      passes.add(inferConsts);
     }
 
     // Running this pass before disambiguate properties allow the removing
@@ -712,7 +733,9 @@ public class DefaultPassConfig extends PassConfig {
       passes.add(nameUnmappedAnonymousFunctions);
     }
 
-    passes.add(stripSideEffectProtection);
+    if (protectHiddenSideEffects) {
+      passes.add(stripSideEffectProtection);
+    }
 
     if (options.renamePrefixNamespace != null) {
       if (!GLOBAL_SYMBOL_NAMESPACE_PATTERN.matcher(
@@ -809,11 +832,6 @@ public class DefaultPassConfig extends PassConfig {
       new HotSwapPassFactory("checkSideEffects", true) {
     @Override
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      // The current approach to protecting "hidden" side-effects is to
-      // wrap them in a function call that is stripped later, this shouldn't
-      // be done in IDE mode where AST changes may be unexpected.
-      boolean protectHiddenSideEffects =
-          options.protectHiddenSideEffects && !options.ideMode;
       return new CheckSideEffects(compiler,
           options.checkSuspiciousCode ? CheckLevel.WARNING : CheckLevel.OFF,
               protectHiddenSideEffects);
@@ -821,7 +839,7 @@ public class DefaultPassConfig extends PassConfig {
   };
 
   /**
-   * Checks for code that is probably wrong (such as stray expressions).
+   * Removes the "protector" functions that were added by CheckSideEffects.
    */
   final PassFactory stripSideEffectProtection =
       new PassFactory("stripSideEffectProtection", true) {
@@ -1066,11 +1084,9 @@ public class DefaultPassConfig extends PassConfig {
       new PassFactory("closureCheckGetCssName", true) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      String blacklist = options.checkMissingGetCssNameBlacklist;
-      Preconditions.checkState(blacklist != null && !blacklist.isEmpty(),
-          "Not checking use of goog.getCssName because of empty blacklist.");
       return new CheckMissingGetCssName(
-          compiler, options.checkMissingGetCssNameLevel, blacklist);
+          compiler, options.checkMissingGetCssNameLevel,
+          options.checkMissingGetCssNameBlacklist);
     }
   };
 
@@ -1154,6 +1170,14 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       return new VarCheck(compiler);
+    }
+  };
+
+  /** Infers constants. */
+  final PassFactory inferConsts = new PassFactory("inferConsts", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new InferConsts(compiler);
     }
   };
 
@@ -1326,8 +1350,7 @@ public class DefaultPassConfig extends PassConfig {
   private static HotSwapCompilerPass combineChecks(AbstractCompiler compiler,
       List<Callback> callbacks) {
     Preconditions.checkArgument(callbacks.size() > 0);
-    Callback[] array = callbacks.toArray(new Callback[callbacks.size()]);
-    return new CombinedCompilerPass(compiler, array);
+    return new CombinedCompilerPass(compiler, callbacks);
   }
 
   /** A compiler pass that resolves types in the global scope. */
@@ -1379,14 +1402,13 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /** Checks that the code is ES5 or Caja compliant. */
+  /** Checks that the code is ES5 strict compliant. */
   final PassFactory checkStrictMode =
       new PassFactory("checkStrictMode", true) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return new StrictModeCheck(compiler,
-          !options.checkSymbols,  // don't check variables twice
-          !options.checkCaja);    // disable eval check if not Caja
+          !options.checkSymbols);  // don't check variables twice
     }
   };
 

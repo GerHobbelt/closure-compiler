@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 The Closure Compiler Authors.
+ * Copyright 2014 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.debugging.sourcemap;
+package com.google.javascript.jscomp.parsing;
 
 /**
- * A list of currently support SourceMap format revisions.
- * @author johnlenz@google.com (John Lenz)
+ * Represents a JavaScript comment.
  */
-public enum SourceMapFormat {
-   /** The latest "stable" format */
-   DEFAULT,
+public interface Comment {
+  public boolean isJsDoc();
 
-   /** V3: A nice compact format */
-   V3;
+  public int getAbsolutePosition();
+
+  public int getLength();
 }

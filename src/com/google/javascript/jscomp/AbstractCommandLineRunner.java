@@ -131,7 +131,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
 
   private Map<String, String> parsedModuleWrappers = null;
 
-  private static final String OUTPUT_MARKER = "%output%";
+  static final String OUTPUT_MARKER = "%output%";
   private static final String OUTPUT_MARKER_JS_STRING = "%output|jsstring%";
 
   AbstractCommandLineRunner() {
