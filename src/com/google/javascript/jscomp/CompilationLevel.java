@@ -46,6 +46,11 @@ public enum CompilationLevel {
    * names and variables, removing code which is never called, etc.
    */
   ADVANCED_OPTIMIZATIONS,
+
+  /**
+   * FROM_CONFIG_FILE lets you specify you own options
+   */
+  FROM_CONFIG_FILE
   ;
 
   private CompilationLevel() {}
@@ -60,6 +65,9 @@ public enum CompilationLevel {
         break;
       case ADVANCED_OPTIMIZATIONS:
         applyFullCompilationOptions(options);
+        break;
+      case FROM_CONFIG_FILE:
+        applyCompilationOptionsFromFile(options);
         break;
       default:
         throw new RuntimeException("Unknown compilation level.");
@@ -175,6 +183,67 @@ public enum CompilationLevel {
     options.optimizeParameters = true;
     options.optimizeReturns = true;
     options.optimizeCalls = true;
+  }
+
+  /**
+   * Add the options that will work only if the user exported all the symbols
+   * correctly.
+   * @param options The CompilerOptions object to set the options on.
+   */
+  private static Boolean getBoolProperty(CompilerOptions options, String prop) {
+     return Boolean.parseBoolean(options.inputCompilerOptions.getProperty(prop));
+  }
+  private static void applyCompilationOptionsFromFile(CompilerOptions options) {
+
+    // All the safe optimizations.
+    options.dependencyOptions.setDependencySorting(true);
+    options.closurePass = getBoolProperty(options, "closurePass");
+    options.foldConstants = getBoolProperty(options, "foldConstants");
+    options.coalesceVariableNames = getBoolProperty(options, "coalesceVariableNames");
+    options.deadAssignmentElimination = getBoolProperty(options, "deadAssignmentElimination");
+    options.extractPrototypeMemberDeclarations = getBoolProperty(options, "extractPrototypeMemberDeclarations");
+    options.collapseVariableDeclarations = getBoolProperty(options, "collapseVariableDeclarations");
+    options.convertToDottedProperties = getBoolProperty(options, "convertToDottedProperties");
+    options.labelRenaming = getBoolProperty(options, "labelRenaming");
+    options.removeDeadCode = getBoolProperty(options, "removeDeadCode");
+    options.optimizeArgumentsArray = getBoolProperty(options, "optimizeArgumentsArray");
+    options.collapseObjectLiterals = getBoolProperty(options, "collapseObjectLiterals");
+    options.protectHiddenSideEffects = getBoolProperty(options, "protectHiddenSideEffects");
+
+    // All the advanced optimizations.
+    options.removeClosureAsserts = getBoolProperty(options, "removeClosureAsserts");
+    options.reserveRawExports = getBoolProperty(options, "reserveRawExports");
+    options.setRenamingPolicy(
+        VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
+    options.shadowVariables = getBoolProperty(options, "shadowVariables");
+    options.removeUnusedPrototypeProperties = getBoolProperty(options, "removeUnusedPrototypeProperties");
+    options.removeUnusedPrototypePropertiesInExterns = getBoolProperty(options, "removeUnusedPrototypePropertiesInExterns");
+    options.removeUnusedClassProperties = getBoolProperty(options, "removeUnusedClassProperties");
+    options.collapseAnonymousFunctions = getBoolProperty(options, "collapseAnonymousFunctions");
+    options.collapseProperties = getBoolProperty(options, "collapseProperties");
+    options.checkGlobalThisLevel = CheckLevel.WARNING;
+    options.rewriteFunctionExpressions = getBoolProperty(options, "rewriteFunctionExpressions");
+    options.smartNameRemoval = getBoolProperty(options, "smartNameRemoval");
+    options.inlineConstantVars = getBoolProperty(options, "inlineConstantVars");
+    options.setInlineFunctions(Reach.ALL);
+    options.setAssumeClosuresOnlyCaptureReferences(false);
+    options.inlineGetters = getBoolProperty(options, "inlineGetters");
+    options.setInlineVariables(Reach.ALL);
+    options.flowSensitiveInlineVariables = getBoolProperty(options, "flowSensitiveInlineVariables");
+    options.computeFunctionSideEffects = getBoolProperty(options, "computeFunctionSideEffects");
+
+    // Remove unused vars also removes unused functions.
+    options.setRemoveUnusedVariables(Reach.ALL);
+
+    // Move code around based on the defined modules.
+    options.crossModuleCodeMotion = getBoolProperty(options, "crossModuleCodeMotion");
+    options.crossModuleMethodMotion = getBoolProperty(options, "crossModuleMethodMotion");
+
+    // Call optimizations
+    options.devirtualizePrototypeMethods = getBoolProperty(options, "devirtualizePrototypeMethods");
+    options.optimizeParameters = getBoolProperty(options, "optimizeParameters");
+    options.optimizeReturns = getBoolProperty(options, "optimizeReturns");
+    options.optimizeCalls = getBoolProperty(options, "optimizeCalls");
   }
 
   /**

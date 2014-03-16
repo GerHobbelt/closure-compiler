@@ -35,17 +35,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
 
-import java.io.BufferedWriter;
-import java.io.Closeable;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.Flushable;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintStream;
-import java.io.StringWriter;
-import java.io.Writer;
+import java.io.*;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -56,6 +46,8 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.*;
+import java.util.Properties;
 
 import javax.annotation.Nullable;
 
@@ -109,6 +101,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   private final PrintStream defaultJsOutput;
   private final PrintStream err;
   private A compiler;
+
 
   private Charset inputCharset;
 
@@ -315,6 +308,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       options.inputVariableMap =
           VariableMap.load(config.variableMapInputFile);
     }
+
 
     if (!config.propertyMapInputFile.equals("")) {
       options.inputPropertyMap =
@@ -746,12 +740,14 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
 
     List<SourceFile> externs = createExterns();
 
+
     compiler = createCompiler();
+      System.out.println("before");
     B options = createOptions();
+      System.out.println("after");
 
     List<JSModule> modules = null;
     Result result = null;
-
     setRunOptions(options);
 
     boolean writeOutputToFile = !config.jsOutputFile.isEmpty();
@@ -1689,13 +1685,22 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     private String propertyMapInputFile = "";
-
     /**
      * File containing the serialized version of the property renaming
      * map produced by a previous compilation
      */
-    CommandLineConfig setPropertyMapInputFile(String propertyMapInputFile) {
+    CommandLineConfig setOptionsMapInputFile(String propertyMapInputFile) {
       this.propertyMapInputFile = propertyMapInputFile;
+      return this;
+    }
+
+    private String optionsInputFile = "";
+
+    /**
+     * File containing the serialized version of the compiler properties
+     */
+    CommandLineConfig setOptionsInputFile(String optionsInputFile) {
+      this.optionsInputFile = optionsInputFile;
       return this;
     }
 

@@ -178,7 +178,11 @@ public class CommandLineRunner extends
     @Option(name = "--property_map_input_file",
         usage = "File containing the serialized version of the property "
         + "renaming map produced by a previous compilation")
-    private String propertyMapInputFile = "";
+    private String optionsMapInputFile = "";
+
+    @Option(name = "--options_input_file",
+        usage = "File containing the serialized version of the property ")
+    private String optionsInputFile = "";
 
     @Option(name = "--variable_map_output_file",
         usage = "File where the serialized version of the variable "
@@ -286,7 +290,7 @@ public class CommandLineRunner extends
 
     @Option(name = "--compilation_level",
         usage = "Specifies the compilation level to use. Options: " +
-        "WHITESPACE_ONLY, SIMPLE_OPTIMIZATIONS, ADVANCED_OPTIMIZATIONS")
+        "WHITESPACE_ONLY, SIMPLE_OPTIMIZATIONS, ADVANCED_OPTIMIZATIONS, FROM_CONFIG_FILE")
     private CompilationLevel compilationLevel =
         CompilationLevel.SIMPLE_OPTIMIZATIONS;
 
@@ -773,7 +777,7 @@ public class CommandLineRunner extends
       } else {
         conv = new ClosureCodingConvention();
       }
-
+      System.out.print("I am compiled");
       getCommandLineConfig()
           .setPrintTree(flags.printTree)
           .setPrintAst(flags.printAst)
@@ -785,7 +789,8 @@ public class CommandLineRunner extends
           .setJsOutputFile(flags.jsOutputFile)
           .setModule(flags.module)
           .setVariableMapInputFile(flags.variableMapInputFile)
-          .setPropertyMapInputFile(flags.propertyMapInputFile)
+          .setOptionsMapInputFile(flags.optionsMapInputFile)
+          .setOptionsInputFile(flags.optionsInputFile)
           .setVariableMapOutputFile(flags.variableMapOutputFile)
           .setCreateNameMapFiles(flags.createNameMapFiles)
           .setPropertyMapOutputFile(flags.propertyMapOutputFile)
@@ -827,14 +832,25 @@ public class CommandLineRunner extends
     }
 
     options.setExtraAnnotationNames(flags.extraAnnotationName);
+    if (!flags.optionsInputFile.equals("")) {
+          options.setInputCompilerOptions(new java.util.Properties());
+          try {
+              FileInputStream fis = new FileInputStream(flags.optionsInputFile);
+              options.inputCompilerOptions.load(fis);
+          }catch(Exception eta){
+              eta.printStackTrace();
+          }
+    } else {
+          System.out.println("Options null");
 
+    }
     CompilationLevel level = flags.compilationLevel;
     level.setOptionsForCompilationLevel(options);
 
     if (flags.debug) {
       level.setDebugOptionsForCompilationLevel(options);
     }
-
+    System.out.println("Debug");
     if (flags.useTypesForOptimization) {
       level.setTypeBasedOptimizationOptions(options);
     }
