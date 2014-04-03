@@ -400,6 +400,11 @@ public class CodePrinterTest extends TestCase {
     assertPrint("/(?=x)/", "/(?=x)/");
   }
 
+  public void testHtmlComments() {
+    assertPrint("3< !(--x)", "3< !--x");
+    assertPrint("while (x-- > 0) {}", "while(x-- >0);");
+  }
+
   public void testPrintArray() {
     assertPrint("[void 0, void 0]", "[void 0,void 0]");
     assertPrint("[undefined, undefined]", "[undefined,undefined]");
@@ -1443,24 +1448,28 @@ public class CodePrinterTest extends TestCase {
     assertPrint("var x ='\\u00003';", "var x=\"\\x003\"");
   }
 
+  public void testOctalInString() {
+    assertPrint("var x ='\\0';", "var x=\"\\x00\"");
+    assertPrint("var x ='\\07';", "var x=\"\\u0007\"");
+
+    // Octal 12 = Hex 0A = \n
+    assertPrint("var x ='\\012';", "var x=\"\\n\"");
+
+    // Octal 34 = Hex 1C
+    assertPrint("var x ='\\034';", "var x=\"\\u001c\"");
+
+    // 8 and 9 are not octal digits
+    assertPrint("var x ='\\08';", "var x=\"\\x008\"");
+    assertPrint("var x ='\\09';", "var x=\"\\x009\"");
+
+    // Only the first two digits are part of the octal literal.
+    assertPrint("var x ='\\01234';", "var x=\"\\n34\"");
+  }
+
   public void testUnicode() {
     assertPrint("var x ='\\x0f';", "var x=\"\\u000f\"");
     assertPrint("var x ='\\x68';", "var x=\"h\"");
     assertPrint("var x ='\\x7f';", "var x=\"\\u007f\"");
-  }
-
-  public void testUnicodeKeyword() {
-    // TODO(johnlenz): verify this is valid in the latest specs.
-
-    // keyword "if"
-    assertPrint("var \\u0069\\u0066 = 1;", "var i\\u0066=1");
-    // keyword "var"
-    assertPrint("var v\\u0061\\u0072 = 1;", "var va\\u0072=1");
-    // all are keyword "while"
-    assertPrint("var w\\u0068\\u0069\\u006C\\u0065 = 1;"
-        + "\\u0077\\u0068il\\u0065 = 2;"
-        + "\\u0077h\\u0069le = 3;",
-        "var whil\\u0065=1;whil\\u0065=2;whil\\u0065=3");
   }
 
   public void testNumericKeys() {

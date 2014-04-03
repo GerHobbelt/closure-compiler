@@ -19,6 +19,7 @@ package com.google.javascript.jscomp.newtypes;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
@@ -78,8 +79,9 @@ public class JSType {
       this.objs = objs;
     }
     Preconditions.checkState(this.isValidType(),
-        "Cannot create type with bits <<<" + Integer.toHexString(mask) +
-        ">>>, objs <<<" + objs + ">>>, and typeVar <<<" + typeVar + ">>>");
+        "Cannot create type with bits <<<%s>>>, " +
+        "objs <<<%s>>>, and typeVar <<<%s>>>",
+        Integer.toHexString(mask), objs, typeVar);
   }
 
   private JSType(int mask) {
@@ -149,6 +151,11 @@ public class JSType {
       TOP_FUNCTION = fromFunctionType(FunctionType.TOP_FUNCTION);
     }
     return TOP_FUNCTION;
+  }
+
+  // Corresponds to Function, which is a subtype and supertype of all functions.
+  static JSType qmarkFunction() {
+    return fromFunctionType(FunctionType.QMARK_FUNCTION);
   }
 
   public boolean isTop() {
@@ -269,12 +276,17 @@ public class JSType {
   private static void updateTypemap(
       Multimap<String, JSType> typeMultimap,
       String typeParam, JSType type) {
+    Set<JSType> typesToRemove = Sets.newHashSet();
     for (JSType other : typeMultimap.get(typeParam)) {
       JSType unified = unifyUnknowns(type, other);
       if (unified != null) {
-        typeMultimap.remove(typeParam, other);
+        // Can't remove elms while iterating over the collection, so do it later
+        typesToRemove.add(other);
         type = unified;
       }
+    }
+    for (JSType typeToRemove: typesToRemove) {
+      typeMultimap.remove(typeParam, typeToRemove);
     }
     typeMultimap.put(typeParam, type);
   }
@@ -590,6 +602,14 @@ public class JSType {
     return Iterables.getOnlyElement(objs).getNominalType();
   }
 
+  public boolean isInterfaceDefinition() {
+    if (objs == null || objs.size() > 1) {
+      return false;
+    }
+    FunctionType ft = Iterables.getOnlyElement(objs).getFunType();
+    return ft != null && ft.isInterfaceDefinition();
+  }
+
   /** Turns the class-less object of this type (if any) into a loose object */
   public JSType withLoose() {
     Preconditions.checkNotNull(this.objs);
@@ -598,7 +618,7 @@ public class JSType {
         ObjectType.withLooseObjects(this.objs), typeVar);
   }
 
-  public JSType getProp(String qname) {
+  public JSType getProp(QualifiedName qname) {
     if (isBottom() || isUnknown()) {
       return UNKNOWN;
     }
@@ -615,7 +635,7 @@ public class JSType {
     return ptype;
   }
 
-  public boolean mayHaveProp(String qname) {
+  public boolean mayHaveProp(QualifiedName qname) {
     if (objs == null) {
       return false;
     }
@@ -627,7 +647,7 @@ public class JSType {
     return false;
   }
 
-  public boolean hasProp(String qname) {
+  public boolean hasProp(QualifiedName qname) {
     if (objs == null) {
       return false;
     }
@@ -639,12 +659,12 @@ public class JSType {
     return true;
   }
 
-  public boolean hasInferredProp(String pname) {
-    Preconditions.checkState(TypeUtils.isIdentifier(pname));
+  public boolean hasInferredProp(QualifiedName pname) {
+    Preconditions.checkState(pname.isIdentifier());
     return hasProp(pname) && getDeclaredProp(pname) == null;
   }
 
-  public JSType getDeclaredProp(String qname) {
+  public JSType getDeclaredProp(QualifiedName qname) {
     if (isUnknown()) {
       return UNKNOWN;
     }
@@ -659,14 +679,14 @@ public class JSType {
     return ptype.isBottom() ? null : ptype;
   }
 
-  public JSType withoutProperty(String qname) {
+  public JSType withoutProperty(QualifiedName qname) {
     return this.objs == null ?
         this :
         new JSType(this.mask, this.location,
             ObjectType.withoutProperty(this.objs, qname), typeVar);
   }
 
-  public JSType withProperty(String qname, JSType type) {
+  public JSType withProperty(QualifiedName qname, JSType type) {
     if (isUnknown()) {
       return this;
     }
@@ -675,17 +695,30 @@ public class JSType {
         ObjectType.withProperty(this.objs, qname, type), typeVar);
   }
 
-  public JSType withDeclaredProperty(String qname, JSType type) {
+  public JSType withDeclaredProperty(QualifiedName qname, JSType type) {
     Preconditions.checkState(this.objs != null && this.location == null);
     return new JSType(this.mask, null,
         ObjectType.withDeclaredProperty(this.objs, qname, type), typeVar);
   }
 
-  public JSType withPropertyRequired(String qname) {
+  public JSType withPropertyRequired(String pname) {
     return (isUnknown() || this.objs == null) ?
         this :
         new JSType(this.mask, this.location,
-            ObjectType.withPropertyRequired(this.objs, qname), typeVar);
+            ObjectType.withPropertyRequired(this.objs, pname), typeVar);
+  }
+
+  static List<JSType> fixLengthOfTypeList(
+      int desiredLength, List<JSType> typeList) {
+    int length = typeList.size();
+    if (length == desiredLength) {
+      return typeList;
+    }
+    ImmutableList.Builder builder = ImmutableList.builder();
+    for (int i = 0; i < desiredLength; i++) {
+      builder.add(i < length ? typeList.get(i) : UNKNOWN);
+    }
+    return builder.build();
   }
 
   @Override

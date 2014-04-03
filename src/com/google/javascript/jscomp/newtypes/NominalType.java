@@ -23,10 +23,13 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  *
@@ -34,9 +37,9 @@ import java.util.Objects;
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public class NominalType {
-  // In the case of a genericized type (rawType.typeParameters non-empty) either:
+  // In the case of a generic type (rawType.typeParameters non-empty) either:
   // a) typeMap is empty, this is an uninstantiated generic type (Foo.<T>), or
-  // b) typeMap's keys exactly correspond to the type paramters of rawType,
+  // b) typeMap's keys exactly correspond to the type parameters of rawType;
   //    this represents a completely instantiated generic type (Foo.<number>).
   private final ImmutableMap<String, JSType> typeMap;
   private final RawNominalType rawType;
@@ -72,15 +75,12 @@ public class NominalType {
   NominalType instantiateGenerics(Map<String, JSType> newTypeMap) {
     ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
     if (!typeMap.isEmpty()) {
-      Preconditions.checkState(
-          typeMap.keySet().containsAll(newTypeMap.keySet()));
       for (String oldKey : typeMap.keySet()) {
         builder.put(oldKey, typeMap.get(oldKey).substituteGenerics(newTypeMap));
       }
     } else {
       for (String newKey : newTypeMap.keySet()) {
-        if (!typeMap.containsKey(newKey) &&
-            rawType.typeParameters.contains(newKey)) {
+        if (rawType.typeParameters.contains(newKey)) {
           builder.put(newKey, newTypeMap.get(newKey));
         }
       }
@@ -155,7 +155,8 @@ public class NominalType {
     if (rawType.equals(other.rawType)) {
       for (String typeVar :rawType.getTypeParameters()) {
         Preconditions.checkState(typeMap.containsKey(typeVar),
-            "Type variable %s not in the domain: %s", typeVar, typeMap.keySet());
+            "Type variable %s not in the domain: %s",
+            typeVar, typeMap.keySet());
         Preconditions.checkState(other.typeMap.containsKey(typeVar));
         if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
           return false;
@@ -194,6 +195,26 @@ public class NominalType {
     }
     Preconditions.checkState(c2.isSubclassOf(c1));
     return c2;
+  }
+
+  boolean unifyWith(NominalType other, List<String> typeParameters,
+      Multimap<String, JSType> typeMultimap) {
+    if (this.rawType != other.rawType) {
+      return false;
+    }
+    if (this.rawType.typeParameters.isEmpty()) {
+      // Non-generic nominal types don't contribute to the unification.
+      return true;
+    }
+    // Both nominal types must already be instantiated when unifyWith is called.
+    Preconditions.checkState(!typeMap.isEmpty());
+    Preconditions.checkState(!other.typeMap.isEmpty());
+    boolean hasUnified = true;
+    for (String typeParam: rawType.typeParameters) {
+      hasUnified = hasUnified && typeMap.get(typeParam).unifyWith(
+          other.typeMap.get(typeParam), typeParameters, typeMultimap);
+    }
+    return hasUnified;
   }
 
   @Override
@@ -238,8 +259,8 @@ public class NominalType {
     // Empty iff this type is not generic
     private final ImmutableList<String> typeParameters;
 
-    private RawNominalType(
-        String name, ImmutableList<String> typeParameters, boolean isInterface) {
+    private RawNominalType(String name, ImmutableList<String> typeParameters,
+        boolean isInterface) {
       if (typeParameters == null) {
         typeParameters = ImmutableList.of();
       }
@@ -260,6 +281,10 @@ public class NominalType {
 
     public int getId() {
       return hashCode();
+    }
+
+    public String getName() {
+      return name;
     }
 
     public boolean isClass() {
@@ -316,9 +341,11 @@ public class NominalType {
     public boolean addInterfaces(ImmutableSet<NominalType> interfaces) {
       Preconditions.checkState(!isFinalized);
       Preconditions.checkState(this.interfaces == null);
+      Preconditions.checkNotNull(interfaces);
       if (this.isInterface) {
         for (NominalType interf : interfaces) {
           if (interf.rawType.hasAncestorInterface(this)) {
+            this.interfaces = ImmutableSet.of();
             return false;
           }
         }
@@ -401,6 +428,13 @@ public class NominalType {
 
     }
 
+    public Set<String> getAllOwnProps() {
+      Set<String> ownProps = Sets.newHashSet();
+      ownProps.addAll(classProps.keySet());
+      ownProps.addAll(protoProps.keySet());
+      return ownProps;
+    }
+
     private ImmutableSet<String> getAllPropsOfInterface() {
       Preconditions.checkState(isInterface);
       Preconditions.checkState(isFinalized);
@@ -470,8 +504,8 @@ public class NominalType {
       }
     }
 
-    // Returns the object referred to by the prototype property of the constructor
-    // of this class.
+    // Returns the object referred to by the prototype property of the
+    // constructor of this class.
     private JSType createProtoObject() {
       return JSType.fromObjectType(ObjectType.makeObjectType(
           superClass, protoProps, null, false));
@@ -479,8 +513,13 @@ public class NominalType {
 
     //////////// Constructor Properties
 
-    public boolean mayHaveCtorProp(String pname) {
-      return ctorProps.containsKey(pname);
+    public boolean hasCtorProp(String pname) {
+      Property prop = ctorProps.get(pname);
+      if (prop == null) {
+        return false;
+      }
+      Preconditions.checkState(!prop.isOptional());
+      return true;
     }
 
     /** Add a new non-optional declared property to this class's constructor */
@@ -502,7 +541,8 @@ public class NominalType {
       return p.getDeclaredType();
     }
 
-    // Returns the (function) object referred to by the constructor of this class.
+    // Returns the (function) object referred to by the constructor of this
+    // class.
     private JSType createConstructorObject(FunctionType ctorFn) {
       return JSType.fromObjectType(
           ObjectType.makeObjectType(null, ctorProps, ctorFn, ctorFn.isLoose()));
@@ -535,7 +575,6 @@ public class NominalType {
       addCtorProperty("prototype", createProtoObject());
       this.ctorProps = ImmutableMap.copyOf(ctorProps);
       this.isFinalized = true;
-      this.allProps = null;
       return this;
     }
 

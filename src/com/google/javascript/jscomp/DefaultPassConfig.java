@@ -30,6 +30,7 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
+import com.google.javascript.jscomp.lint.CheckNullableReturn;
 import com.google.javascript.jscomp.parsing.ParserRunner;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -206,6 +207,10 @@ public class DefaultPassConfig extends PassConfig {
 
     checks.add(createEmptyPass("beforeStandardChecks"));
 
+    if (options.declaredGlobalExternsOnWindow) {
+      checks.add(declaredGlobalExternsOnWindow);
+    }
+
     if (options.closurePass) {
       checks.add(closureGoogScopeAliases);
       checks.add(closureRewriteGoogClass);
@@ -236,11 +241,6 @@ public class DefaultPassConfig extends PassConfig {
         options.enables(DiagnosticGroups.GLOBAL_THIS) ||
         options.enables(DiagnosticGroups.DEBUGGER_STATEMENT_PRESENT)) {
       checks.add(suspiciousCode);
-    }
-
-    if (options.checkControlStructures
-        || options.enables(DiagnosticGroups.ES5_STRICT))  {
-      checks.add(checkControlStructures);
     }
 
     if (options.checkRequires.isOn()) {
@@ -317,16 +317,21 @@ public class DefaultPassConfig extends PassConfig {
       }
     }
 
-    if (options.checkUnreachableCode.isOn() ||
+    if (!options.disables(DiagnosticGroups.CHECK_USELESS_CODE) ||
         (options.checkTypes && options.checkMissingReturn.isOn())) {
       checks.add(checkControlFlow);
     }
 
     // CheckAccessControls only works if check types is on.
     if (options.checkTypes &&
-        (options.enables(DiagnosticGroups.ACCESS_CONTROLS)
+        (!options.disables(DiagnosticGroups.ACCESS_CONTROLS)
          || options.enables(DiagnosticGroups.CONSTANT_PROPERTY))) {
       checks.add(checkAccessControls);
+    }
+
+    // Lint checks must be run after typechecking.
+    if (options.enables(DiagnosticGroups.LINT_CHECKS)) {
+      checks.add(lintChecks);
     }
 
     if (options.checkEventfulObjectDisposalPolicy !=
@@ -447,6 +452,17 @@ public class DefaultPassConfig extends PassConfig {
     // unused methods that share the same name as methods called from unused
     // code.
     if (options.extraSmartNameRemoval && options.smartNameRemoval) {
+
+      // These passes remove code that is dead because of define flags.
+      // If the dead code is weakly typed, running these passes before property
+      // disambiguation results in more code removal.
+      // The passes are one-time on purpose. (The later runs are loopable.)
+      if (options.foldConstants &&
+          (options.inlineVariables || options.inlineLocalVariables)) {
+        passes.add(earlyInlineVariables);
+        passes.add(earlyPeepholeOptimizations);
+      }
+
       passes.add(smartNamePass);
     }
 
@@ -888,15 +904,6 @@ public class DefaultPassConfig extends PassConfig {
     }
   }
 
-  /** Checks for validity of the control structures. */
-  final HotSwapPassFactory checkControlStructures =
-      new HotSwapPassFactory("checkControlStructures", true) {
-    @Override
-    protected HotSwapCompilerPass create(AbstractCompiler compiler) {
-      return new ControlStructureCheck(compiler);
-    }
-  };
-
   /** Checks that all constructed classes are goog.require()d. */
   final HotSwapPassFactory checkRequires =
       new HotSwapPassFactory("checkRequires", true) {
@@ -1070,6 +1077,16 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
+
+  /** Applies aliases and inlines goog.scope. */
+  final PassFactory declaredGlobalExternsOnWindow =
+      new PassFactory("declaredGlobalExternsOnWindow", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new DeclaredGlobalExternsOnWindow(compiler);
+    }
+  };
+
   /** Rewrites goog.class */
   final HotSwapPassFactory closureRewriteGoogClass =
       new HotSwapPassFactory("closureRewriteGoogClass", true) {
@@ -1128,6 +1145,31 @@ public class DefaultPassConfig extends PassConfig {
       return new CreateSyntheticBlocks(compiler,
           options.syntheticBlockStartMarker,
           options.syntheticBlockEndMarker);
+    }
+  };
+
+  final PassFactory earlyPeepholeOptimizations =
+      new PassFactory("earlyPeepholeOptimizations", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new PeepholeOptimizationsPass(compiler,
+          new PeepholeRemoveDeadCode());
+    }
+  };
+
+  final PassFactory earlyInlineVariables =
+      new PassFactory("earlyInlineVariables", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      InlineVariables.Mode mode;
+      if (options.inlineVariables) {
+        mode = InlineVariables.Mode.ALL;
+      } else if (options.inlineLocalVariables) {
+        mode = InlineVariables.Mode.LOCALS_ONLY;
+      } else {
+        throw new IllegalStateException("No variable inlining option set.");
+      }
+      return new InlineVariables(compiler, mode, true);
     }
   };
 
@@ -1325,9 +1367,8 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       List<Callback> callbacks = Lists.newArrayList();
-      if (options.checkUnreachableCode.isOn()) {
-        callbacks.add(
-            new CheckUnreachableCode(compiler, options.checkUnreachableCode));
+      if (!options.disables(DiagnosticGroups.CHECK_USELESS_CODE)) {
+        callbacks.add(new CheckUnreachableCode(compiler));
       }
       if (options.checkMissingReturn.isOn() && options.checkTypes) {
         callbacks.add(
@@ -1343,6 +1384,14 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       return new CheckAccessControls(compiler);
+    }
+  };
+
+  final PassFactory lintChecks =
+      new PassFactory("checkAccessControls", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new CheckNullableReturn(compiler);
     }
   };
 

@@ -163,7 +163,11 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Checks for suspicious statements that have no effect */
   public boolean checkSuspiciousCode;
 
-  /** Checks for invalid control structures */
+  /**
+   * TODO(tbreisacher): Remove this after the next release.
+   * @deprecated
+   */
+  @Deprecated
   public boolean checkControlStructures;
 
   /** Checks types on expressions */
@@ -333,13 +337,6 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** Removes code that will never execute */
   public boolean removeDeadCode;
-
-  public CheckLevel checkUnreachableCode;
-
-  /** Checks for unreachable code */
-  public void setCheckUnreachableCode(CheckLevel level) {
-    this.checkUnreachableCode = level;
-  }
 
   public CheckLevel checkMissingReturn;
 
@@ -581,6 +578,9 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** Whether to gather property names from types in externs. */
   boolean gatherExternsFromTypes;
+
+  /** Whether to declare globals declared in externs as properties on window */
+  boolean declaredGlobalExternsOnWindow;
 
   //--------------------------------
   // Special-purpose alterations
@@ -923,7 +923,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     checkSymbols = false;
     aggressiveVarCheck = CheckLevel.OFF;
     checkSuspiciousCode = false;
-    checkControlStructures = false;
     checkTypes = false;
     reportMissingOverride = CheckLevel.OFF;
     checkRequires = CheckLevel.OFF;
@@ -931,7 +930,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     checkGlobalNamesLevel = CheckLevel.OFF;
     brokenClosureRequiresLevel = CheckLevel.ERROR;
     checkGlobalThisLevel = CheckLevel.OFF;
-    checkUnreachableCode = CheckLevel.OFF;
     checkMissingReturn = CheckLevel.OFF;
     checkMissingGetCssNameLevel = CheckLevel.OFF;
     checkMissingGetCssNameBlacklist = null;
@@ -998,6 +996,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     anonymousFunctionNaming = AnonymousFunctionNamingPolicy.OFF;
     exportTestFunctions = false;
     gatherExternsFromTypes = false;
+    declaredGlobalExternsOnWindow = false;
 
     // Alterations
     runtimeTypeCheck = false;
@@ -1718,8 +1717,12 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.checkSuspiciousCode = checkSuspiciousCode;
   }
 
+  /**
+   * TODO(tbreisacher): Remove this after the next release.
+   * @deprecated
+   */
+  @Deprecated
   public void setCheckControlStructures(boolean checkControlStructures) {
-    this.checkControlStructures = checkControlStructures;
   }
 
   public void setCheckTypes(boolean checkTypes) {

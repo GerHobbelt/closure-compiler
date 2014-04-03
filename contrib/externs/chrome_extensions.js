@@ -233,6 +233,20 @@ chrome.app.runtime.onRestarted;
 chrome.app.window = {};
 
 
+/**
+ * @see https://developer.chrome.com/apps/app_window#method-getAll
+ * @return {!Array.<!chrome.app.window.AppWindow>}
+ */
+chrome.app.window.getAll = function() {};
+
+
+/**
+ * @see https://developer.chrome.com/apps/app_window#method-get
+ * @param {string} id
+ * @return {chrome.app.window.AppWindow}
+ */
+chrome.app.window.get = function(id) {};
+
 
 /**
  * @constructor
@@ -2106,6 +2120,14 @@ chrome.input.ime.commitText = function(parameters, opt_callback) {};
 
 
 /**
+ * @param {!Object.<string,(string|number)>} parameters An object with
+ *     'contextID' (number) and 'text' (string) keys.
+ * @param {function(boolean): void=} opt_callback Callback function.
+ */
+chrome.input.ime.deleteSurroundingText = function(parameters, opt_callback) {};
+
+
+/**
  * @param {!Object.<string,(number|Object.<string,(string|number|boolean)>)>}
  *     parameters An object with 'engineID' (string) and 'properties'
  *     (Object) keys.
@@ -2198,6 +2220,14 @@ chrome.input.ime.onKeyEvent;
 
 /** @type {!ChromeEvent} */
 chrome.input.ime.onMenuItemActivated;
+
+
+/** @type {!ChromeEvent} */
+chrome.input.ime.onReset;
+
+
+/** @type {!ChromeEvent} */
+chrome.input.ime.onSurroundingTextChanged;
 
 
 /**
@@ -4544,6 +4574,26 @@ chrome.notifications.ClosedEvent = function() {};
 chrome.notifications.ClosedEvent.prototype.addListener = function(callback) {};
 
 
+/**
+ * @param {!chrome.notifications.ClosedCallback} callback
+ */
+chrome.notifications.ClosedEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {!chrome.notifications.ClosedCallback} callback
+ * @return {boolean}
+ */
+chrome.notifications.ClosedEvent.prototype.hasListener = function(callback) {};
+
+
+/**
+ * @return {boolean}
+ */
+chrome.notifications.ClosedEvent.prototype.hasListeners = function() {};
+
+
 
 /**
  * @interface
@@ -4556,6 +4606,26 @@ chrome.notifications.ClickedEvent = function() {};
  * @param {!chrome.notifications.StringCallback} callback
  */
 chrome.notifications.ClickedEvent.prototype.addListener = function(callback) {};
+
+
+/**
+ * @param {!chrome.notifications.StringCallback} callback
+ */
+chrome.notifications.ClickedEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {!chrome.notifications.StringCallback} callback
+ * @return {boolean}
+ */
+chrome.notifications.ClickedEvent.prototype.hasListener = function(callback) {};
+
+
+/**
+ * @return {boolean}
+ */
+chrome.notifications.ClickedEvent.prototype.hasListeners = function() {};
 
 
 
@@ -4571,6 +4641,28 @@ chrome.notifications.ButtonClickedEvent = function() {};
  */
 chrome.notifications.ButtonClickedEvent.prototype.addListener =
     function(callback) {};
+
+
+/**
+ * @param {!chrome.notifications.ButtonCallback} callback
+ */
+chrome.notifications.ButtonClickedEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {!chrome.notifications.ButtonCallback} callback
+ * @return {boolean}
+ */
+chrome.notifications.ButtonClickedEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/**
+ * @return {boolean}
+ */
+chrome.notifications.ButtonClickedEvent.prototype.hasListeners = function() {};
+
 
 
 /**
@@ -4652,6 +4744,30 @@ chrome.mediaGalleriesPrivate.DeviceEvent.prototype.addListener =
     function(callback) {};
 
 
+/**
+ * @param {!chrome.mediaGalleriesPrivate.DeviceCallback} callback
+ * @deprecated Use {chrome.system.storage.DeviceEvent.removeListener}.
+ */
+chrome.mediaGalleriesPrivate.DeviceEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {!chrome.mediaGalleriesPrivate.DeviceCallback} callback
+ * @deprecated Use {chrome.system.storage.DeviceEvent.hasListener}.
+ */
+chrome.mediaGalleriesPrivate.DeviceEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/**
+ * @return {boolean}
+ * @deprecated Use {chrome.system.storage.DeviceEvent.hasListener}
+ */
+chrome.mediaGalleriesPrivate.DeviceEvent.prototype.hasListeners =
+    function(callback) {};
+
+
 
 /**
  * @interface
@@ -4664,6 +4780,27 @@ chrome.mediaGalleriesPrivate.GalleryChangeEvent = function() {};
  */
 chrome.mediaGalleriesPrivate.GalleryChangeEvent.prototype.addListener =
     function(callback) {};
+
+
+/**
+ * @param {!chrome.mediaGalleriesPrivate.GalleryChangeCallback} callback
+ */
+chrome.mediaGalleriesPrivate.GalleryChangeEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {!chrome.mediaGalleriesPrivate.GalleryChangeCallback} callback
+ */
+chrome.mediaGalleriesPrivate.GalleryChangeEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/**
+ * @return {boolean}
+ */
+chrome.mediaGalleriesPrivate.GalleryChangeEvent.prototype.hasListeners =
+    function() {};
 
 
 
@@ -4826,6 +4963,34 @@ chrome.usb.ConnectionHandle.prototype.productId;
 
 /**
  * @typedef {{
+ *   address: number,
+ *   type: string,
+ *   direction: string,
+ *   maximumPacketSize: number,
+ *   synchronization: (string|undefined),
+ *   usage: (string|undefined),
+ *   pollingInterval: (number|undefined)
+ * }}
+ */
+chrome.usb.InterfaceEndpoint;
+
+
+/**
+ * @typedef {{
+ *   interfaceNumber: number,
+ *   alternateSetting: number,
+ *   interfaceClass: number,
+ *   interfaceSubclass: number,
+ *   interfaceProtocol: number,
+ *   description: (string|undefined),
+ *   endpoints: !Array.<!chrome.usb.InterfaceEndpoint>
+ * }}
+ */
+chrome.usb.InterfaceDescriptor;
+
+
+/**
+ * @typedef {{
  *   direction: string,
  *   endpoint: number,
  *   length: (number|undefined),
@@ -4910,8 +5075,8 @@ chrome.usb.closeDevice = function(handle, callback) {};
  * @see http://developer.chrome.com/apps/usb.html#method-listInterfaces
  * @param {!chrome.usb.ConnectionHandle} handle The device from which the
  *     interfaces should be listed.
- * @param {function(!Array.<!Object>)} callback The callback to invoke when the
- *     interfaces are enumerated.
+ * @param {function(!Array.<!chrome.usb.InterfaceDescriptor>)} callback
+ *     The callback to invoke when the interfaces are enumerated.
  */
 chrome.usb.listInterfaces = function(handle, callback) {};
 

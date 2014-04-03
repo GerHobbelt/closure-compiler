@@ -1,6 +1,6 @@
 {
     "name" : "closure-compiler",
-    "version" : "20131213.0.0",
+    "version" : "20140401.0.0",
     "keywords" : ["javascript", "compiler", "build", "google", "closure"],
     "description" : "Fork of closure-compiler that allows installation via NPM.",
     "homepage" : "https://github.com/Obvious/closure-compiler",

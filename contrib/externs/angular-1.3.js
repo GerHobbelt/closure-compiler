@@ -1280,20 +1280,7 @@ angular.$http.Response;
 
 /**
  * @typedef {{
- *   request: (undefined|(function(!angular.$http.Config):
- *       !angular.$http.Config|!angular.$q.Promise.<!angular.$http.Config>)),
- *   requestError: (undefined|(function(Object): !angular.$q.Promise|Object)),
- *   response: (undefined|(function(!angular.$http.Response):
- *       !angular.$http.Response|!angular.$q.Promise.<!angular.$http.Response>)),
- *   responseError: (undefined|(function(Object): !angular.$q.Promise|Object))
- *   }}
-  */
-angular.$http.Interceptor;
-
-/**
- * @typedef {{
- *   defaults: !angular.$http.Config,
- *   interceptors: !Array.<string|function(...[*]): !angular.$http.Interceptor>
+ *   defaults: !angular.$http.Config
  * }}
  */
 angular.$HttpProvider;
@@ -1895,7 +1882,7 @@ angular.$routeProvider.when = function(path, route) {};
 /**
  * @typedef {{
  *   controller: (Function|Array.<string|Function>|string|undefined),
- *   template: (string|function(!Array.<Object>=):string|undefined),
+ *   template: (string|undefined),
  *   templateUrl: (string|function(!Object.<string,string>=)|undefined),
  *   resolve: (Object.<string, (
  *       string|Function|Array.<string|Function>|!angular.$q.Promise
@@ -1910,7 +1897,7 @@ angular.$routeProvider.Params;
 /** @type {Function|Array.<string|Function>|string} */
 angular.$routeProvider.Params.controller;
 
-/** @type {string|function(!Array.<Object>=):string} */
+/** @type {string} */
 angular.$routeProvider.Params.template;
 
 /** @type {string|function(!Object.<string,string>=)} */

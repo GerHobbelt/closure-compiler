@@ -16,10 +16,10 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import static com.google.javascript.jscomp.newtypes.FunctionType.BOTTOM_FUNCTION;
 import static com.google.javascript.jscomp.newtypes.FunctionType.TOP_FUNCTION;
 import static com.google.javascript.jscomp.newtypes.JSType.BOTTOM;
 import static com.google.javascript.jscomp.newtypes.JSType.NUMBER;
+import static com.google.javascript.jscomp.newtypes.JSType.UNDEFINED;
 import static com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 
 import com.google.common.collect.ImmutableList;
@@ -63,9 +63,6 @@ public class FunctionTypeTest extends TestCase {
         FunctionType.makeJSType(null, null, NUMBER, NUMBER).getFunType();
 
     assertEquals(TOP_FUNCTION, FunctionType.join(TOP_FUNCTION, numToNum));
-    assertEquals(BOTTOM_FUNCTION,
-        FunctionType.meet(BOTTOM_FUNCTION, numToNum));
-    assertEquals(numToNum, FunctionType.join(BOTTOM_FUNCTION, numToNum));
     assertEquals(numToNum, FunctionType.meet(TOP_FUNCTION, numToNum));
     assertEquals(numToNum, FunctionType.join(null, numToNum));
     assertEquals(null, FunctionType.meet(null, numToNum));
@@ -78,7 +75,7 @@ public class FunctionTypeTest extends TestCase {
         ImmutableList.of(BOTTOM), null, null, NUMBER).getFunType(),
         FunctionType.join(numToNum, parse("function (string): number")));
     assertEquals(FunctionType.makeJSType(
-        null, ImmutableList.of(BOTTOM), null, NUMBER).getFunType(),
+        null, ImmutableList.of(UNDEFINED), null, NUMBER).getFunType(),
         FunctionType.join(optnumToNum, optstrToNum));
     // meets
     assertEquals(

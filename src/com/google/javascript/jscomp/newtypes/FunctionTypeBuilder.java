@@ -53,6 +53,13 @@ public class FunctionTypeBuilder {
   // Non-null iff this function has an @template annotation
   private ImmutableList<String> typeParameters;
 
+  static FunctionTypeBuilder qmarkFunctionBuilder() {
+    FunctionTypeBuilder builder = new FunctionTypeBuilder();
+    builder.addRestFormals(JSType.UNKNOWN);
+    builder.addRetType(JSType.UNKNOWN);
+    return builder;
+  }
+
   public FunctionTypeBuilder addReqFormal(JSType t)
       throws WrongParameterOrderException {
     if (!optionalFormals.isEmpty() || restFormals != null) {
@@ -65,11 +72,13 @@ public class FunctionTypeBuilder {
 
   public FunctionTypeBuilder addOptFormal(JSType t)
       throws WrongParameterOrderException {
+    Preconditions.checkNotNull(t);
     if (restFormals != null) {
       throw new WrongParameterOrderException(
           "Cannot add optional formal after rest args");
     }
-    optionalFormals.add(t);
+    // We keep bottom to warn about CALL_FUNCTION_WITH_BOTTOM_FORMAL.
+    optionalFormals.add(t.isBottom() ? t : JSType.join(t, JSType.UNDEFINED));
     return this;
   }
 
@@ -110,7 +119,7 @@ public class FunctionTypeBuilder {
   }
 
   public DeclaredFunctionType buildDeclaration() {
-    Preconditions.checkState(loose == false);
+    Preconditions.checkState(!loose);
     Preconditions.checkState(outerVars.isEmpty());
     return DeclaredFunctionType.make(
         requiredFormals, optionalFormals, restFormals, returnType,

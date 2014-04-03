@@ -1143,24 +1143,40 @@ HTMLElement.prototype.hidden;
 HTMLElement.prototype.spellcheck;
 
 /**
- * TODO(nnaze): This must return ShadowRoot.
  * @see http://www.w3.org/TR/components-intro/
- * @return {!Element}
+ * @return {!ShadowRoot}
  */
 HTMLElement.prototype.createShadowRoot;
 
 /**
- * TODO(nnaze): This must return ShadowRoot.
  * @see http://www.w3.org/TR/components-intro/
- * @return {!Element}
+ * @return {!ShadowRoot}
  */
 HTMLElement.prototype.webkitCreateShadowRoot;
+
+/**
+ * @see http://www.w3.org/TR/shadow-dom/
+ * @type {ShadowRoot}
+ */
+HTMLElement.prototype.shadowRoot;
 
 /**
  * @see http://www.w3.org/TR/components-intro/
  * @type {function()}
  */
 HTMLElement.prototype.createdCallback;
+
+/**
+ * @see http://w3c.github.io/webcomponents/explainer/#lifecycle-callbacks
+ * @type {function()}
+ */
+HTMLElement.prototype.attachedCallback;
+
+/**
+ * @see http://w3c.github.io/webcomponents/explainer/#lifecycle-callbacks
+ * @type {function()}
+ */
+HTMLElement.prototype.detachedCallback;
 
 /** @type {string} */
 HTMLAnchorElement.prototype.hash;
@@ -3183,6 +3199,21 @@ IThenable.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
  * @template TYPE
  */
 var Promise = function(resolver) {};
+
+
+/**
+ * @param {TYPE=} opt_value
+ * @return {!Promise.<TYPE>}
+ * @template TYPE
+ */
+Promise.resolve = function(opt_value) {};
+
+
+/**
+ * @param {*=} opt_error
+ * @return {!Promise}
+ */
+Promise.reject = function(opt_error) {};
 
 
 /** @override */

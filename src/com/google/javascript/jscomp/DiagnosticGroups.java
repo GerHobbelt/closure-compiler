@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.javascript.jscomp.lint.CheckNullableReturn;
 
 import java.util.Map;
 
@@ -105,6 +106,7 @@ public class DiagnosticGroups {
           CheckAccessControls.BAD_PRIVATE_GLOBAL_ACCESS,
           CheckAccessControls.BAD_PRIVATE_PROPERTY_ACCESS,
           CheckAccessControls.BAD_PROTECTED_PROPERTY_ACCESS,
+          CheckAccessControls.EXTEND_FINAL_CLASS,
           CheckAccessControls.PRIVATE_OVERRIDE,
           CheckAccessControls.VISIBILITY_MISMATCH);
 
@@ -158,7 +160,9 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup MISSING_PROPERTIES =
       DiagnosticGroups.registerGroup("missingProperties",
-          TypeCheck.INEXISTENT_PROPERTY_WITH_SUGGESTION);
+          TypeCheck.INEXISTENT_PROPERTY,
+          TypeCheck.INEXISTENT_PROPERTY_WITH_SUGGESTION,
+          TypeCheck.POSSIBLE_INEXISTENT_PROPERTY);
 
   public static final DiagnosticGroup MISSING_RETURN =
       DiagnosticGroups.registerGroup("missingReturn",
@@ -244,9 +248,10 @@ public class DiagnosticGroups {
           RhinoErrorReporter.INVALID_ES3_PROP_NAME,
           RhinoErrorReporter.TRAILING_COMMA);
 
-  public static final DiagnosticGroup ES5_STRICT =
-      DiagnosticGroups.registerGroup("es5Strict",
-          ControlStructureCheck.USE_OF_WITH,
+  static final DiagnosticGroup ES5_STRICT_UNCOMMON =
+      DiagnosticGroups.registerGroup("es5StrictUncommon",
+          RhinoErrorReporter.INVALID_OCTAL_LITERAL,
+          StrictModeCheck.USE_OF_WITH,
           StrictModeCheck.UNKNOWN_VARIABLE,
           StrictModeCheck.EVAL_DECLARATION,
           StrictModeCheck.EVAL_ASSIGNMENT,
@@ -255,6 +260,18 @@ public class DiagnosticGroups {
           StrictModeCheck.DELETE_VARIABLE,
           StrictModeCheck.DUPLICATE_OBJECT_KEY,
           StrictModeCheck.BAD_FUNCTION_DECLARATION);
+
+  static final DiagnosticGroup ES5_STRICT_REFLECTION =
+      DiagnosticGroups.registerGroup("es5StrictReflection",
+          StrictModeCheck.ARGUMENTS_CALLEE_FORBIDDEN,
+          StrictModeCheck.ARGUMENTS_CALLER_FORBIDDEN,
+          StrictModeCheck.FUNCTION_CALLER_FORBIDDEN,
+          StrictModeCheck.FUNCTION_ARGUMENTS_PROP_FORBIDDEN);
+
+  public static final DiagnosticGroup ES5_STRICT =
+      DiagnosticGroups.registerGroup("es5Strict",
+          ES5_STRICT_UNCOMMON,
+          ES5_STRICT_REFLECTION);
 
   // TODO(johnlenz): Remove this in favor or "missingProvide" which matches
   // the existing and more popular linter suppression
@@ -283,6 +300,11 @@ public class DiagnosticGroups {
           CheckSuspiciousCode.SUSPICIOUS_SEMICOLON,
           CheckSuspiciousCode.SUSPICIOUS_COMPARISON_WITH_NAN,
           CheckSuspiciousCode.SUSPICIOUS_IN_OPERATOR);
+
+  public static final DiagnosticGroup LINT_CHECKS =
+      DiagnosticGroups.registerGroup("lintChecks",
+          CheckNullableReturn.NULLABLE_RETURN,
+          CheckNullableReturn.NULLABLE_RETURN_WITH_NAME);
 
   /**
    * Adds warning levels by name.

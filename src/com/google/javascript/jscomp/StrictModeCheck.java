@@ -19,8 +19,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.Scope.Var;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.jstype.JSType;
 
 import java.util.Set;
 
@@ -30,11 +32,17 @@ import java.util.Set;
  * <li> No use of "with".
  * <li> No deleting variables, functions, or arguments.
  * <li> No re-declarations or assignments of "eval" or arguments.
+ * <li> No use of arguments.callee
+ * <li> No use of arguments.caller
  * </ol>
  *
  */
 class StrictModeCheck extends AbstractPostOrderCallback
     implements CompilerPass {
+
+  static final DiagnosticType USE_OF_WITH = DiagnosticType.warning(
+      "JSC_USE_OF_WITH",
+      "The 'with' statement cannot be used in ES5 strict mode.");
 
   static final DiagnosticType UNKNOWN_VARIABLE = DiagnosticType.warning(
       "JSC_UNKNOWN_VARIABLE", "unknown variable {0}");
@@ -54,6 +62,24 @@ class StrictModeCheck extends AbstractPostOrderCallback
   static final DiagnosticType ARGUMENTS_ASSIGNMENT = DiagnosticType.warning(
       "JSC_ARGUMENTS_ASSIGNMENT",
       "the \"arguments\" object cannot be reassigned in ES5 strict mode");
+
+  static final DiagnosticType ARGUMENTS_CALLEE_FORBIDDEN = DiagnosticType.warning(
+      "JSC_ARGUMENTS_CALLEE_FORBIDDEN",
+      "\"arguments.callee\" cannot be used in ES5 strict mode");
+
+  static final DiagnosticType ARGUMENTS_CALLER_FORBIDDEN = DiagnosticType.warning(
+      "JSC_ARGUMENTS_CALLER_FORBIDDEN",
+      "\"arguments.caller\" cannot be used in ES5 strict mode");
+
+  static final DiagnosticType FUNCTION_CALLER_FORBIDDEN = DiagnosticType.warning(
+      "JSC_FUNCTION_CALLER_FORBIDDEN",
+      "A function''s \"caller\" property cannot be used in ES5 strict mode");
+
+  static final DiagnosticType FUNCTION_ARGUMENTS_PROP_FORBIDDEN = DiagnosticType.warning(
+      "JSC_FUNCTION_ARGUMENTS_PROP_FORBIDDEN",
+      "A function''s \"arguments\" property cannot be used in ES5 strict mode");
+
+
 
   static final DiagnosticType DELETE_VARIABLE = DiagnosticType.warning(
       "JSC_DELETE_VARIABLE",
@@ -101,6 +127,18 @@ class StrictModeCheck extends AbstractPostOrderCallback
       checkDelete(t, n);
     } else if (n.isObjectLit()) {
       checkObjectLiteral(t, n);
+    } else if (n.isWith()) {
+      checkWith(t, n);
+    }
+  }
+
+  /** Reports a warning for with statements. */
+  private void checkWith(NodeTraversal t, Node n) {
+    JSDocInfo info = n.getJSDocInfo();
+    boolean allowWith =
+        info != null && info.getSuppressions().contains("with");
+    if (!allowWith) {
+      t.report(n, USE_OF_WITH);
     }
   }
 
@@ -196,6 +234,8 @@ class StrictModeCheck extends AbstractPostOrderCallback
     @Override public void visit(NodeTraversal t, Node n, Node parent) {
       if ((n.isName()) && isDeclaration(n)) {
         checkDeclaration(t, n);
+      } else if (n.isGetProp()) {
+        checkGetProp(t, n);
       }
     }
 
@@ -207,5 +247,30 @@ class StrictModeCheck extends AbstractPostOrderCallback
         t.report(n, ARGUMENTS_DECLARATION);
       }
     }
+
+    /** Checks that the arguments.callee is not used. */
+    private void checkGetProp(NodeTraversal t, Node n) {
+      Node target = n.getFirstChild();
+      Node prop = n.getLastChild();
+      if (prop.getString().equals("callee")) {
+        if (target.isName() && target.getString().equals("arguments")) {
+          t.report(n, ARGUMENTS_CALLEE_FORBIDDEN);
+        }
+      } else if (prop.getString().equals("caller")) {
+        if (target.isName() && target.getString().equals("arguments")) {
+          t.report(n, ARGUMENTS_CALLER_FORBIDDEN);
+        } else if (isFunctionType(target)) {
+          t.report(n, FUNCTION_CALLER_FORBIDDEN);
+        }
+      } else if (prop.getString().equals("arguments")
+          && isFunctionType(target)) {
+        t.report(n, FUNCTION_ARGUMENTS_PROP_FORBIDDEN);
+      }
+    }
+  }
+
+  private boolean isFunctionType(Node n) {
+    JSType type = n.getJSType();
+    return (type != null && type.isFunctionType());
   }
 }
