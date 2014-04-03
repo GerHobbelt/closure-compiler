@@ -186,15 +186,21 @@ public enum CompilationLevel {
   }
 
   /**
+   * Parse a boolean compiler option.
+   * @param options The CompilerOptions object to set the options on.
+   * @param prop    The name of the boolean configuration property.
+   * @return        A boolean value (true or false) representing the configuration property's desired state.
+   */
+  private static Boolean getBoolProperty(CompilerOptions options, String prop) {
+    return Boolean.parseBoolean(options.inputCompilerOptions.getProperty(prop));
+  }
+  
+  /**
    * Add the options that will work only if the user exported all the symbols
    * correctly.
    * @param options The CompilerOptions object to set the options on.
    */
-  private static Boolean getBoolProperty(CompilerOptions options, String prop) {
-     return Boolean.parseBoolean(options.inputCompilerOptions.getProperty(prop));
-  }
   private static void applyCompilationOptionsFromFile(CompilerOptions options) {
-
     // All the safe optimizations.
     options.dependencyOptions.setDependencySorting(true);
     options.closurePass = getBoolProperty(options, "closurePass");

@@ -563,7 +563,7 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Input property renaming map. */
   VariableMap inputPropertyMap;
 
-  /** Input property compiler map. */
+  /** List of individually configured compiler options. WARNING: experimental; these override the three compiler optimization levels! */
   Properties inputCompilerOptions;
 
   /** Whether to export test functions. */
@@ -1971,6 +1971,7 @@ public class CompilerOptions implements Serializable, Cloneable {
   public void setInputCompilerOptions(Properties inputCompilerOptions) {
     this.inputCompilerOptions = inputCompilerOptions;
   }
+
   public void setInputPropertyMap(VariableMap inputPropertyMap) {
     this.inputPropertyMap = inputPropertyMap;
   }

@@ -102,7 +102,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   private final PrintStream err;
   private A compiler;
 
-
   private Charset inputCharset;
 
   // NOTE(nicksantos): JSCompiler has always used ASCII as the default
@@ -308,7 +307,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       options.inputVariableMap =
           VariableMap.load(config.variableMapInputFile);
     }
-
 
     if (!config.propertyMapInputFile.equals("")) {
       options.inputPropertyMap =
@@ -740,14 +738,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
 
     List<SourceFile> externs = createExterns();
 
-
     compiler = createCompiler();
-      System.out.println("before");
     B options = createOptions();
-      System.out.println("after");
 
     List<JSModule> modules = null;
     Result result = null;
+
     setRunOptions(options);
 
     boolean writeOutputToFile = !config.jsOutputFile.isEmpty();
@@ -1685,11 +1681,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     private String propertyMapInputFile = "";
+
     /**
      * File containing the serialized version of the property renaming
      * map produced by a previous compilation
      */
-    CommandLineConfig setOptionsMapInputFile(String propertyMapInputFile) {
+    CommandLineConfig setPropertyMapInputFile(String propertyMapInputFile) {
       this.propertyMapInputFile = propertyMapInputFile;
       return this;
     }
@@ -1697,7 +1694,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     private String optionsInputFile = "";
 
     /**
-     * File containing the serialized version of the compiler properties
+     * File containing the individual configuration flags which underpin 
+	 * the three compiler optimization levels
      */
     CommandLineConfig setOptionsInputFile(String optionsInputFile) {
       this.optionsInputFile = optionsInputFile;
