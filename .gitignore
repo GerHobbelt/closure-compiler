@@ -2,3 +2,6 @@ build/
 TESTS-TestSuites.xml
 junit*.properties
 build/*
+#IDE
+.idea
+*.iml

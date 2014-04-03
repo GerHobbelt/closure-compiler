@@ -28,10 +28,7 @@ import com.google.javascript.rhino.SourcePosition;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Compiler options
@@ -565,6 +562,9 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** Input property renaming map. */
   VariableMap inputPropertyMap;
+
+  /** Input property compiler map. */
+  Properties inputCompilerOptions;
 
   /** Whether to export test functions. */
   public boolean exportTestFunctions;
@@ -1968,6 +1968,9 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.inputVariableMap = inputVariableMap;
   }
 
+  public void setInputCompilerOptions(Properties inputCompilerOptions) {
+    this.inputCompilerOptions = inputCompilerOptions;
+  }
   public void setInputPropertyMap(VariableMap inputPropertyMap) {
     this.inputPropertyMap = inputPropertyMap;
   }
