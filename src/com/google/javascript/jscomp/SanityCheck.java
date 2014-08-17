@@ -45,12 +45,12 @@ class SanityCheck implements CompilerPass {
 
   private final AbstractCompiler compiler;
   private final boolean gatherExternsFromTypes;
-
-  private final AstValidator astValidator = new AstValidator();
+  private final AstValidator astValidator;
 
   SanityCheck(AbstractCompiler compiler, boolean gatherExternsFromTypes) {
     this.compiler = compiler;
     this.gatherExternsFromTypes = gatherExternsFromTypes;
+    this.astValidator = new AstValidator(compiler);
   }
 
   @Override
@@ -142,6 +142,10 @@ class SanityCheck implements CompilerPass {
 
   private void sanityCheckExternProperties(Node externs) {
     Set<String> externProperties = compiler.getExternProperties();
+    if (externProperties == null) {
+      // GatherExternProperties hasn't run yet. Don't report a violation.
+      return;
+    }
     (new GatherExternProperties(compiler, gatherExternsFromTypes))
         .process(externs, null);
     if (!compiler.getExternProperties().equals(externProperties)) {
@@ -150,5 +154,5 @@ class SanityCheck implements CompilerPass {
       // which pass violated the sanity check.
       throw new IllegalStateException("Sanity Check failed");
     }
-  };
+  }
 }

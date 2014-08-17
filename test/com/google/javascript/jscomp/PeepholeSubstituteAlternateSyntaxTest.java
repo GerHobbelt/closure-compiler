@@ -116,14 +116,6 @@ public class PeepholeSubstituteAlternateSyntaxTest extends CompilerTestCase {
     fold("x = new RegExp(\"\\n\")",           "x = /\\n/");
     fold("x = new RegExp('\\\\\\r')",         "x = /\\r/");
 
-    // Don't fold really long regexp literals, because Opera 9.2's
-    // regexp parser will explode.
-    String longRegexp = "";
-    for (int i = 0; i < 200; i++) {
-      longRegexp += "x";
-    }
-    foldSame("x = RegExp(\"" + longRegexp + "\")");
-
     // Shouldn't fold RegExp unnormalized because
     // we can't be sure that RegExp hasn't been redefined
     disableNormalize();
@@ -163,18 +155,18 @@ public class PeepholeSubstituteAlternateSyntaxTest extends CompilerTestCase {
   }
 
   public void testContainsUnicodeEscape() throws Exception {
-    assertTrue(!PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(""));
-    assertTrue(!PeepholeSubstituteAlternateSyntax.containsUnicodeEscape("foo"));
+    assertFalse(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(""));
+    assertFalse(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape("foo"));
     assertTrue(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(
         "\u2028"));
     assertTrue(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(
         "\\u2028"));
     assertTrue(
         PeepholeSubstituteAlternateSyntax.containsUnicodeEscape("foo\\u2028"));
-    assertTrue(!PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(
+    assertFalse(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(
         "foo\\\\u2028"));
     assertTrue(PeepholeSubstituteAlternateSyntax.containsUnicodeEscape(
-            "foo\\\\u2028bar\\u2028"));
+        "foo\\\\u2028bar\\u2028"));
   }
 
   public void testFoldLiteralObjectConstructors() {
@@ -279,6 +271,16 @@ public class PeepholeSubstituteAlternateSyntaxTest extends CompilerTestCase {
   public void testFoldTrueFalse() {
     fold("x = true", "x = !0");
     fold("x = false", "x = !1");
+  }
+
+  public void testFoldTrueFalseComparison() {
+    fold("x == true", "x == 1");
+    fold("x == false", "x == 0");
+    fold("x != true", "x != 1");
+    fold("x < true", "x < 1");
+    fold("x <= true", "x <= 1");
+    fold("x > true", "x > 1");
+    fold("x >= true", "x >= 1");
   }
 
   public void testFoldReturnResult() {

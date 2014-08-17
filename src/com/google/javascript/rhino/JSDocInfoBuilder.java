@@ -67,8 +67,19 @@ final public class JSDocInfoBuilder {
   private JSDocInfo.Marker currentMarker = null;
 
   public JSDocInfoBuilder(boolean parseDocumentation) {
-    this.currentInfo = new JSDocInfo(parseDocumentation);
+    this(new JSDocInfo(parseDocumentation), parseDocumentation, false);
+  }
+
+  private JSDocInfoBuilder(
+      JSDocInfo info, boolean parseDocumentation, boolean populated) {
+    this.currentInfo = info;
     this.parseDocumentation = parseDocumentation;
+    this.populated = populated;
+  }
+
+  public static JSDocInfoBuilder copyFrom(JSDocInfo info) {
+    populateDefaults(info);
+    return new JSDocInfoBuilder(info.clone(), info.isDocumentationIncluded(), true);
   }
 
   /**
@@ -302,10 +313,23 @@ final public class JSDocInfoBuilder {
    * Records a template type name.
    *
    * @return {@code true} if the template type name was recorded and
-   *     {@code false} if a template type name was already defined.
+   *     {@code false} if the input template type name was already defined.
    */
-  public boolean recordTemplateTypeNames(List<String> names) {
-    if (currentInfo.declareTemplateTypeNames(names)) {
+  public boolean recordTemplateTypeName(String name) {
+    if (currentInfo.declareTemplateTypeName(name)) {
+      populated = true;
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  /**
+   * Records a type transformation expression together with its template
+   * type name.
+   */
+  public boolean recordTypeTransformation(String name, Node expr) {
+    if (currentInfo.declareTypeTransformation(name, expr)) {
       populated = true;
       return true;
     } else {
@@ -778,6 +802,10 @@ final public class JSDocInfoBuilder {
     return true;
   }
 
+  public boolean isUnrestrictedRecorded() {
+    return currentInfo.makesUnrestricted();
+  }
+
   /**
    * Records that the {@link JSDocInfo} being built should have its
    * {@link JSDocInfo#makesStructs()} flag set to {@code true}.
@@ -796,6 +824,10 @@ final public class JSDocInfoBuilder {
     return true;
   }
 
+  public boolean isStructRecorded() {
+    return currentInfo.makesStructs();
+  }
+
   /**
    * Records that the {@link JSDocInfo} being built should have its
    * {@link JSDocInfo#makesDicts()} flag set to {@code true}.
@@ -812,6 +844,10 @@ final public class JSDocInfoBuilder {
     currentInfo.setDict();
     populated = true;
     return true;
+  }
+
+  public boolean isDictRecorded() {
+    return currentInfo.makesDicts();
   }
 
   /**
@@ -1125,6 +1161,26 @@ final public class JSDocInfoBuilder {
   public boolean recordJaggerProvide(boolean jaggerProvide) {
     if (!isJaggerProvideRecorded()) {
       currentInfo.setJaggerProvide(jaggerProvide);
+      populated = true;
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Returns whether current JSDoc is annotated with {@code @jaggerProvide}.
+   */
+  public boolean isJaggerProvidePromiseRecorded() {
+    return currentInfo.isJaggerProvidePromise();
+  }
+
+  /**
+   * Records annotation with {@code @jaggerProvide}.
+   */
+  public boolean recordJaggerProvidePromise(boolean jaggerPromise) {
+    if (!isJaggerProvidePromiseRecorded()) {
+      currentInfo.setJaggerProvidePromise(jaggerPromise);
       populated = true;
       return true;
     }

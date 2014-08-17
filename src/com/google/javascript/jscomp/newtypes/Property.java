@@ -16,12 +16,14 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Multimap;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  *
@@ -31,21 +33,51 @@ import java.util.Map;
 class Property {
   private final JSType inferredType;
   private final JSType declaredType;
-  private boolean isOptional;
+  // Attributes are ordered: constant <= required <= optional
+  private enum Attribute {
+    CONSTANT, // For required props only
+    OPTIONAL,
+    REQUIRED;
+  }
+  private Attribute attribute;
 
-  Property(JSType inferredType, JSType declaredType, boolean isOptional) {
+  private Property(
+      JSType inferredType, JSType declaredType, Attribute attribute) {
     Preconditions.checkArgument(inferredType != null);
     this.inferredType = inferredType;
     this.declaredType = declaredType;
-    this.isOptional = isOptional;
+    this.attribute = attribute;
+  }
+
+  static Property make(JSType inferredType, JSType declaredType) {
+    return new Property(inferredType, declaredType, Attribute.REQUIRED);
+  }
+
+  static Property makeConstant(JSType inferredType, JSType declaredType) {
+    return new Property(inferredType, declaredType, Attribute.CONSTANT);
+  }
+
+  static Property makeOptional(JSType inferredType, JSType declaredType) {
+    return new Property(inferredType, declaredType, Attribute.OPTIONAL);
   }
 
   boolean isOptional() {
-    return isOptional;
+    return attribute == Attribute.OPTIONAL;
+  }
+
+  boolean isConstant() {
+    return attribute == Attribute.CONSTANT;
   }
 
   boolean isDeclared() {
     return declaredType != null;
+  }
+
+  boolean hasFreeTypeVars(Set<String> boundTypeVars) {
+    return (declaredType != null
+            && declaredType.hasFreeTypeVars(boundTypeVars))
+        || (inferredType != null
+            && inferredType.hasFreeTypeVars(boundTypeVars));
   }
 
   JSType getType() {
@@ -57,25 +89,45 @@ class Property {
   }
 
   Property withOptional() {
-    return new Property(inferredType, declaredType, true);
+    return new Property(inferredType, declaredType, Attribute.OPTIONAL);
   }
 
   Property withRequired() {
-    return new Property(inferredType, declaredType, false);
+    return new Property(inferredType, declaredType, Attribute.REQUIRED);
+  }
+
+  private static Attribute meetAttributes(Attribute a1, Attribute a2) {
+    if (a1 == Attribute.CONSTANT || a2 == Attribute.CONSTANT) {
+      return Attribute.CONSTANT;
+    }
+    if (a1 == Attribute.REQUIRED || a2 == Attribute.REQUIRED) {
+      return Attribute.REQUIRED;
+    }
+    return Attribute.OPTIONAL;
+  }
+
+  private static Attribute joinAttributes(Attribute a1, Attribute a2) {
+    if (a1 == Attribute.OPTIONAL || a2 == Attribute.OPTIONAL) {
+      return Attribute.OPTIONAL;
+    }
+    if (a1 == Attribute.REQUIRED || a2 == Attribute.REQUIRED) {
+      return Attribute.REQUIRED;
+    }
+    return Attribute.CONSTANT;
   }
 
   Property specialize(Property other) {
     return new Property(
         this.inferredType.specialize(other.inferredType),
         this.declaredType,
-        this.isOptional && other.isOptional);
+        meetAttributes(this.attribute, other.attribute));
   }
 
   static Property meet(Property p1, Property p2) {
     return new Property(
         JSType.meet(p1.inferredType, p2.inferredType),
         null,
-        p1.isOptional && p2.isOptional);
+        meetAttributes(p1.attribute, p2.attribute));
   }
 
   static Property join(Property p1, Property p2) {
@@ -90,7 +142,7 @@ class Property {
     return new Property(
         JSType.join(p1.inferredType, p2.inferredType),
         declType,
-        p1.isOptional || p2.isOptional);
+        joinAttributes(p1.attribute, p2.attribute));
   }
 
   /**
@@ -114,7 +166,7 @@ class Property {
     }
     return new Property(
         unifiedInferredType, unifiedDeclaredType,
-        p1.isOptional && p2.isOptional);
+        meetAttributes(p1.attribute, p2.attribute));
   }
 
   /** Returns whether unification succeeded */
@@ -134,27 +186,51 @@ class Property {
   }
 
   Property substituteGenerics(Map<String, JSType> concreteTypes) {
+    if (concreteTypes.isEmpty()
+        || !hasFreeTypeVars(new HashSet<String>())) {
+      return this;
+    }
     return new Property(
         inferredType.substituteGenerics(concreteTypes),
         declaredType == null ?
         null : declaredType.substituteGenerics(concreteTypes),
-        isOptional);
+        attribute);
   }
 
   @Override
   public String toString() {
-    return inferredType.toString() + (isOptional ? "=" : "");
+    return appendTo(new StringBuilder()).toString();
+  }
+
+  public StringBuilder appendTo(StringBuilder builder) {
+    switch (attribute) {
+      case CONSTANT:
+        return inferredType.appendTo(builder).append('^');
+      case REQUIRED:
+        return inferredType.appendTo(builder);
+      case OPTIONAL:
+        return inferredType.appendTo(builder).append('=');
+      default:
+        throw new RuntimeException("Unknown Attribute value " + attribute);
+    }
   }
 
   @Override
   public boolean equals(Object o) {
+    if (o == null) {
+      return false;
+    }
+    if (this == o) {
+      return true;
+    }
     Preconditions.checkArgument(o instanceof Property);
     Property p2 = (Property) o;
-    return inferredType.equals(p2.inferredType) && isOptional == p2.isOptional;
+    return inferredType.equals(p2.inferredType) &&
+        attribute == p2.attribute;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(inferredType, isOptional);
+    return Objects.hash(inferredType, attribute);
   }
 }

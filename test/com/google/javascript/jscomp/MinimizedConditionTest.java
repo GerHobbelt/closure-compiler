@@ -41,8 +41,7 @@ public class MinimizedConditionTest extends TestCase {
     List<SourceFile> externs = Lists.newArrayList();
     compiler.init(externs, input, new CompilerOptions());
     Node root = compiler.parseInputs();
-    assertTrue("Unexpected parse error(s): " +
-        Joiner.on("\n").join(compiler.getErrors()), root != null);
+    assertNotNull("Unexpected parse error(s): " + Joiner.on("\n").join(compiler.getErrors()), root);
     Node externsRoot = root.getFirstChild();
     Node mainRoot = externsRoot.getNext();
     Node script = mainRoot.getFirstChild();
@@ -97,7 +96,9 @@ public class MinimizedConditionTest extends TestCase {
   public void testMinimizeBug8494751() {
     minCond(
         "x && (y===2 || !f()) && (y===3 || !h())",
-        "x && !((y!==2 && f()) || (y!==3 && h()))",
+        // TODO(tbreisacher): The 'positive' option could be better:
+        // "x && !((y!==2 && f()) || (y!==3 && h()))",
+        "!(!x || (y!==2 && f()) || (y!==3 && h()))",
         "!(!x || (y!==2 && f()) || (y!==3 && h()))");
   }
 

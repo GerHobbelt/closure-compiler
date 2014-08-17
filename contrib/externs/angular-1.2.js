@@ -32,11 +32,12 @@
  *     $rootElement
  *     $rootScope
  *     $rootScopeProvider
- *     $routeParams
- *     $window
+ *
  * TODO: Resolve two issues with angular.$http
- *         1) angular.$http cannot be declared as a callable type.
- *            Its helper methods should be used instead.
+ *         1) angular.$http isn't declared as a
+ *            callable type. It should be declared as a function, and properties
+ *            added following the technique used by $timeout, $parse and
+ *            $interval.
  *         2) angular.$http.delete cannot be added as an extern
  *            as it is a reserved keyword.
  *            Its use is potentially not supported in IE.
@@ -215,6 +216,57 @@ angular.uppercase = function(s) {};
 
 /**
  * @typedef {{
+ *   enter: (function(!angular.JQLite, !Function): (!Function|undefined)|
+ *       undefined),
+ *   leave: (function(!angular.JQLite, !Function): (!Function|undefined)|
+ *       undefined),
+ *   move: (function(!angular.JQLite, !Function): (!Function|undefined)|
+ *       undefined),
+ *   addClass: (function(!angular.JQLite, !Function): (!Function|undefined)|
+ *       undefined),
+ *   removeClass: (function(!angular.JQLite, !Function): (!Function|undefined)|
+ *       undefined)
+ *   }}
+ */
+angular.Animation;
+
+/**
+ * @param {!angular.JQLite} element
+ * @param {!Function} done
+ * @return {(!Function|undefined)}
+ */
+angular.Animation.enter = function(element, done) {};
+
+/**
+ * @param {!angular.JQLite} element
+ * @param {!Function} done
+ * @return {(!Function|undefined)}
+ */
+angular.Animation.leave = function(element, done) {};
+
+/**
+ * @param {!angular.JQLite} element
+ * @param {!Function} done
+ * @return {(!Function|undefined)}
+ */
+angular.Animation.move = function(element, done) {};
+
+/**
+ * @param {!angular.JQLite} element
+ * @param {!Function} done
+ * @return {(!Function|undefined)}
+ */
+angular.Animation.addClass = function(element, done) {};
+
+/**
+ * @param {!angular.JQLite} element
+ * @param {!Function} done
+ * @return {(!Function|undefined)}
+ */
+angular.Animation.removeClass = function(element, done) {};
+
+/**
+ * @typedef {{
  *   $attr: Object.<string,string>,
  *   $normalize: function(string): string,
  *   $observe: function(string, function(*)): function(*),
@@ -227,6 +279,22 @@ angular.Attributes;
  * @type {Object.<string, string>}
  */
 angular.Attributes.$attr;
+
+/**
+ * @param {string} classVal
+ */
+angular.Attributes.$addClass = function(classVal) {};
+
+/**
+ * @param {string} classVal
+ */
+angular.Attributes.$removeClass = function(classVal) {};
+
+/**
+ * @param {string} newClasses
+ * @param {string} oldClasses
+ */
+angular.Attributes.$updateClass = function(newClasses, oldClasses) {};
 
 /**
  * @param {string} name
@@ -401,16 +469,19 @@ angular.Directive.transclude;
  *   controller: function(string=): Object,
  *   css: function(string, string=): (!angular.JQLite|string),
  *   data: function(string=, *=): *,
+ *   empty: function(): !angular.JQLite,
  *   eq: function(number): !angular.JQLite,
  *   find: function(string): !angular.JQLite,
  *   hasClass: function(string): boolean,
  *   html: function(string=): (!angular.JQLite|string),
  *   inheritedData: function(string=, *=): *,
  *   injector: function(): !angular.$injector,
+ *   isolateScope: function(): (!angular.Scope|undefined),
  *   length: number,
  *   next: function(): !angular.JQLite,
  *   on: function(string, Function): !angular.JQLite,
  *   off: function(string=, Function=): !angular.JQLite,
+ *   one: function(string, Function): !angular.JQLite,
  *   parent: function(): !angular.JQLite,
  *   prepend: function(JQLiteSelector): !angular.JQLite,
  *   prop: function(string, *=): *,
@@ -654,6 +725,8 @@ angular.JQLite.wrap = function(element) {};
 
 /**
  * @typedef {{
+ *   animation:
+ *       function(string, function(...[*]):angular.Animation):!angular.Module,
  *   config: function((Function|Array.<string|Function>)):!angular.Module,
  *   constant: function(string, *):angular.Module,
  *   controller:
@@ -679,6 +752,12 @@ angular.JQLite.wrap = function(element) {};
  *   }}
  */
 angular.Module;
+
+/**
+ * @param {string} name
+ * @param {function(...[*]):angular.Animation} animationFactory
+ */
+angular.Module.animation = function(name, animationFactory) {};
 
 /**
  * @param {Function|Array.<string|Function>} configFn
@@ -1023,6 +1102,11 @@ angular.$cacheFactory;
 angular.$cacheFactory.Options;
 
 /**
+ * @return {!angular.$cacheFactory.Cache|undefined}
+ */
+angular.$cacheFactory.prototype.get = function() {};
+
+/**
  * @template T
  * @constructor
  */
@@ -1139,6 +1223,7 @@ angular.$http;
  *   headers: (Object|undefined),
  *   method: (string|undefined),
  *   params: (Object.<(string|Object)>|undefined),
+ *   responseType: (string|undefined),
  *   timeout: (number|!angular.$q.Promise|undefined),
  *   transformRequest:
  *       (function((string|Object), Object):(string|Object)|
@@ -1147,7 +1232,9 @@ angular.$http;
  *       (function((string|Object), Object):(string|Object)|
  *       Array.<function((string|Object), Object):(string|Object)>|undefined),
  *   url: (string|undefined),
- *   withCredentials: (boolean|undefined)
+ *   withCredentials: (boolean|undefined),
+ *   xsrfCookieName: (string|undefined),
+ *   xsrfHeaderName: (string|undefined)
  * }}
  */
 angular.$http.Config;
@@ -1311,6 +1398,7 @@ angular.$HttpProvider.defaults;
  * @typedef {{
  *   annotate: function((Function|Array.<string|Function>)):Array.<string>,
  *   get: function(string):(?),
+ *   has: function(string):boolean,
  *   instantiate: function(Function, Object=):Object,
  *   invoke: function(
  *       (!Function|Array.<string|!Function>), Object=, Object=):(?)
@@ -1329,6 +1417,12 @@ angular.$injector.annotate = function(fn) {};
  * @return {?}
  */
 angular.$injector.get = function(name) {};
+
+/**
+ * @param {string} name
+ * @return {boolean}
+ */
+angular.$injector.has = function(name) {};
 
 /**
  * @param {!Function} type
@@ -1364,6 +1458,33 @@ angular.$interpolateProvider.startSymbol;
 angular.$interpolateProvider.endSymbol;
 
 /******************************************************************************
+ * $interval Service
+ *****************************************************************************/
+
+/**
+ * @typedef {
+ *  function(function(), number=, number=, boolean=):angular.$q.Promise
+ * }
+ */
+angular.$interval;
+
+/**
+ * Augment the angular.$interval type definition by reopening the type via an
+ * artificial angular.$interval instance.
+ *
+ * This allows us to define methods on function objects which is something
+ * that can't be expressed via typical type annotations.
+ *
+ * @type {angular.$interval}
+ */
+angular.$interval_;
+
+/**
+ * @type {function(!angular.$q.Promise):boolean}
+ */
+angular.$interval_.cancel = function(promise) {};
+
+/******************************************************************************
  * $location Service
  *****************************************************************************/
 
@@ -1377,7 +1498,7 @@ angular.$interpolateProvider.endSymbol;
  *   protocol: function():string,
  *   replace: function(),
  *   search: function((string|Object.<string, string>)=,
- *       ?(string|Array.<string>)=): (string|!Object.<string, string>),
+ *       ?(string|Array.<string>|boolean)=): (!Object|angular.$location),
  *   url: function(string=):string
  *   }}
  */
@@ -1422,8 +1543,8 @@ angular.$location.replace = function() {};
 
 /**
  * @param {(string|Object.<string, string>)=} opt_search
- * @param {?(string|Array.<string>)=} opt_paramValue
- * @return {string|!Object.<string, string>}
+ * @param {?(string|Array.<string>|boolean)=} opt_paramValue
+ * @return {(!Object|angular.$location)}
  */
 angular.$location.search = function(opt_search, opt_paramValue) {};
 
@@ -1865,6 +1986,16 @@ angular.$route.Route.originalPath;
 angular.$route.Route.regexp;
 
 /******************************************************************************
+ * $routeParams Service
+ *****************************************************************************/
+
+// TODO: This should be !Object.<string|boolean> because valueless query params
+// (without even an equal sign) come through as boolean "true".
+
+/** @typedef {!Object.<string>} */
+angular.$routeParams;
+
+/******************************************************************************
  * $routeProvider Service
  *****************************************************************************/
 
@@ -2104,6 +2235,67 @@ angular.$sce.trustAsJs = function(trustedValue) {};
 angular.$sce.trustAsResourceUrl = function(trustedValue) {};
 
 /******************************************************************************
+ * $sceDelegate Service
+ *****************************************************************************/
+
+/**
+ * Ref: http://docs.angularjs.org/api/ng/service/$sceDelegate
+ *
+ * @constructor
+ */
+angular.$sceDelegate = function() {};
+
+/**
+ * @param {string} type
+ * @param {*} value
+ * @return {*}
+ */
+angular.$sceDelegate.prototype.trustAs = function(type, value) {};
+
+/**
+ * Note: because this method overrides Object.prototype.valueOf, the value
+ * parameter needs to be annotated as optional to keep the compiler happy (as
+ * otherwise the signature won't match Object.prototype.valueOf).
+ *
+ * @override
+ * @param {*=} value
+ * @return {*}
+ */
+angular.$sceDelegate.prototype.valueOf = function(value) {};
+
+/**
+ * @param {string} type
+ * @param {*} maybeTrusted
+ * @return {*}
+ */
+angular.$sceDelegate.prototype.getTrusted = function(type, maybeTrusted) {};
+
+/******************************************************************************
+ * $sceDelegateProvider Service
+ *****************************************************************************/
+
+/**
+ * Ref: http://docs.angularjs.org/api/ng/provider/$sceDelegateProvider
+ *
+ * @constructor
+ */
+angular.$sceDelegateProvider = function() {};
+
+/**
+ * @param {Array.<string>=} opt_whitelist
+ * @return {!Array.<string>}
+ */
+angular.$sceDelegateProvider.prototype.resourceUrlWhitelist = function(
+    opt_whitelist) {};
+
+/**
+ * @param {Array.<string>=} opt_blacklist
+ * @return {!Array.<string>}
+ */
+angular.$sceDelegateProvider.prototype.resourceUrlBlacklist = function(
+    opt_blacklist) {};
+
+/******************************************************************************
  * $templateCache Service
  *****************************************************************************/
 
@@ -2136,3 +2328,10 @@ angular.$timeout_;
  * @type {function(!angular.$q.Promise):boolean}
  */
 angular.$timeout_.cancel = function(promise) {};
+
+/******************************************************************************
+ * $window Service
+ *****************************************************************************/
+
+/** @typedef {!Window} */
+angular.$window;

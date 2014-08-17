@@ -188,7 +188,7 @@ class ScopedAliases implements HotSwapCompilerPass {
     }
   }
 
-  private abstract class AliasUsage {
+  private abstract static class AliasUsage {
     final Var aliasVar;
     final Node aliasReference;
 
@@ -208,7 +208,7 @@ class ScopedAliases implements HotSwapCompilerPass {
     public abstract void applyAlias();
   }
 
-  private class AliasedNode extends AliasUsage {
+  private static class AliasedNode extends AliasUsage {
     AliasedNode(Var aliasVar, Node aliasReference) {
       super(aliasVar, aliasReference);
     }
@@ -222,7 +222,7 @@ class ScopedAliases implements HotSwapCompilerPass {
     }
   }
 
-  private class AliasedTypeNode extends AliasUsage {
+  private static class AliasedTypeNode extends AliasUsage {
     AliasedTypeNode(Var aliasVar, Node aliasReference) {
       super(aliasVar, aliasReference);
     }
@@ -234,11 +234,11 @@ class ScopedAliases implements HotSwapCompilerPass {
       String typeName = aliasReference.getString();
       String aliasExpanded =
           Preconditions.checkNotNull(aliasDefinition.getQualifiedName());
-      Preconditions.checkState(typeName.startsWith(aliasName));
+      Preconditions.checkState(typeName.startsWith(aliasName),
+          "%s must start with %s", typeName, aliasName);
       String replacement =
           aliasExpanded + typeName.substring(aliasName.length());
       aliasReference.setString(replacement);
-
     }
   }
 
@@ -294,7 +294,7 @@ class ScopedAliases implements HotSwapCompilerPass {
 
     private boolean isCallToScopeMethod(Node n) {
       return n.isCall() &&
-          SCOPING_METHOD_NAME.equals(n.getFirstChild().getQualifiedName());
+          n.getFirstChild().matchesQualifiedName(SCOPING_METHOD_NAME);
     }
 
     @Override
@@ -362,7 +362,8 @@ class ScopedAliases implements HotSwapCompilerPass {
       for (Var v : scope.getVarIterable()) {
         Node n = v.getNode();
         Node parent = n.getParent();
-        boolean isVar = parent.isVar();
+        // We use isBlock to avoid variables declared in loop headers.
+        boolean isVar = parent.isVar() && parent.getParent().isBlock();
         boolean isFunctionDecl = NodeUtil.isFunctionDeclaration(parent);
         if (isVar && n.getFirstChild() != null && n.getFirstChild().isQualifiedName()) {
           recordAlias(v);
@@ -389,7 +390,7 @@ class ScopedAliases implements HotSwapCompilerPass {
           String globalName =
               "$jscomp.scope." + name + (nameCount == 0 ? "" : ("$" + nameCount));
 
-          compiler.ensureLibraryInjected("base");
+          compiler.ensureLibraryInjected("base", true);
 
           // First, we need to free up the function expression (EXPR)
           // to be used in another expression.
@@ -459,7 +460,7 @@ class ScopedAliases implements HotSwapCompilerPass {
         aliasVar.getInitialValue().getQualifiedName();
       transformation.addAlias(name, qualifiedName);
 
-      int rootIndex = qualifiedName.indexOf(".");
+      int rootIndex = qualifiedName.indexOf('.');
       if (rootIndex != -1) {
         String qNameRoot = qualifiedName.substring(0, rootIndex);
         if (!aliases.containsKey(qNameRoot)) {
@@ -586,8 +587,13 @@ class ScopedAliases implements HotSwapCompilerPass {
         // we only process that jsdoc once.
         JSDocInfo info = n.getJSDocInfo();
         if (info != null && !injectedDecls.contains(n)) {
-          for (Node node : info.getTypeNodes()) {
-            fixTypeNode(node);
+          if (parent.isStringKey() && info == parent.getJSDocInfo()) {
+            // Also skip this one, to avoid processing the same JSDocInfo twice:
+            // https://github.com/google/closure-compiler/issues/400
+          } else {
+            for (Node node : info.getTypeNodes()) {
+              fixTypeNode(node);
+            }
           }
         }
 

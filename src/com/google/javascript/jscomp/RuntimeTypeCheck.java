@@ -188,7 +188,7 @@ class RuntimeTypeCheck implements CompilerPass {
       return nodeToInsertAfter;
     }
 
-    private Node findEnclosingConstructorDeclaration(Node n) {
+    private static Node findEnclosingConstructorDeclaration(Node n) {
       while (!n.getParent().isScript() && !n.getParent().isBlock()) {
         n = n.getParent();
       }
@@ -366,7 +366,7 @@ class RuntimeTypeCheck implements CompilerPass {
   }
 
   private void addBoilerplateCode() {
-    Node newNode = compiler.ensureLibraryInjected("runtime_type_check");
+    Node newNode = compiler.ensureLibraryInjected("runtime_type_check", true);
     if (newNode != null && logFunction != null) {
       // Inject the custom log function.
       Node logOverride = IR.exprResult(

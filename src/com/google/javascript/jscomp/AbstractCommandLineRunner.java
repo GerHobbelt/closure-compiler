@@ -25,12 +25,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.io.Files;
+
 import com.google.javascript.jscomp.CompilerOptions.TweakProcessing;
+import com.google.javascript.jscomp.deps.ClosureBundler;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
@@ -39,7 +41,7 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Hashtable;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -205,6 +207,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       boolean manageClosureDependencies,
       boolean onlyClosureDependencies,
       boolean processCommonJSModules,
+      boolean rewriteEs6Modules,
       List<String> closureEntryPoints)
       throws FlagUsageException {
     if (onlyClosureDependencies) {
@@ -224,6 +227,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         .setDependencySorting(true)
         .setMoocherDropping(false)
         .setEntryPoints(closureEntryPoints);
+    } else if (rewriteEs6Modules) {
+      return new DependencyOptions()
+        .setDependencyPruning(false)
+        .setDependencySorting(true)
+        .setMoocherDropping(false)
+        .setEntryPoints(closureEntryPoints);
     } else if (manageClosureDependencies ||
         closureEntryPoints.size() > 0) {
       return new DependencyOptions()
@@ -234,6 +243,9 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
     return null;
   }
+
+  protected abstract void addWhitelistWarningsGuard(
+      CompilerOptions options, File whitelistFile);
 
   /**
    * Sets options based on the configurations set flags API.
@@ -252,9 +264,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     if (!config.warningsWhitelistFile.isEmpty()) {
-      options.addWarningsGuard(
-          WhitelistWarningsGuard.fromFile(
-              new File(config.warningsWhitelistFile)));
+      addWhitelistWarningsGuard(options, new File(config.warningsWhitelistFile));
     }
 
     createDefineOrTweakReplacements(config.define, options, false);
@@ -266,6 +276,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         config.manageClosureDependencies,
         config.onlyClosureDependencies,
         config.processCommonJSModules,
+        config.rewriteEs6Modules,
         config.closureEntryPoints);
     if (depOptions != null) {
       options.setDependencyOptions(depOptions);
@@ -302,13 +313,24 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
     options.sourceMapDetailLevel = config.sourceMapDetailLevel;
     options.sourceMapFormat = config.sourceMapFormat;
+    options.sourceMapLocationMappings = config.sourceMapLocationMappings;
 
-    if (!config.variableMapInputFile.equals("")) {
+    ImmutableMap.Builder<String, SourceMapInput> inputSourceMaps
+        = new ImmutableMap.Builder<>();
+    for (Map.Entry<String, String> files :
+             config.sourceMapInputFiles.entrySet()) {
+      SourceFile sourceMap = SourceFile.fromFile(files.getValue());
+      inputSourceMaps.put(
+          files.getKey(), new SourceMapInput(sourceMap));
+    }
+    options.inputSourceMaps = inputSourceMaps.build();
+
+    if (!config.variableMapInputFile.isEmpty()) {
       options.inputVariableMap =
           VariableMap.load(config.variableMapInputFile);
     }
 
-    if (!config.propertyMapInputFile.equals("")) {
+    if (!config.propertyMapInputFile.isEmpty()) {
       options.inputPropertyMap =
           VariableMap.load(config.propertyMapInputFile);
     }
@@ -320,6 +342,19 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         options.setLanguageIn(languageMode);
       } else {
         throw new FlagUsageException("Unknown language `" + config.languageIn +
+                                     "' specified.");
+      }
+    }
+
+    if (config.languageOut.isEmpty()) {
+      options.setLanguageOut(options.getLanguageIn());
+    } else {
+      CompilerOptions.LanguageMode languageMode =
+          CompilerOptions.LanguageMode.fromString(config.languageOut);
+      if (languageMode != null) {
+        options.setLanguageOut(languageMode);
+      } else {
+        throw new FlagUsageException("Unknown language `" + config.languageOut +
                                      "' specified.");
       }
     }
@@ -347,6 +382,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     options.acceptConstKeyword = config.acceptConstKeyword;
     options.transformAMDToCJSModules = config.transformAMDToCJSModules;
     options.processCommonJSModules = config.processCommonJSModules;
+    options.rewriteEs6Modules = config.rewriteEs6Modules;
     options.commonJSModulePathPrefix = config.commonJSModulePathPrefix;
     options.angularPass = config.angularPass;
     options.tracer = config.tracerMode;
@@ -421,7 +457,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
    */
   protected List<SourceFile> createInputs(List<String> files,
       boolean allowStdIn) throws FlagUsageException, IOException {
-    List<SourceFile> inputs = new ArrayList<SourceFile>(files.size());
+    List<SourceFile> inputs = new ArrayList<>(files.size());
     boolean usingStdin = false;
     for (String filename : files) {
       if (!"-".equals(filename)) {
@@ -1182,10 +1218,10 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   private String getMapPath(String outputFile) {
     String basePath = "";
 
-    if (outputFile.equals("")) {
+    if (outputFile.isEmpty()) {
       // If we have a js_module_binary rule, output the maps
       // at modulename_props_map.out, etc.
-      if (!config.moduleOutputPathPrefix.equals("")) {
+      if (!config.moduleOutputPathPrefix.isEmpty()) {
         basePath = config.moduleOutputPathPrefix;
       } else {
         basePath = "jscompiler";
@@ -1202,7 +1238,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
             outputFileName.substring(0, outputFileName.length() - 3);
       }
 
-      basePath = file.getParent() + File.separatorChar + outputFileName;
+      String fileParent = file.getParent();
+      if (fileParent == null) {
+        basePath = outputFileName;
+      } else {
+        basePath = file.getParent() + File.separatorChar + outputFileName;
+      }
     }
 
     return basePath;
@@ -1229,7 +1270,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     // Check the individual FLAGS.
-    if (!config.variableMapOutputFile.equals("")) {
+    if (!config.variableMapOutputFile.isEmpty()) {
       if (variableMapOutputPath != null) {
         throw new FlagUsageException("The flags variable_map_output_file and "
             + "create_name_map_files cannot both be used simultaniously.");
@@ -1238,7 +1279,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       variableMapOutputPath = config.variableMapOutputFile;
     }
 
-    if (!config.propertyMapOutputFile.equals("")) {
+    if (!config.propertyMapOutputFile.isEmpty()) {
       if (propertyMapOutputPath != null) {
         throw new FlagUsageException("The flags property_map_output_file and "
             + "create_name_map_files cannot both be used simultaniously.");
@@ -1515,7 +1556,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
    * Prints all the input contents, starting with a comment that specifies
    * the input file name (using root-relative paths) before each file.
    */
-  private void printBundleTo(Iterable<CompilerInput> inputs, Appendable out)
+  @VisibleForTesting
+  void printBundleTo(Iterable<CompilerInput> inputs, Appendable out)
       throws IOException {
     for (CompilerInput input : inputs) {
       // Every module has an empty file in it. This makes it easier to implement
@@ -1543,7 +1585,9 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       out.append("//");
       out.append(displayName);
       out.append("\n");
-      Files.copy(file, inputCharset, out);
+
+      ClosureBundler.appendInput(out, input, file, inputCharset);
+
       out.append("\n");
     }
   }
@@ -1666,6 +1710,14 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     CommandLineConfig setModule(List<String> module) {
       this.module.clear();
       this.module.addAll(module);
+      return this;
+    }
+
+    private Map<String, String> sourceMapInputFiles = new HashMap<>();
+
+    CommandLineConfig setSourceMapInputFiles(
+        Map<String, String> sourceMapInputFiles) {
+      this.sourceMapInputFiles = sourceMapInputFiles;
       return this;
     }
 
@@ -1826,10 +1878,24 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       SourceMap.Format.DEFAULT;
 
     /**
-     * The detail supplied in the source map file, if generated.
+     * The source map format to use, if generated.
      */
     CommandLineConfig setSourceMapFormat(SourceMap.Format format) {
       this.sourceMapFormat = format;
+      return this;
+    }
+
+    private List<SourceMap.LocationMapping> sourceMapLocationMappings =
+      Lists.newArrayList();
+
+    /**
+     * The source map location mappings to use, if generated.
+     */
+    CommandLineConfig setSourceMapLocationMappings(
+        List<SourceMap.LocationMapping> locationMappings) {
+
+      this.sourceMapLocationMappings.clear();
+      this.sourceMapLocationMappings.addAll(locationMappings);
       return this;
     }
 
@@ -1977,13 +2043,15 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     private String languageIn = "";
+    private String languageOut = "";
 
-    /**
-     * Sets whether to accept input files as ECMAScript5 compliant.
-     * Otherwise, input files are treated as ECMAScript3 compliant.
-     */
     CommandLineConfig setLanguageIn(String languageIn) {
       this.languageIn = languageIn;
+      return this;
+    }
+
+    CommandLineConfig setLanguageOut(String languageOut) {
+      this.languageOut = languageOut;
       return this;
     }
 
@@ -2030,6 +2098,15 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       return this;
     }
 
+    private boolean rewriteEs6Modules = false;
+
+    /**
+     * Sets whether to process ES6 modules.
+     */
+    CommandLineConfig setRewriteEs6Modules(boolean rewriteEs6Modules) {
+      this.rewriteEs6Modules = rewriteEs6Modules;
+      return this;
+    }
 
     private String commonJSModulePathPrefix =
         ProcessCommonJSModules.DEFAULT_FILENAME_PREFIX;

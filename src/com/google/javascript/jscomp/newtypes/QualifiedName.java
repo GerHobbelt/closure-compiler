@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp.newtypes;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 
 import com.google.javascript.rhino.Node;
@@ -44,12 +45,25 @@ public class QualifiedName {
   }
 
   public static QualifiedName fromGetprop(Node getprop) {
-    return new QualifiedName(
-        ImmutableList.copyOf(getprop.getQualifiedName().split("\\.")));
+    if (getprop == null || !getprop.isQualifiedName()) {
+      return null;
+    }
+    return new QualifiedName(ImmutableList.copyOf(
+        Splitter.on('.').split(getprop.getQualifiedName())));
+  }
+
+  public static QualifiedName fromQname(String qname) {
+    return qname.contains(".") ?
+        new QualifiedName(ImmutableList.copyOf(Splitter.on('.').split(qname))) :
+        new QualifiedName(qname);
   }
 
   public boolean isIdentifier() {
     return parts.size() == 1;
+  }
+
+  public int size() {
+    return parts.size();
   }
 
   public QualifiedName getAllButLeftmost() {
@@ -61,7 +75,16 @@ public class QualifiedName {
     return parts.get(0);
   }
 
+  QualifiedName getAllButRightmost() {
+    Preconditions.checkArgument(!isIdentifier());
+    return new QualifiedName(parts.subList(0, parts.size() - 1));
+  }
+
+  String getRightmostName() {
+    return parts.get(parts.size() - 1);
+  }
+
   public String toString() {
-    return parts.toString();
+    return isIdentifier() ? parts.get(0).toString() : parts.toString();
   }
 }

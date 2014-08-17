@@ -275,12 +275,6 @@ Window.prototype.clearTimeout = function(timeoutID) {};
 Window.prototype.close = function() {};
 
 /**
- * @param {*} message
- * @return {boolean}
- */
-Window.prototype.confirm = function(message) {};
-
-/**
  * @param {string} regular
  * @return {string}
  * @see https://developer.mozilla.org/en/DOM/window.escape
@@ -849,7 +843,7 @@ Element.prototype.nodeValue;
 /** @type {Node} */ Element.prototype.parentNode;
 Element.prototype.prefix;
 /** @type {Node} */ Element.prototype.previousSibling;
-/** @type {CSSStyleDeclaration} */ Element.prototype.style;
+/** @type {!CSSStyleDeclaration} */ Element.prototype.style;
 /**
  * @type {number}
  * @implicitCast
@@ -1042,6 +1036,14 @@ Navigator.prototype.productSub;
  * @see https://developer.mozilla.org/en/Navigator.securityPolicy
  */
 Navigator.prototype.securityPolicy;
+
+/**
+ * @param {string} url
+ * @param {ArrayBufferView|Blob|string|FormData=} opt_data
+ * @return {boolean}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/navigator.sendBeacon
+ */
+Navigator.prototype.sendBeacon = function(url, opt_data) {};
 
 /**
  * @type {string}

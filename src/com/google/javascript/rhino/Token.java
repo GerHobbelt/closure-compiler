@@ -179,6 +179,17 @@ public class Token {
         EXPORT_SPEC    = 170,
         MODULE         = 171,
 
+        REST           = 172, // "..." in formal parameters, or an array pattern.
+        SPREAD         = 173, // "..." in a call expression, or an array literal.
+
+        COMPUTED_PROP  = 174,
+
+        TEMPLATELIT     = 175, // template literal
+        TEMPLATELIT_SUB = 176, // template literal substitution
+
+        DEFAULT_VALUE   = 177, // Formal parameter or destructuring element
+                               // with a default value
+
         // JSDoc-only tokens
         ANNOTATION     = 300,
         PIPE           = 301,
@@ -191,7 +202,11 @@ public class Token {
         LB             = 308,  // left brackets
         LC             = 309,  // left curly braces
         COLON          = 310,
-        COLONCOLON     = 311;
+
+        // Token Types to use for internal bookkeeping,
+        // an AST is invalid while these are present.
+        PLACEHOLDER1   = 1001,
+        PLACEHOLDER2   = 1002;
 
   public static String name(int token) {
         switch (token) {
@@ -241,6 +256,8 @@ public class Token {
           case INSTANCEOF:      return "INSTANCEOF";
           case ARRAYLIT:        return "ARRAYLIT";
           case OBJECTLIT:       return "OBJECTLIT";
+          case TEMPLATELIT:      return "TEMPLATELIT";
+          case TEMPLATELIT_SUB:    return "TEMPLATELIT_SUB";
           case TRY:             return "TRY";
           case PARAM_LIST:      return "PARAM_LIST";
           case COMMA:           return "COMMA";
@@ -296,7 +313,6 @@ public class Token {
           case LB:              return "LB";
           case LC:              return "LC";
           case COLON:           return "COLON";
-          case COLONCOLON:      return "COLONCOLON";
 
           case ARRAY_PATTERN:   return "ARRAY_PATTERN";
           case OBJECT_PATTERN:  return "OBJECT_PATTERN";
@@ -314,10 +330,17 @@ public class Token {
           case EXPORT_SPECS:    return "EXPORT_SPECS";
           case EXPORT_SPEC:     return "EXPORT_SPEC";
           case MODULE:          return "MODULE";
+          case REST:            return "REST";
+          case SPREAD:          return "SPREAD";
+          case COMPUTED_PROP:   return "COMPUTED_PROP";
+          case DEFAULT_VALUE:   return "DEFAULT_VALUE";
+
+          case PLACEHOLDER1:        return "PLACEHOLDER1";
+          case PLACEHOLDER2:        return "PLACEHOLDER2";
         }
 
         // Token without name
-        throw new IllegalStateException(String.valueOf(token));
+        throw new IllegalStateException("No name defined for " + token);
     }
 
   /** If the arity isn't always the same, this function returns -1 */
@@ -356,7 +379,7 @@ public class Token {
       case LABEL_NAME:      return 0;
       case NUMBER:          return 0;
       case STRING:          return 0;
-      case STRING_KEY:      return 1;
+      case STRING_KEY:      return -1;
       case NULL:            return 0;
       case THIS:            return 0;
       case FALSE:           return 0;
@@ -369,8 +392,13 @@ public class Token {
       case INSTANCEOF:      return 2;
       case ARRAYLIT:        return -1;
       case OBJECTLIT:       return -1;
+      case TEMPLATELIT:     return -1;
+      case TEMPLATELIT_SUB: return 1;
       case TRY:             return -1;
+      case CLASS:           return 3;
+      case MEMBER_DEF:      return 1;
       case PARAM_LIST:      return -1;
+      case DEFAULT_VALUE:   return 2;
       case COMMA:           return 2;
       case ASSIGN:          return 2;
       case ASSIGN_BITOR:    return 2;
@@ -397,6 +425,7 @@ public class Token {
       case WHILE:           return 2;
       case DO:              return 2;
       case FOR:             return -1;
+      case FOR_OF:          return 3;
       case BREAK:           return -1;
       case CONTINUE:        return -1;
       case VAR:             return -1;
@@ -418,14 +447,19 @@ public class Token {
       case EOC:             return -1;
       case QMARK:           return -1;
       case ELLIPSIS:        return -1;
+      case REST:            return 0;
+      case SPREAD:          return 1;
       case BANG:            return -1;
       case VOID:            return 1;
       case EQUALS:          return -1;
       case LB:              return -1;
       case LC:              return -1;
       case COLON:           return -1;
-      case COLONCOLON:      return -1;
+      case COMPUTED_PROP:   return 2;
+      case IMPORT:          return 3;
+      case YIELD:           return -1;
     }
-    throw new IllegalStateException(String.valueOf(token));
+    throw new IllegalStateException(
+        "No arity defined for " + Token.name(token));
   }
 }

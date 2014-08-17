@@ -50,6 +50,11 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
           "JSC_SUSPICIOUS_IN",
           "Use of the \"in\" keyword on non-object types throws an exception.");
 
+  static final DiagnosticType SUSPICIOUS_INSTANCEOF_LEFT_OPERAND =
+      DiagnosticType.warning(
+          "JSC_SUSPICIOUS_INSTANCEOF_LEFT",
+          "\"instanceof\" with left non-object operand is always false.");
+
   CheckSuspiciousCode() {
   }
 
@@ -58,6 +63,7 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
     checkMissingSemicolon(t, n);
     checkNaN(t, n);
     checkInvalidIn(t, n);
+    checkNonObjectInstanceOf(t, n);
   }
 
   private void checkMissingSemicolon(NodeTraversal t, Node n) {
@@ -78,13 +84,13 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
     }
   }
 
-  private void reportIfWasEmpty(NodeTraversal t, Node block) {
+  private static void reportIfWasEmpty(NodeTraversal t, Node block) {
     Preconditions.checkState(block.isBlock());
 
     // A semicolon is distinguished from a block without children by
     // annotating it with EMPTY_BLOCK.  Blocks without children are
     // usually intentional, especially with loops.
-    if (!block.hasChildren() && block.wasEmptyNode()) {
+    if (!block.hasChildren() && block.isAddedBlock()) {
         t.getCompiler().report(
             t.makeError(block, SUSPICIOUS_SEMICOLON));
     }
@@ -105,7 +111,7 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
     }
   }
 
-  private void reportIfNaN(NodeTraversal t, Node n) {
+  private static void reportIfNaN(NodeTraversal t, Node n) {
     if (NodeUtil.isNaN(n)) {
       t.getCompiler().report(
           t.makeError(n.getParent(), SUSPICIOUS_COMPARISON_WITH_NAN));
@@ -114,14 +120,24 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
 
   private void checkInvalidIn(NodeTraversal t, Node n) {
     if (n.getType() == Token.IN) {
-      reportIfNonObject(t, n.getLastChild());
+      reportIfNonObject(t, n.getLastChild(), SUSPICIOUS_IN_OPERATOR);
     }
   }
 
-  private void reportIfNonObject(NodeTraversal t, Node n) {
-    if (NodeUtil.isImmutableResult(n)) {
-      t.getCompiler().report(
-          t.makeError(n.getParent(), SUSPICIOUS_IN_OPERATOR));
+  private void checkNonObjectInstanceOf(NodeTraversal t, Node n) {
+    if (n.getType() == Token.INSTANCEOF) {
+      reportIfNonObject(
+          t, n.getFirstChild(), SUSPICIOUS_INSTANCEOF_LEFT_OPERAND);
     }
+  }
+
+  private static boolean reportIfNonObject(
+      NodeTraversal t, Node n, DiagnosticType diagnosticType) {
+    if (NodeUtil.isImmutableResult(n) || n.getType() == Token.NOT) {
+      t.getCompiler().report(
+          t.makeError(n.getParent(), diagnosticType));
+      return true;
+    }
+    return false;
   }
 }

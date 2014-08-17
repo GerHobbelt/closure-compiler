@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+
 import junit.framework.TestCase;
 
 import java.util.List;
@@ -27,6 +28,7 @@ import java.util.List;
  * Tests for {@link ExternExportsPass}.
  *
  */
+
 public class ExternExportsPassTest extends TestCase {
 
   private boolean runCheckTypes = true;
@@ -44,7 +46,6 @@ public class ExternExportsPassTest extends TestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-
     setRunCheckTypes(true);
   }
 
@@ -599,6 +600,7 @@ public class ExternExportsPassTest extends TestCase {
     Compiler compiler = new Compiler();
     CompilerOptions options = new CompilerOptions();
     options.externExportsPath = "externs.js";
+    options.declaredGlobalExternsOnWindow = false;
 
     // Turn off IDE mode.
     options.ideMode = false;

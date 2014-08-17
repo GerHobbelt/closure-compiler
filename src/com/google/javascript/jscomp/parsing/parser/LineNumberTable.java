@@ -39,12 +39,12 @@ public class LineNumberTable {
 
   private static int[] computeLineStartOffsets(String source) {
     // TODO(johnlenz): do this more efficiently.
-    ArrayList<Integer> lineStartOffsets = new ArrayList<Integer>();
+    ArrayList<Integer> lineStartOffsets = new ArrayList<>();
     lineStartOffsets.add(0);
     for (int index = 0; index < source.length(); index++) {
       char ch = source.charAt(index);
       if (isLineTerminator(ch)) {
-        if (index < source.length() && ch == '\r'
+        if (index + 1 < source.length() && ch == '\r'
             && source.charAt(index + 1) == '\n') {
           index++;
         }

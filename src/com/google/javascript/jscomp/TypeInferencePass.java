@@ -123,11 +123,11 @@ class TypeInferencePass implements CompilerPass {
       compiler.getTypeRegistry().resolveTypesInScope(scope);
 
     } catch (DataFlowAnalysis.MaxIterationsExceededException e) {
-      compiler.report(JSError.make(n.getSourceFileName(), n, DATAFLOW_ERROR));
+      compiler.report(JSError.make(n, DATAFLOW_ERROR));
     }
   }
 
-  private class FirstScopeBuildingCallback extends AbstractScopedCallback {
+  private static class FirstScopeBuildingCallback extends AbstractScopedCallback {
     @Override
     public void enterScope(NodeTraversal t) {
       t.getScope();

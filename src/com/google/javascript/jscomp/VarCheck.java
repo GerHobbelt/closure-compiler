@@ -53,8 +53,11 @@ class VarCheck extends AbstractPostOrderCallback implements
 
   static final DiagnosticType STRICT_MODULE_DEP_ERROR = DiagnosticType.disabled(
       "JSC_STRICT_MODULE_DEPENDENCY",
-      "module {0} cannot reference {2}, defined in " +
-      "module {1}");
+      // The newline below causes the JS compiler not to complain when the
+      // referenced module's name changes because, for example, it's a
+      // synthetic module.
+      "cannot reference {2} because of a missing module dependency\n"
+      + "defined in module {1}, referenced from module {0}");
 
   static final DiagnosticType NAME_REFERENCE_IN_EXTERNS_ERROR =
     DiagnosticType.warning(
@@ -111,11 +114,13 @@ class VarCheck extends AbstractPostOrderCallback implements
    * @return the SyntacticScopeCreator
    */
   private ScopeCreator createScopeCreator() {
-    if (sanityCheck) {
+    if (compiler.getLanguageMode().isEs6OrHigher()) {
+      // Redeclaration check is handled in VariableReferenceCheck for ES6
+      return new Es6SyntacticScopeCreator(compiler);
+    } else if (sanityCheck) {
       return new SyntacticScopeCreator(compiler);
     } else {
-      return new SyntacticScopeCreator(
-          compiler, new RedeclarationCheckHandler());
+      return new SyntacticScopeCreator(compiler, new RedeclarationCheckHandler());
     }
   }
 
@@ -283,6 +288,14 @@ class VarCheck extends AbstractPostOrderCallback implements
               }
             }
             break;
+         case Token.ASSIGN:
+            // Don't warn for the "window.foo = foo;" nodes added by
+            // DeclaredGlobalExternsOnWindow.
+            if (n == parent.getLastChild() && parent.getFirstChild().isGetProp()
+                && parent.getFirstChild().getLastChild().getString().equals(n.getString())) {
+              break;
+            }
+            // fall through
           default:
             t.report(n, NAME_REFERENCE_IN_EXTERNS_ERROR, n.getString());
 
@@ -347,7 +360,7 @@ class VarCheck extends AbstractPostOrderCallback implements
 
         if (!allowDupe) {
           compiler.report(
-              JSError.make(NodeUtil.getSourceName(n), n,
+              JSError.make(n,
                            VAR_MULTIPLY_DECLARED_ERROR,
                            name,
                            (origVar.input != null
@@ -358,8 +371,7 @@ class VarCheck extends AbstractPostOrderCallback implements
         // Disallow shadowing "arguments" as we can't handle with our current
         // scope modeling.
         compiler.report(
-            JSError.make(NodeUtil.getSourceName(n), n,
-                VAR_ARGUMENTS_SHADOWED_ERROR));
+            JSError.make(n, VAR_ARGUMENTS_SHADOWED_ERROR));
       }
     }
   }

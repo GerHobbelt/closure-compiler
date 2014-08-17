@@ -24,6 +24,7 @@ import com.google.debugging.sourcemap.SourceMapGenerator;
 import com.google.debugging.sourcemap.SourceMapGeneratorFactory;
 import com.google.javascript.rhino.Node;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -79,7 +80,7 @@ public class SourceMap {
             || NodeUtil.isObjectLitKey(node)
             || (node.isString() && NodeUtil.isGet(node.getParent()));
       }
-    };
+    }
   }
 
   public static class LocationMapping {
@@ -132,6 +133,11 @@ public class SourceMap {
    * @return a remapped source file.
    */
   private String fixupSourceLocation(String sourceFile) {
+    // Replace backslashes (the file separator used on Windows systems).
+    if (File.separatorChar == '\\') {
+      sourceFile = sourceFile.replace('\\', '/');
+    }
+
     if (prefixMappings.isEmpty()) {
       return sourceFile;
     }
@@ -160,7 +166,7 @@ public class SourceMap {
   }
 
   public void appendTo(Appendable out, String name) throws IOException {
-    generator.appendTo(out, name);
+    generator.appendTo(out, fixupSourceLocation(name));
   }
 
   public void reset() {

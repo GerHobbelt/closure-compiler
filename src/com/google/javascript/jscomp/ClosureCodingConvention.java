@@ -159,7 +159,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
    * "inherits" or "mixin."
    * @return The type of class-defining name, or null.
    */
-  private SubclassType typeofClassDefiningName(Node callName) {
+  private static SubclassType typeofClassDefiningName(Node callName) {
     // Check if the method name matches one of the class-defining methods.
     String methodName = null;
     if (callName.isGetProp()) {
@@ -194,9 +194,19 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
    * a.b.c => false
    * a.b.c.prototype => true
    */
-  private boolean endsWithPrototype(Node qualifiedName) {
+  private static boolean endsWithPrototype(Node qualifiedName) {
     return qualifiedName.isGetProp() &&
         qualifiedName.getLastChild().getString().equals("prototype");
+  }
+
+  /**
+   * @return Whether the node indicates that the file represents a "module", a file whose top level
+   * declarations are not in global scope.
+   */
+  @Override
+  public boolean extractIsModuleFile(Node node, Node parent) {
+    String namespace = extractClassNameIfGoog(node, parent, "goog.module");
+    return namespace != null;
   }
 
   /**
@@ -205,8 +215,12 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
    * @return The extracted class name, or null.
    */
   @Override
-  public String extractClassNameIfProvide(Node node, Node parent){
-    return extractClassNameIfGoog(node, parent, "goog.provide");
+  public String extractClassNameIfProvide(Node node, Node parent) {
+    String namespace = extractClassNameIfGoog(node, parent, "goog.provide");
+    if (namespace == null) {
+      namespace = extractClassNameIfGoog(node, parent, "goog.module");
+    }
+    return namespace;
   }
 
   /**
@@ -215,7 +229,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
    * @return The extracted class name, or null.
    */
   @Override
-  public String extractClassNameIfRequire(Node node, Node parent){
+  public String extractClassNameIfRequire(Node node, Node parent) {
     return extractClassNameIfGoog(node, parent, "goog.require");
   }
 
@@ -225,8 +239,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     if (NodeUtil.isExprCall(parent)) {
       Node callee = node.getFirstChild();
       if (callee != null && callee.isGetProp()) {
-        String qualifiedName = callee.getQualifiedName();
-        if (functionName.equals(qualifiedName)) {
+        if (callee.matchesQualifiedName(functionName)) {
           Node target = callee.getNext();
           if (target != null && target.isString()) {
             className = target.getString();
@@ -258,8 +271,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
   @Override
   public List<String> identifyTypeDeclarationCall(Node n) {
     Node callName = n.getFirstChild();
-    String callNameQualifiedString = callName.getQualifiedName();
-    if ("goog.addDependency".equals(callNameQualifiedString) &&
+    if (callName.matchesQualifiedName("goog.addDependency") &&
         n.getChildCount() >= 3) {
       Node typeArray = callName.getNext().getNext();
       if (typeArray.isArrayLit()) {
@@ -275,7 +287,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     }
 
     // Identify forward declaration of form goog.forwardDeclare('foo.bar')
-    if ("goog.forwardDeclare".equals(callNameQualifiedString) &&
+    if (callName.matchesQualifiedName("goog.forwardDeclare") &&
         n.getChildCount() == 2) {
       Node typeDeclaration = n.getChildAtIndex(1);
       if (typeDeclaration.isString()) {
@@ -294,11 +306,10 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
   @Override
   public String getSingletonGetterClassName(Node callNode) {
     Node callArg = callNode.getFirstChild();
-    String callName = callArg.getQualifiedName();
 
     // Use both the original name and the post-CollapseProperties name.
-    if (!("goog.addSingletonGetter".equals(callName) ||
-          "goog$addSingletonGetter".equals(callName)) ||
+    if (!(callArg.matchesQualifiedName("goog.addSingletonGetter") ||
+          callArg.matchesQualifiedName("goog$addSingletonGetter")) ||
         callNode.getChildCount() != 2) {
       return super.getSingletonGetterClassName(callNode);
     }
@@ -335,6 +346,22 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
   }
 
   @Override
+  public boolean isFunctionCallThatAlwaysThrows(Node n) {
+    if (n.isExprResult()) {
+      if (!n.getFirstChild().isCall()) {
+        return false;
+      }
+    } else if (!n.isCall()) {
+      return false;
+    }
+    if (n.isExprResult()) {
+      n = n.getFirstChild();
+    }
+    // n is a call
+    return n.getFirstChild().matchesQualifiedName("goog.asserts.fail");
+  }
+
+  @Override
   public ObjectLiteralCast getObjectLiteralCast(Node callNode) {
     Preconditions.checkArgument(callNode.isCall());
     ObjectLiteralCast proxyCast = super.getObjectLiteralCast(callNode);
@@ -343,7 +370,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     }
 
     Node callName = callNode.getFirstChild();
-    if (!"goog.reflect.object".equals(callName.getQualifiedName()) ||
+    if (!callName.matchesQualifiedName("goog.reflect.object") ||
         callNode.getChildCount() != 3) {
       return null;
     }
@@ -363,23 +390,13 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
   }
 
   @Override
-  public boolean isOptionalParameter(Node parameter) {
-    return false;
-  }
-
-  @Override
-  public boolean isVarArgsParameter(Node parameter) {
-    return false;
-  }
-
-  @Override
   public boolean isPrivate(String name) {
     return false;
   }
 
   @Override
   public Collection<AssertionFunctionSpec> getAssertionFunctions() {
-    return ImmutableList.<AssertionFunctionSpec>of(
+    return ImmutableList.of(
         new AssertionFunctionSpec("goog.asserts.assert"),
         new AssertionFunctionSpec("goog.asserts.assertNumber",
             JSTypeNative.NUMBER_TYPE),
@@ -408,10 +425,9 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     }
 
     Node callTarget = n.getFirstChild();
-    String name = callTarget.getQualifiedName();
-    if (name != null) {
-      if (name.equals("goog.bind")
-          || name.equals("goog$bind")) {
+    if (callTarget.isQualifiedName()) {
+      if (callTarget.matchesQualifiedName("goog.bind")
+          || callTarget.matchesQualifiedName("goog$bind")) {
         // goog.bind(fn, self, args...);
         Node fn = callTarget.getNext();
         if (fn == null) {
@@ -422,7 +438,8 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
         return new Bind(fn, thisValue, parameters);
       }
 
-      if (name.equals("goog.partial") || name.equals("goog$partial")) {
+      if (callTarget.matchesQualifiedName("goog.partial") ||
+          callTarget.matchesQualifiedName("goog$partial")) {
         // goog.partial(fn, args...);
         Node fn = callTarget.getNext();
         if (fn == null) {
@@ -442,7 +459,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     return indirectlyDeclaredProperties;
   }
 
-  private Node safeNext(Node n) {
+  private static Node safeNext(Node n) {
     if (n != null) {
       return n.getNext();
     }

@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -48,7 +50,7 @@ public class CommandLineRunnerTest extends TestCase {
   private List<Integer> exitCodes = null;
   private ByteArrayOutputStream outReader = null;
   private ByteArrayOutputStream errReader = null;
-  private Map<Integer,String> filenames;
+  private Map<Integer, String> filenames;
 
   // If set, this will be appended to the end of the args list.
   // For testing args parsing.
@@ -68,7 +70,7 @@ public class CommandLineRunnerTest extends TestCase {
   private List<String> args = Lists.newArrayList();
 
   /** Externs for the test */
-  private final List<SourceFile> DEFAULT_EXTERNS = ImmutableList.of(
+  private static final List<SourceFile> DEFAULT_EXTERNS = ImmutableList.of(
     SourceFile.fromCode("externs",
         "var arguments;"
         + "/**\n"
@@ -179,6 +181,11 @@ public class CommandLineRunnerTest extends TestCase {
     test("function f() { this.a = 3; }", CheckGlobalThis.GLOBAL_THIS);
   }
 
+  public void testCheckGlobalThisOnWithAdvanced() {
+    args.add("-O=ADVANCED");
+    test("function f() { this.a = 3; }", CheckGlobalThis.GLOBAL_THIS);
+  }
+
   public void testCheckGlobalThisOnWithErrorFlag() {
     args.add("--jscomp_error=globalThis");
     test("function f() { this.a = 3; }", CheckGlobalThis.GLOBAL_THIS);
@@ -255,6 +262,11 @@ public class CommandLineRunnerTest extends TestCase {
     test("function f(x) { return x; } f();", TypeCheck.WRONG_ARGUMENT_COUNT);
   }
 
+  public void testTypeCheckingOnWithWVerbose() {
+    args.add("-W=VERBOSE");
+    test("function f(x) { return x; } f();", TypeCheck.WRONG_ARGUMENT_COUNT);
+  }
+
   public void testTypeParsingOffByDefault() {
     testSame("/** @return {number */ function f(a) { return a; }");
   }
@@ -288,9 +300,10 @@ public class CommandLineRunnerTest extends TestCase {
   }
 
   public void testCheckSymbolsOnForVerbose() {
+    args.add("--jscomp_error=checkVars");
     args.add("--warning_level=VERBOSE");
     test("x = 3;", VarCheck.UNDEFINED_VAR_ERROR);
-    test("var y; var y;", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    test("var y; var y;", VariableReferenceCheck.REDECLARED_VARIABLE);
   }
 
   public void testCheckSymbolsOverrideForVerbose() {
@@ -416,11 +429,11 @@ public class CommandLineRunnerTest extends TestCase {
   // Integration tests
 
   public void testIssue70a() {
-    test("function foo({}) {}", RhinoErrorReporter.PARSE_ERROR);
+    test("function foo({}) {}", RhinoErrorReporter.ES6_FEATURE);
   }
 
   public void testIssue70b() {
-    test("function foo([]) {}", RhinoErrorReporter.PARSE_ERROR);
+    test("function foo([]) {}", RhinoErrorReporter.ES6_FEATURE);
   }
 
   public void testIssue81() {
@@ -570,6 +583,18 @@ public class CommandLineRunnerTest extends TestCase {
     assertFalse(
         createCommandLineRunner(
             new String[] {"function f() {}"}).shouldRunCompiler());
+  }
+
+  public void testHoistedFunction1() {
+    args.add("--jscomp_off=es5Strict");
+    args.add("-W=VERBOSE");
+    test("if (true) { f(); function f() {} }",
+         VariableReferenceCheck.EARLY_REFERENCE);
+  }
+
+  public void testHoistedFunction2() {
+    test("if (window) { f(); function f() {} }",
+         "if (window) { var f = function() {}; f(); }");
   }
 
   public void testExternsLifting1() throws Exception{
@@ -993,26 +1018,30 @@ public class CommandLineRunnerTest extends TestCase {
 
     StringBuilder builder = new StringBuilder();
     lastCommandLineRunner.printModuleGraphJsonTo(builder);
-    assertTrue(builder.toString().indexOf("transitive-dependencies") != -1);
+    assertTrue(builder.toString().contains("transitive-dependencies"));
   }
 
   public void testVersionFlag() {
     args.add("--version");
-    testSame("");
+    assertFalse(
+        createCommandLineRunner(
+            new String[] {"function f() {}"}).shouldRunCompiler());
     assertEquals(
         0,
-        new String(errReader.toByteArray()).indexOf(
-            "Closure Compiler (http://code.google.com/closure/compiler)\n" +
+        new String(outReader.toByteArray(), UTF_8).indexOf(
+            "Closure Compiler (http://github.com/google/closure-compiler)\n" +
             "Version: "));
   }
 
   public void testVersionFlag2() {
     lastArg = "--version";
-    testSame("");
+    assertFalse(
+        createCommandLineRunner(
+            new String[] {"function f() {}"}).shouldRunCompiler());
     assertEquals(
         0,
-        new String(errReader.toByteArray()).indexOf(
-            "Closure Compiler (http://code.google.com/closure/compiler)\n" +
+        new String(outReader.toByteArray(), UTF_8).indexOf(
+            "Closure Compiler (http://github.com/google/closure-compiler)\n" +
             "Version: "));
   }
 
@@ -1047,9 +1076,10 @@ public class CommandLineRunnerTest extends TestCase {
          "var theirVar={},myVar={},yourVar={};");
 
     args.add("--jscomp_off=externsValidation");
+    args.add("--jscomp_error=checkVars");
     args.add("--warning_level=VERBOSE");
     test("var theirVar = {}; var myVar = {}; var myVar = {};",
-         VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+         VariableReferenceCheck.REDECLARED_VARIABLE);
   }
 
   public void testGoogAssertStripping() {
@@ -1069,7 +1099,7 @@ public class CommandLineRunnerTest extends TestCase {
   public void testGenerateExports() {
     args.add("--generate_exports=true");
     test("/** @export */ foo.prototype.x = function() {};",
-        "foo.prototype.x=function(){};"+
+        "foo.prototype.x=function(){};" +
         "goog.exportSymbol(\"foo.prototype.x\",foo.prototype.x);");
   }
 
@@ -1216,6 +1246,16 @@ public class CommandLineRunnerTest extends TestCase {
     test("", AbstractCommandLineRunner.OUTPUT_SAME_AS_INPUT_ERROR);
   }
 
+  public void testOutputWrapperFlag() {
+    // if the output wrapper flag is specified without a valid output marker,
+    // ensure that the compiler displays an error and exits.
+    // See github issue 123
+    args.add("--output_wrapper=output");
+    assertFalse(
+        createCommandLineRunner(
+            new String[] {"function f() {}"}).shouldRunCompiler());
+  }
+
   /* Helper functions */
 
   private void testSame(String original) {
@@ -1287,11 +1327,11 @@ public class CommandLineRunnerTest extends TestCase {
   private void test(String[] original, DiagnosticType warning) {
     Compiler compiler = compile(original);
     assertEquals("Expected exactly one warning or error " +
-        "Errors: \n" + Joiner.on("\n").join(compiler.getErrors()) +
-        "Warnings: \n" + Joiner.on("\n").join(compiler.getWarnings()),
+        "\nErrors: \n" + Joiner.on("\n").join(compiler.getErrors()) +
+        "\nWarnings: \n" + Joiner.on("\n").join(compiler.getWarnings()),
         1, compiler.getErrors().length + compiler.getWarnings().length);
 
-    assertTrue(exitCodes.size() > 0);
+    assertFalse(exitCodes.isEmpty());
     int lastExitCode = exitCodes.get(exitCodes.size() - 1);
 
     if (compiler.getErrors().length > 0) {
@@ -1343,18 +1383,18 @@ public class CommandLineRunnerTest extends TestCase {
       inputsSupplier = Suppliers.ofInstance(inputs);
     } else if (useModules == ModulePattern.STAR) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.<JSModule>newArrayList(
+          Lists.newArrayList(
               CompilerTestCase.createModuleStar(original)));
     } else if (useModules == ModulePattern.CHAIN) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.<JSModule>newArrayList(
+          Lists.newArrayList(
               CompilerTestCase.createModuleChain(original)));
     } else {
       throw new IllegalArgumentException("Unknown module type: " + useModules);
     }
 
     runner.enableTestMode(
-        Suppliers.<List<SourceFile>>ofInstance(externs),
+        Suppliers.ofInstance(externs),
         inputsSupplier,
         modulesSupplier,
         new Function<Integer, Boolean>() {

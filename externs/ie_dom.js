@@ -294,9 +294,6 @@ ClipboardData.prototype.setData = function(type, data) {};
  */
 ClipboardData.prototype.getData = function(type) { };
 
-/** @type {function(new:ActiveXObject, string, string=)} */
-Window.prototype.ActiveXObject;
-
 /**
  * @type {!Window}
  * @see https://developer.mozilla.org/en/DOM/window
@@ -1007,6 +1004,10 @@ Element.prototype.classid;
 Element.prototype.componentFromPoint = function(iCoordX, iCoordY) {};
 
 /**
+ * This should really accept a Node, but IE only supports this
+ * with Elements.
+ * @see https://github.com/google/closure-compiler/issues/470
+ *
  * @param {Element} el The element to check
  * @return {boolean} If the element is contained within this one.
  * @see http://msdn.microsoft.com/en-us/library/ms536377(VS.85).aspx

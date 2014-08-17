@@ -58,7 +58,7 @@ class LiteralFuzzer extends Dispatcher {
     return "literal";
   }
 
-  private class GlobalValueFuzzer extends AbstractFuzzer {
+  private static class GlobalValueFuzzer extends AbstractFuzzer {
     private String value;
     private Type type;
     GlobalValueFuzzer(String value, Type type) {
@@ -93,7 +93,7 @@ class LiteralFuzzer extends Dispatcher {
 
     @Override
     protected Set<Type> supportedTypes() {
-      return Sets.newHashSet(type);
+      return Sets.immutableEnumSet(type);
     }
   }
 }

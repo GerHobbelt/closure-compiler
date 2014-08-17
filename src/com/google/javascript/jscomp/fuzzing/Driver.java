@@ -201,12 +201,7 @@ public class Driver {
             output2[1]);
         hasError = true;
       }
-      if (hasError &&
-          getLogger().getLevel().intValue() < Level.WARNING.intValue()) {
-        return false;
-      } else {
-        return true;
-      }
+      return !(hasError && getLogger().getLevel().intValue() < Level.WARNING.intValue());
     } else {
       StringBuilder sb =
           new StringBuilder("Different outputs!");
@@ -252,7 +247,7 @@ public class Driver {
         }
       }
       String code1 = ScriptFuzzer.getPrettyCode(script);
-      StringBuffer debugInfo = new StringBuffer("Seed: ").append(currentSeed);
+      StringBuilder debugInfo = new StringBuilder("Seed: ").append(currentSeed);
       debugInfo.append("\nJavaScript: ").append(code1);
       try {
         Result result = compile(script);
@@ -291,7 +286,7 @@ public class Driver {
     }
   }
 
-  private String getSetupCode(ScopeManager scopeManager) {
+  private static String getSetupCode(ScopeManager scopeManager) {
     Collection<String> vars = Collections2.transform(
         Lists.newArrayList(scopeManager.localScope().symbols),
         new Function<Symbol, String>() {

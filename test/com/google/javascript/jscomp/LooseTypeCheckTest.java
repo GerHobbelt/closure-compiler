@@ -43,6 +43,7 @@ import java.util.Set;
  * or removed along with the looseTypes option.
  *
  */
+
 public class LooseTypeCheckTest extends CompilerTypeTestCase {
 
   @Override
@@ -1851,9 +1852,8 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
         "var goog = goog || {};" +
         "/** @param {number} x */ goog.foo = function(x) {};" +
         "/** @param {number} x */ goog.foo = function(x) {};",
-        "variable goog.foo redefined with type function (number): undefined, " +
-        "original definition at [testcode]:1 " +
-        "with type function (number): undefined");
+        "variable goog.foo redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testDuplicateStaticMethodDecl2() throws Exception {
@@ -1883,9 +1883,8 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
         "var goog = goog || {};" +
         "goog.foo = function(x) {};" +
         "/** @return {undefined} */ goog.foo = function(x) {};",
-        "variable goog.foo redefined with type function (?): undefined, " +
-        "original definition at [testcode]:1 with type " +
-        "function (?): undefined");
+        "variable goog.foo redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testDuplicateStaticPropertyDecl1() throws Exception {
@@ -2290,8 +2289,8 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
 
   public void testEnum3() throws Exception {
     testTypes("/**@enum*/var a={BB:1,BB:2}",
-        "variable a.BB redefined with type a.<number>, " +
-        "original definition at [testcode]:1 with type a.<number>");
+        "variable a.BB redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testEnum4() throws Exception {
@@ -2386,8 +2385,8 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
   public void testEnum16() throws Exception {
     testTypes("var goog = {};" +
         "/**@enum*/goog .a={BB:1,BB:2}",
-        "variable goog.a.BB redefined with type goog.a.<number>, " +
-        "original definition at [testcode]:1 with type goog.a.<number>");
+        "variable goog.a.BB redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testEnum17() throws Exception {
@@ -5311,9 +5310,9 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
     JSType googScopeType = p.scope.getVar("goog").getType();
     assertTrue(googScopeType instanceof ObjectType);
     assertTrue("foo property not present on goog type",
-        ((ObjectType) googScopeType).hasProperty("foo"));
+        googScopeType.hasProperty("foo"));
     assertFalse("bar property present on goog type",
-        ((ObjectType) googScopeType).hasProperty("bar"));
+        googScopeType.hasProperty("bar"));
 
     // goog type on the VAR node
     Node varNode = p.root.getFirstChild();
@@ -5322,7 +5321,7 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googNodeType instanceof ObjectType);
 
     // goog scope type and goog type on VAR node must be the same
-    assertTrue(googScopeType == googNodeType);
+    assertSame(googNodeType, googScopeType);
 
     // goog type on the left of the GETPROP node (under fist ASSIGN)
     Node getpropFoo1 = varNode.getNext().getFirstChild().getFirstChild();
@@ -5332,7 +5331,7 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googGetpropFoo1Type instanceof ObjectType);
 
     // still the same type as the one on the variable
-    assertTrue(googGetpropFoo1Type == googScopeType);
+    assertSame(googScopeType, googGetpropFoo1Type);
 
     // the foo property should be defined on goog
     JSType googFooType = ((ObjectType) googScopeType).getPropertyType("foo");
@@ -5348,7 +5347,7 @@ public class LooseTypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googGetpropFoo2Type instanceof ObjectType);
 
     // still the same type as the one on the variable
-    assertTrue(googGetpropFoo2Type == googScopeType);
+    assertSame(googScopeType, googGetpropFoo2Type);
 
     // goog.foo type on the left of the top-level GETPROP node
     // (under second ASSIGN)

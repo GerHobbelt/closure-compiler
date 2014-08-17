@@ -66,7 +66,7 @@ function $(arg1, arg2) {}
 jQuery.prototype.add = function(arg1, context) {};
 
 /**
- * @param {(jQuerySelector|Array.<Element>|string|jQuery)} arg1
+ * @param {(jQuerySelector|Array.<Element>|string|jQuery)=} arg1
  * @return {!jQuery}
  * @nosideeffects
  */
@@ -262,8 +262,8 @@ jQuery.prototype.andSelf = function() {};
 jQuery.prototype.animate = function(properties, arg2, easing, complete) {};
 
 /**
- * @param {(string|Element|jQuery|function(number,string))} arg1
- * @param {(string|Element|Array.<Element>|jQuery)=} content
+ * @param {(string|Element|Array.<Element>|jQuery|function(number,string))} arg1
+ * @param {...(string|Element|Array.<Element>|jQuery)} content
  * @return {!jQuery}
  */
 jQuery.prototype.append = function(arg1, content) {};
@@ -302,12 +302,6 @@ jQuery.prototype.bind = function(arg1, eventData, arg3) {};
  * @return {!jQuery}
  */
 jQuery.prototype.blur = function(arg1, handler) {};
-
-/** @type {boolean} */
-jQuery.boxModel;
-
-/** @type {boolean} */
-$.boxModel;
 
 /**
  * @constructor
@@ -391,7 +385,7 @@ jQuery.prototype.click = function(arg1, handler) {};
 jQuery.prototype.clone = function(withDataAndEvents, deepWithDataAndEvents) {};
 
 /**
- * @param {(jQuerySelector|jQuery|Element|string|Array.<string>)} arg1
+ * @param {(jQuerySelector|jQuery|Element|string)} arg1
  * @param {Element=} context
  * @return {!jQuery}
  * @nosideeffects
@@ -418,7 +412,7 @@ $.contains = function(container, contained) {};
  */
 jQuery.prototype.contents = function() {};
 
-/** @type {Element} */
+/** @type {Element|Document} */
 jQuery.prototype.context;
 
 /**
@@ -535,17 +529,18 @@ jQuery.deferred.prototype.notify = function(var_args) {};
 jQuery.deferred.prototype.notifyWith = function(context, var_args) {};
 
 /**
+ * @deprecated Please use deferred.then() instead.
  * @override
  * @param {function()=} doneFilter
  * @param {function()=} failFilter
  * @param {function()=} progressFilter
  * @return {jQuery.Promise}
  */
-jQuery.deferred.prototype.pipe
-    = function(doneFilter, failFilter, progressFilter) {};
+jQuery.deferred.prototype.pipe =
+    function(doneFilter, failFilter, progressFilter) {};
 
 /**
- * @param {function()} progressCallbacks
+ * @param {jQueryCallback} progressCallbacks
  * @return {jQuery.deferred}
  */
 jQuery.deferred.prototype.progress = function(progressCallbacks) {};
@@ -674,7 +669,7 @@ jQuery.prototype.eq = function(arg1) {};
 jQuery.error = function(message) {};
 
 /**
- * @deprecated
+ * @deprecated Please use .on( "error", handler ) instead.
  * @param {(function(!jQuery.event=)|Object.<string, *>)} arg1
  * @param {function(!jQuery.event=)=} handler
  * @return {!jQuery}
@@ -855,10 +850,10 @@ jQuery.prototype.find = function(arg1) {};
 jQuery.prototype.first = function() {};
 
 /** @see http://docs.jquery.com/Plugins/Authoring */
-jQuery.fn;
+jQuery.fn = jQuery.prototype;
 
 /** @see http://docs.jquery.com/Plugins/Authoring */
-$.fn;
+$.fn = $.prototype;
 
 /**
  * @param {(function(!jQuery.event=)|Object.<string, *>)=} arg1
@@ -928,17 +923,21 @@ $.get = function(url, data, success, dataType) {};
 
 /**
  * @param {string} url
- * @param {(Object.<string,*>|function(string,string,jQuery.jqXHR))=} data
- * @param {function(string,string,jQuery.jqXHR)=} success
+ * @param {(Object.<string,*>|
+ *     function(Object.<string,*>,string,jQuery.jqXHR))=} data
+ * @param {function(Object.<string,*>,string,jQuery.jqXHR)=} success
  * @return {jQuery.jqXHR}
+ * @see http://api.jquery.com/jquery.getjson/#jQuery-getJSON-url-data-success
  */
 jQuery.getJSON = function(url, data, success) {};
 
 /**
  * @param {string} url
- * @param {(Object.<string,*>|function(string,string,jQuery.jqXHR))=} data
- * @param {function(string,string,jQuery.jqXHR)=} success
+ * @param {(Object.<string,*>|
+ *     function(Object.<string,*>,string,jQuery.jqXHR))=} data
+ * @param {function(Object.<string,*>,string,jQuery.jqXHR)=} success
  * @return {jQuery.jqXHR}
+ * @see http://api.jquery.com/jquery.getjson/#jQuery-getJSON-url-data-success
  */
 $.getJSON = function(url, data, success) {};
 
@@ -1150,14 +1149,14 @@ jQuery.isNumeric = function(value) {};
 $.isNumeric = function(value) {};
 
 /**
- * @param {Object} obj
+ * @param {*} obj
  * @return {boolean}
  * @nosideeffects
  */
 jQuery.isPlainObject = function(obj) {};
 
 /**
- * @param {Object} obj
+ * @param {*} obj
  * @return {boolean}
  * @nosideeffects
  */
@@ -1301,7 +1300,9 @@ jQuery.prototype.last = function() {};
 jQuery.prototype.length;
 
 /**
- * @deprecated
+ * @deprecated Please avoid the document loading Event invocation of
+ *     .load() and use .on( "load", handler ) instead. (The AJAX
+ *     module invocation signature is OK.)
  * @param {(function(!jQuery.event=)|Object.<string, *>|string)} arg1
  * @param {(function(!jQuery.event=)|Object.<string,*>|string)=} arg2
  * @param {function(string,string,XMLHttpRequest)=} complete
@@ -1559,7 +1560,7 @@ jQuery.prototype.parentsUntil = function(arg1, filter) {};
 
 /**
  * @param {string} data
- * @param {Element=} context
+ * @param {(Element|boolean)=} context
  * @param {boolean=} keepScripts
  * @return {Array.<Element>}
  */
@@ -1567,7 +1568,7 @@ jQuery.parseHTML = function(data, context, keepScripts) {};
 
 /**
  * @param {string} data
- * @param {Element=} context
+ * @param {(Element|boolean)=} context
  * @param {boolean=} keepScripts
  * @return {Array.<Element>}
  */
@@ -1883,7 +1884,7 @@ jQuery.prototype.show = function(duration, arg2, callback) {};
 jQuery.prototype.siblings = function(selector) {};
 
 /**
- * @deprecated
+ * @deprecated Please use the .length property instead.
  * @return {number}
  * @nosideeffects
  */
@@ -1944,10 +1945,16 @@ jQuery.support;
 /** @type {Object.<string, *>} */
 $.support;
 
-/** @type {boolean} */
+/**
+ * @deprecated Please try to use feature detection instead.
+ * @type {boolean}
+ */
 jQuery.support.boxModel;
 
-/** @type {boolean} */
+/**
+ * @deprecated Please try to use feature detection instead.
+ * @type {boolean}
+ */
 $.support.boxModel;
 
 /** @type {boolean} */
@@ -1967,12 +1974,6 @@ jQuery.support.cssFloat;
 
 /** @type {boolean} */
 $.support.cssFloat;
-
-/** @type {boolean} */
-jQuery.support.fixedPosition;
-
-/** @type {boolean} */
-$.support.fixedPosition;
 
 /** @type {boolean} */
 jQuery.support.hrefNormalized;
@@ -2003,12 +2004,6 @@ jQuery.support.opacity;
 
 /** @type {boolean} */
 $.support.opacity;
-
-/** @type {boolean} */
-jQuery.support.scriptEval;
-
-/** @type {boolean} */
-$.support.scriptEval;
 
 /** @type {boolean} */
 jQuery.support.style;
@@ -2127,7 +2122,7 @@ jQuery.unique = function(arr) {};
 $.unique = function(arr) {};
 
 /**
- * @deprecated
+ * @deprecated Please use .on( "unload", handler ) instead.
  * @param {(function(!jQuery.event=)|Object.<string, *>)} arg1
  * @param {function(!jQuery.event=)=} handler
  * @return {!jQuery}
@@ -2145,7 +2140,7 @@ jQuery.prototype.val = function(arg1) {};
 
 /**
  * Note: The official documentation (https://api.jquery.com/jQuery.when/) says
- * jQuery.when accepts deferreds, but it, actually, accepts any type, e.g.:
+ * jQuery.when accepts deferreds, but it actually accepts any type, e.g.:
  *
  * jQuery.when(jQuery.ready, jQuery.ajax(''), jQuery('#my-element'), 1)
  *
@@ -2184,7 +2179,8 @@ jQuery.prototype.wrap = function(arg1) {};
 jQuery.prototype.wrapAll = function(wrappingElement) {};
 
 /**
- * @param {(string|function(number))} arg1
+ * @param {(string|jQuerySelector|Element|jQuery|function(number))} arg1
  * @return {!jQuery}
  */
 jQuery.prototype.wrapInner = function(arg1) {};
+

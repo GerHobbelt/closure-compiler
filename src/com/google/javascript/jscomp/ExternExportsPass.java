@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -155,8 +156,7 @@ final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
      * </pre>
      */
     private List<String> computePathPrefixes(String path) {
-      List<String> pieces = Lists.newArrayList(path.split("\\."));
-
+      List<String> pieces = Splitter.on('.').splitToList(path);
       List<String> pathPrefixes = Lists.newArrayList();
 
       for (int i = 0; i < pieces.size(); i++) {
@@ -236,7 +236,7 @@ final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
       for (Node child = exportedObjectLit.getFirstChild();
            child != null;
            child = child.getNext()) {
-        // TODO(user): handle getters or setters?
+        // TODO(dimvar): handle getters or setters?
         if (child.isStringKey()) {
           lit.addChildToBack(
               IR.propdef(
@@ -329,7 +329,7 @@ final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
     String getExportedPath() {
 
       // Find the longest path that has been mapped (if any).
-      List<String> pieces = Lists.newArrayList(exportPath.split("\\."));
+      List<String> pieces = Splitter.on('.').splitToList(exportPath);
 
       for (int i = pieces.size(); i > 0; i--) {
         // Find the path of the current length.
@@ -391,7 +391,7 @@ final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
     // paths (which may depend on the shorter ones)
     // come later.
     Set<Export> sorted =
-        new TreeSet<Export>(new Comparator<Export>() {
+        new TreeSet<>(new Comparator<Export>() {
           @Override
           public int compare(Export e1, Export e2) {
             return e1.getExportedPath().compareTo(e2.getExportedPath());

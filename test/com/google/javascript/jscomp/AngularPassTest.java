@@ -23,7 +23,6 @@ public class AngularPassTest extends CompilerTestCase {
 
   public AngularPassTest() {
     super();
-    enableLineNumberCheck(false);
   }
 
   @Override
@@ -42,6 +41,7 @@ public class AngularPassTest extends CompilerTestCase {
     CompilerOptions options = new CompilerOptions();
     // enables angularPass.
     options.angularPass = true;
+    compareJsDoc = false;
     return getOptions(options);
   }
 

@@ -208,7 +208,7 @@ class PeepholeSubstituteAlternateSyntax
     return n;
   }
 
-  private void addParameterAfter(Node parameterList, Node after) {
+  private static void addParameterAfter(Node parameterList, Node after) {
     if (parameterList != null) {
       // push the last parameter to the head of the list first.
       addParameterAfter(parameterList.getNext(), after);
@@ -447,10 +447,6 @@ class PeepholeSubstituteAlternateSyntax
         // make sure empty pattern doesn't fold to //
         && !"".equals(pattern.getString())
 
-        // NOTE(nicksantos): Make sure that the regexp isn't longer than
-        // 100 chars, or it blows up the regexp parser in Opera 9.2.
-        && pattern.getString().length() < 100
-
         && (null == flags || flags.isString())
         // don't escape patterns with Unicode escapes since Safari behaves badly
         // (read can't parse or crashes) on regex literals with Unicode escapes
@@ -490,6 +486,19 @@ class PeepholeSubstituteAlternateSyntax
 
   private Node reduceTrueFalse(Node n) {
     if (late) {
+      switch (n.getParent().getType()) {
+        case Token.EQ:
+        case Token.GT:
+        case Token.GE:
+        case Token.LE:
+        case Token.LT:
+        case Token.NE:
+          Node number = IR.number(n.isTrue() ? 1 : 0);
+          n.getParent().replaceChild(n, number);
+          reportCodeChange();
+          return number;
+      }
+
       Node not = IR.not(IR.number(n.isTrue() ? 0 : 1));
       not.copyInformationFromForTree(n);
       n.getParent().replaceChild(n, not);

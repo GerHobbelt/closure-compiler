@@ -27,6 +27,8 @@ import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
 import com.google.javascript.jscomp.parsing.parser.LiteralToken;
 import com.google.javascript.jscomp.parsing.parser.TokenType;
 import com.google.javascript.jscomp.parsing.parser.trees.ArrayLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ArrayPatternTree;
+import com.google.javascript.jscomp.parsing.parser.trees.AssignmentRestElementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BinaryOperatorTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BlockTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
@@ -36,10 +38,18 @@ import com.google.javascript.jscomp.parsing.parser.trees.CatchTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ClassDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.CommaExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.Comment;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionForTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionIfTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyDefinitionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyGetterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyMethodTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertySetterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ContinueStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DebuggerStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DefaultClauseTree;
+import com.google.javascript.jscomp.parsing.parser.trees.DefaultParameterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.DoWhileStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.EmptyStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ExportDeclarationTree;
@@ -65,16 +75,23 @@ import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ObjectPatternFieldTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ObjectPatternTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTreeType;
 import com.google.javascript.jscomp.parsing.parser.trees.PostfixExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
+import com.google.javascript.jscomp.parsing.parser.trees.RestParameterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ReturnStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SetAccessorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SpreadExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SuperExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.SwitchStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateLiteralPortionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateSubstitutionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.TryStatementTree;
@@ -87,12 +104,12 @@ import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
+import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.head.ErrorReporter;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.util.List;
@@ -130,6 +147,9 @@ class NewIRFactory {
   static final String INVALID_ES5_STRICT_OCTAL =
       "Octal integer literals are not supported in Ecmascript 5 strict mode.";
 
+  static final String INVALID_NUMBER_LITERAL =
+      "Invalid number literal.";
+
   static final String STRING_CONTINUATION_WARNING =
       "String continuations are not supported in this language mode.";
 
@@ -143,7 +163,10 @@ class NewIRFactory {
       "Octal literals in strings are not supported in this language mode.";
 
   static final String DUPLICATE_PARAMETER =
-      "Duplicate parameter name \"%s\".";
+      "Duplicate parameter name \"%s\"";
+
+  static final String DUPLICATE_LABEL =
+      "Duplicate label \"%s\"";
 
   static final String UNLABELED_BREAK =
       "unlabelled break must be inside loop or switch";
@@ -194,6 +217,8 @@ class NewIRFactory {
   private final UnmodifiableIterator<Comment> nextCommentIter;
 
   private Comment currentComment;
+
+  private boolean currentFileIsExterns = false;
 
   private NewIRFactory(String sourceString,
                     StaticSourceFile sourceFile,
@@ -296,6 +321,7 @@ class NewIRFactory {
     validateTypeAnnotations(n);
     validateParameters(n);
     validateBreakContinue(n);
+    validateLabel(n);
   }
 
   private void validateBreakContinue(Node n) {
@@ -309,7 +335,7 @@ class NewIRFactory {
             errorReporter.error(
                 String.format(UNDEFINED_LABEL, labelName.getString()),
                 sourceName,
-                n.getLineno(), "", n.getCharno());
+                n.getLineno(), n.getCharno());
             break;
           }
           parent = parent.getParent();
@@ -320,7 +346,7 @@ class NewIRFactory {
             errorReporter.error(
                 UNEXPECTED_LABLED_CONTINUE,
                 sourceName,
-                n.getLineno(), "", n.getCharno());
+                n.getLineno(), n.getCharno());
           }
         }
       } else {
@@ -330,9 +356,9 @@ class NewIRFactory {
             if (parent.isFunction() || parent.isScript()) {
               // report invalid continue
               errorReporter.error(
-                  String.format(UNEXPECTED_CONTINUE),
+                  UNEXPECTED_CONTINUE,
                   sourceName,
-                  n.getLineno(), "", n.getCharno());
+                  n.getLineno(), n.getCharno());
               break;
             }
             parent = parent.getParent();
@@ -343,9 +369,9 @@ class NewIRFactory {
             if (parent.isFunction() || parent.isScript()) {
               // report invalid break
               errorReporter.error(
-                  String.format(UNLABELED_BREAK),
+                  UNLABELED_BREAK,
                   sourceName,
-                  n.getLineno(), "", n.getCharno());
+                  n.getLineno(), n.getCharno());
               break;
             }
             parent = parent.getParent();
@@ -355,7 +381,7 @@ class NewIRFactory {
     }
   }
 
-  private boolean isBreakTarget(Node n) {
+  private static boolean isBreakTarget(Node n) {
     switch (n.getType()) {
       case Token.FOR:
       case Token.WHILE:
@@ -366,7 +392,7 @@ class NewIRFactory {
     return false;
   }
 
-  private boolean isContinueTarget(Node n) {
+  private static boolean isContinueTarget(Node n) {
     switch (n.getType()) {
       case Token.FOR:
       case Token.WHILE:
@@ -377,7 +403,7 @@ class NewIRFactory {
   }
 
 
-  private boolean labelsMatch(Node label, Node labelName) {
+  private static boolean labelsMatch(Node label, Node labelName) {
     return label.getFirstChild().getString().equals(labelName.getString());
   }
 
@@ -394,7 +420,7 @@ class NewIRFactory {
             errorReporter.warning(
                 String.format(DUPLICATE_PARAMETER, c.getString()),
                 sourceName,
-                n.getLineno(), "", n.getCharno());
+                n.getLineno(), n.getCharno());
           }
         }
       }
@@ -413,6 +439,8 @@ class NewIRFactory {
           break;
         // Variable declarations are valid
         case Token.VAR:
+        case Token.LET:
+        case Token.CONST:
           valid = true;
           break;
         // Function declarations are valid
@@ -430,6 +458,8 @@ class NewIRFactory {
             case Token.CATCH:
             case Token.FUNCTION:
             case Token.VAR:
+            case Token.LET:
+            case Token.CONST:
             case Token.PARAM_LIST:
               valid = true;
               break;
@@ -447,7 +477,7 @@ class NewIRFactory {
             && (n.getFirstChild().isGetProp() || n.getFirstChild().isGetElem());
           break;
         case Token.GETPROP:
-          valid = n.getParent().isExprResult() && n.getQualifiedName() != null;
+          valid = n.getParent().isExprResult() && n.isQualifiedName();
           break;
         case Token.CALL:
           valid = info.isDefine();
@@ -457,7 +487,23 @@ class NewIRFactory {
       if (!valid) {
         errorReporter.warning(MISPLACED_TYPE_ANNOTATION,
             sourceName,
-            n.getLineno(), "", n.getCharno());
+            n.getLineno(), n.getCharno());
+      }
+    }
+  }
+
+  private void validateLabel(Node n) {
+    if (n.isLabel()) {
+      Node labelName = n.getFirstChild();
+      for (Node parent = n.getParent();
+           parent != null && !parent.isFunction(); parent = parent.getParent()) {
+        if (parent.isLabel() && labelsMatch(parent, labelName)) {
+          errorReporter.error(
+              String.format(DUPLICATE_LABEL, labelName.getString()),
+              sourceName,
+              n.getLineno(), n.getCharno());
+          break;
+        }
       }
     }
   }
@@ -487,12 +533,12 @@ class NewIRFactory {
     if (!irNode.isBlock()) {
       if (irNode.isEmpty()) {
         irNode.setType(Token.BLOCK);
-        irNode.setWasEmptyNode(true);
       } else {
         Node newBlock = newNode(Token.BLOCK, irNode);
         setSourceInfo(newBlock, irNode);
         irNode = newBlock;
       }
+      irNode.setIsAddedBlock(true);
     }
     return irNode;
   }
@@ -506,7 +552,8 @@ class NewIRFactory {
       errorReporter.warning(
           SUSPICIOUS_COMMENT_WARNING,
           sourceName,
-          comment.location.start.line, "", 0);
+          lineno(comment.location.start),
+          charno(comment.location.start));
     }
   }
 
@@ -517,6 +564,9 @@ class NewIRFactory {
       JsDocInfoParser jsDocParser) {
     if (jsDocParser.getFileOverviewJSDocInfo() != fileOverviewInfo) {
       fileOverviewInfo = jsDocParser.getFileOverviewJSDocInfo();
+      if (fileOverviewInfo.isExterns()) {
+        this.currentFileIsExterns = true;
+      }
       return true;
     }
     return false;
@@ -559,11 +609,7 @@ class NewIRFactory {
       JsDocInfoParser jsDocParser = createJsDocInfoParser(comment);
       parsedComments.add(comment);
       if (!handlePossibleFileOverviewJsDoc(jsDocParser)) {
-        JSDocInfo info = jsDocParser.retrieveAndResetParsedJSDocInfo();
-        if (info != null) {
-          // validateTypeAnnotations(info, node);
-        }
-        return info;
+        return jsDocParser.retrieveAndResetParsedJSDocInfo();
       }
     }
     return null;
@@ -587,6 +633,7 @@ class NewIRFactory {
       case BINARY_OPERATOR:
       case MEMBER_EXPRESSION:
       case MEMBER_LOOKUP_EXPRESSION:
+      case POSTFIX_EXPRESSION:
         ParseTree nearest = findNearestNode(tree);
         if (nearest.type == ParseTreeType.PAREN_EXPRESSION) {
           return false;
@@ -597,22 +644,33 @@ class NewIRFactory {
     }
   }
 
-  private ParseTree findNearestNode(ParseTree tree) {
-    switch (tree.type) {
-      case EXPRESSION_STATEMENT:
-        return findNearestNode(tree.asExpressionStatement().expression);
-      case CALL_EXPRESSION:
-        return findNearestNode(tree.asCallExpression().operand);
-      case BINARY_OPERATOR:
-        return findNearestNode(tree.asBinaryOperator().left);
-      case CONDITIONAL_EXPRESSION:
-        return findNearestNode(tree.asConditionalExpression().condition);
-      case MEMBER_EXPRESSION:
-        return findNearestNode(tree.asMemberExpression().operand);
-      case MEMBER_LOOKUP_EXPRESSION:
-        return findNearestNode(tree.asMemberLookupExpression().operand);
-      default:
-        return tree;
+  private static ParseTree findNearestNode(ParseTree tree) {
+    while (true) {
+      switch (tree.type) {
+        case EXPRESSION_STATEMENT:
+          tree = tree.asExpressionStatement().expression;
+          continue;
+        case CALL_EXPRESSION:
+          tree = tree.asCallExpression().operand;
+          continue;
+        case BINARY_OPERATOR:
+          tree = tree.asBinaryOperator().left;
+          continue;
+        case CONDITIONAL_EXPRESSION:
+          tree = tree.asConditionalExpression().condition;
+          continue;
+        case MEMBER_EXPRESSION:
+          tree = tree.asMemberExpression().operand;
+          continue;
+        case MEMBER_LOOKUP_EXPRESSION:
+          tree = tree.asMemberLookupExpression().operand;
+          continue;
+        case POSTFIX_EXPRESSION:
+          tree = tree.asPostfixExpression().operand;
+          continue;
+        default:
+          return tree;
+      }
     }
   }
 
@@ -625,7 +683,7 @@ class NewIRFactory {
     return n.isFunction() && isStmtContainer(n.getParent());
   }
 
-  private boolean isStmtContainer(Node n) {
+  private static boolean isStmtContainer(Node n) {
     return n.isBlock() || n.isScript();
   }
 
@@ -640,7 +698,7 @@ class NewIRFactory {
     return node;
   }
 
-  private void attachJSDoc(JSDocInfo info, Node n) {
+  private static void attachJSDoc(JSDocInfo info, Node n) {
     info.setAssociatedNode(n);
     n.setJSDocInfo(info);
   }
@@ -717,21 +775,21 @@ class NewIRFactory {
     }
   }
 
-  private int lineno(ParseTree node) {
+  private static int lineno(ParseTree node) {
     // location lines start at zero, our AST starts at 1.
     return lineno(node.location.start);
   }
 
-  private int charno(ParseTree node) {
+  private static int charno(ParseTree node) {
     return charno(node.location.start);
   }
 
-  private int lineno(SourcePosition location) {
+  private static int lineno(SourcePosition location) {
     // location lines start at zero, our AST starts at 1.
     return location.line + 1;
   }
 
-  private int charno(SourcePosition location) {
+  private static int charno(SourcePosition location) {
     return location.column;
   }
 
@@ -814,8 +872,8 @@ class NewIRFactory {
     JsDocInfoParser parser =
       new JsDocInfoParser(
           new JsDocTokenStream(comment.substring(numOpeningChars),
-                               lineno,
-                               charno + numOpeningChars),
+              lineno,
+              charno + numOpeningChars),
           comment,
           node.location.start.offset,
           null,
@@ -845,25 +903,6 @@ class NewIRFactory {
     }
   }
 
-  /*
-  private int position2charno(int position) {
-    int newlineIndex = Collections.binarySearch(newlines, position);
-    int lineIndex = -1;
-    if (newlineIndex >= 0) {
-      lineIndex = newlines.get(newlineIndex);
-    } else if (newlineIndex <= -2) {
-      lineIndex = newlines.get(-newlineIndex - 2);
-    }
-
-    if (lineIndex == -1) {
-      return position;
-    } else {
-      // Subtract one for initial position being 0.
-      return position - lineIndex - 1;
-    }
-  }
-  */
-
   private Node justTransform(ParseTree node) {
     return transformDispatcher.process(node);
   }
@@ -878,7 +917,7 @@ class NewIRFactory {
      * the string 'a' is quoted, while the name b is turned into a string, but
      * unquoted.
      */
-    private Node processObjecLitKeyAsString(
+    private Node processObjectLitKeyAsString(
         com.google.javascript.jscomp.parsing.parser.Token token) {
       Node ret;
       if (token == null) {
@@ -897,6 +936,21 @@ class NewIRFactory {
     }
 
     @Override
+    Node processComprehension(ComprehensionTree tree) {
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
+    }
+
+    @Override
+    Node processComprehensionFor(ComprehensionForTree tree) {
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
+    }
+
+    @Override
+    Node processComprehensionIf(ComprehensionIfTree tree) {
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
+    }
+
+    @Override
     Node processArrayLiteral(ArrayLiteralExpressionTree tree) {
       Node node = newNode(Token.ARRAYLIT);
       for (ParseTree child : tree.elements) {
@@ -904,6 +958,43 @@ class NewIRFactory {
         node.addChildToBack(c);
       }
       return node;
+    }
+
+    @Override
+    Node processArrayPattern(ArrayPatternTree tree) {
+      maybeWarnEs6Feature(tree, "destructuring");
+
+      Node node = newNode(Token.ARRAY_PATTERN);
+      for (ParseTree child : tree.elements) {
+        node.addChildToBack(transform(child));
+      }
+      return node;
+    }
+
+    @Override
+    Node processObjectPattern(ObjectPatternTree tree) {
+      maybeWarnEs6Feature(tree, "destructuring");
+
+      Node node = newNode(Token.OBJECT_PATTERN);
+      for (ParseTree child : tree.fields) {
+        node.addChildToBack(transform(child));
+      }
+      return node;
+    }
+
+    @Override
+    Node processObjectPatternField(ObjectPatternFieldTree tree) {
+      Node node = processObjectLitKeyAsString(tree.identifier);
+      node.setType(Token.STRING_KEY);
+      if (tree.element != null) {
+        node.addChildToBack(transform(tree.element));
+      }
+      return node;
+    }
+
+    @Override
+    Node processAssignmentRestElement(AssignmentRestElementTree tree) {
+      return newStringNode(Token.REST, tree.identifier.value);
     }
 
     @Override
@@ -1014,8 +1105,7 @@ class NewIRFactory {
 
     @Override
     Node processEmptyStatement(EmptyStatementTree exprNode) {
-      Node node = newNode(Token.EMPTY);
-      return node;
+      return newNode(Token.EMPTY);
     }
 
     @Override
@@ -1047,19 +1137,29 @@ class NewIRFactory {
     Node processForLoop(ForStatementTree loopNode) {
       Node node = newNode(
           Token.FOR,
-          transformOrEmpty(loopNode.initializer),
-          transformOrEmpty(loopNode.condition),
-          transformOrEmpty(loopNode.increment));
+          transformOrEmpty(loopNode.initializer, loopNode),
+          transformOrEmpty(loopNode.condition, loopNode),
+          transformOrEmpty(loopNode.increment, loopNode));
       node.addChildToBack(transformBlock(loopNode.body));
       return node;
     }
 
-    Node transformOrEmpty(ParseTree tree) {
-      return (tree == null) ? newNode(Token.EMPTY) : transform(tree);
+    Node transformOrEmpty(ParseTree tree, ParseTree parent) {
+      if (tree == null) {
+        Node n = newNode(Token.EMPTY);
+        setSourceInfo(n, parent);
+        return n;
+      }
+      return transform(tree);
     }
 
-    Node transformOrEmpty(IdentifierToken token) {
-      return (token == null) ? newNode(Token.EMPTY) : processName(token);
+    Node transformOrEmpty(IdentifierToken token, ParseTree parent) {
+      if (token == null) {
+        Node n = newNode(Token.EMPTY);
+        setSourceInfo(n, parent);
+        return n;
+      }
+      return processName(token);
     }
 
     @Override
@@ -1102,7 +1202,7 @@ class NewIRFactory {
           errorReporter.error(
             "unnamed function statement",
             sourceName,
-            lineno(functionTree), "", charno(functionTree));
+            lineno(functionTree), charno(functionTree));
 
           // Return the bare minimum to put the AST in a valid state.
           newName = createMissingNameNode();
@@ -1139,6 +1239,9 @@ class NewIRFactory {
       parseDirectives(bodyNode);
       node.addChildToBack(bodyNode);
 
+      node.setIsGeneratorFunction(isGenerator);
+      node.setIsArrowFunction(isArrow);
+
       Node result;
 
       if (functionTree.kind == FunctionDeclarationTree.Kind.MEMBER) {
@@ -1151,9 +1254,6 @@ class NewIRFactory {
         result = node;
       }
 
-      result.setIsGeneratorFunction(isGenerator);
-      result.setIsArrowFunction(isArrow);
-
       return result;
     }
 
@@ -1162,11 +1262,35 @@ class NewIRFactory {
       Node params = newNode(Token.PARAM_LIST);
       for (ParseTree param : tree.parameters) {
         Node paramNode = transformNodeWithInlineJsDoc(param, false);
-        // We only support simple names for the moment.
-        Preconditions.checkState(paramNode.isName());
+        // Children must be simple names, default parameters, rest
+        // parameters, or destructuring patterns.
+        Preconditions.checkState(paramNode.isName() || paramNode.isRest()
+            || paramNode.isArrayPattern() || paramNode.isObjectPattern()
+            || paramNode.isDefaultValue());
         params.addChildToBack(paramNode);
       }
       return params;
+    }
+
+    @Override
+    Node processDefaultParameter(DefaultParameterTree tree) {
+      maybeWarnEs6Feature(tree, "default parameters");
+      return newNode(Token.DEFAULT_VALUE,
+          transform(tree.lhs), transform(tree.defaultValue));
+    }
+
+    @Override
+    Node processRestParameter(RestParameterTree tree) {
+      maybeWarnEs6Feature(tree, "rest parameters");
+
+      return newStringNode(Token.REST, tree.identifier.value);
+    }
+
+    @Override
+    Node processSpreadExpression(SpreadExpressionTree tree) {
+      maybeWarnEs6Feature(tree, "spread expression");
+
+      return newNode(Token.SPREAD, transform(tree.expression));
     }
 
     @Override
@@ -1189,11 +1313,11 @@ class NewIRFactory {
 
       if (isAssignmentOp(n)) {
         Node target = n.getFirstChild();
-        if (!validAssignmentTarget(target)) {
+        if (!target.isValidAssignmentTarget()) {
           errorReporter.error(
-              "invalid assignment target",
+              "invalid assignment target: " + target,
               sourceName,
-              target.getLineno(), "", 0);
+              target.getLineno(), 0);
         }
       }
 
@@ -1232,10 +1356,9 @@ class NewIRFactory {
 
     @Override
     Node processLabeledStatement(LabelledStatementTree labelTree) {
-      Node node = newNode(Token.LABEL,
+      return newNode(Token.LABEL,
           transformLabelName(labelTree.name),
           transform(labelTree.statement));
-      return node;
     }
 
     @Override
@@ -1257,16 +1380,15 @@ class NewIRFactory {
         node = newStringNode(Token.STRING, identifierToken.value);
       } else {
         JSDocInfo info = handleJsDoc(identifierToken);
-        if (identifierToken == null ||
-            isReservedKeyword(identifierToken.toString())) {
+        if (isReservedKeyword(identifierToken.toString())) {
           errorReporter.error(
             "identifier is a reserved word",
             sourceName,
-            identifierToken.location.start.line, "", 0);
+            lineno(identifierToken.location.start),
+            charno(identifierToken.location.start));
         }
         node = newStringNode(Token.NAME, identifierToken.value);
         if (info != null) {
-          // validateTypeAnnotations(info, identifierToken);
           attachJSDoc(info, node);
         }
       }
@@ -1275,25 +1397,35 @@ class NewIRFactory {
     }
 
     Node processString(LiteralToken token) {
-      Preconditions.checkState(token.type == TokenType.STRING);
-      Node node = newStringNode(Token.STRING, normalizeString(token));
+      Preconditions.checkArgument(token.type == TokenType.STRING);
+      Node node = newStringNode(Token.STRING, normalizeString(token, false));
+      setSourceInfo(node, token);
+      return node;
+    }
+
+    Node processTemplateLiteralToken(LiteralToken token) {
+      Preconditions.checkArgument(
+          token.type == TokenType.NO_SUBSTITUTION_TEMPLATE
+          || token.type == TokenType.TEMPLATE_HEAD
+          || token.type == TokenType.TEMPLATE_MIDDLE
+          || token.type == TokenType.TEMPLATE_TAIL);
+      Node node = newStringNode(normalizeString(token, true));
+      node.putProp(Node.RAW_STRING_VALUE, token.value);
       setSourceInfo(node, token);
       return node;
     }
 
     Node processNameWithInlineJSDoc(IdentifierToken identifierToken) {
-      Node node;
       JSDocInfo info = handleInlineJsDoc(identifierToken, true);
-      if (identifierToken == null ||
-          isReservedKeyword(identifierToken.toString())) {
+      if (isReservedKeyword(identifierToken.toString())) {
         errorReporter.error(
           "identifier is a reserved word",
           sourceName,
-          identifierToken.location.start.line, "", 0);
+          lineno(identifierToken.location.start),
+          charno(identifierToken.location.start));
       }
-      node = newStringNode(Token.NAME, identifierToken.toString());
+      Node node = newStringNode(Token.NAME, identifierToken.toString());
       if (info != null) {
-        // validateTypeAnnotations(info, identifierToken);
         attachJSDoc(info, node);
       }
       setSourceInfo(node, identifierToken);
@@ -1336,6 +1468,7 @@ class NewIRFactory {
     @Override
     Node processObjectLiteral(ObjectLiteralExpressionTree objTree) {
       Node node = newNode(Token.OBJECTLIT);
+      boolean maybeWarn = false;
       for (ParseTree el : objTree.propertyNameAndValues) {
         if (config.languageMode == LanguageMode.ECMASCRIPT3) {
           if (el.type == ParseTreeType.GET_ACCESSOR) {
@@ -1348,19 +1481,76 @@ class NewIRFactory {
         }
 
         Node key = transform(el);
-        if (!key.isQuotedString() && !isAllowedProp(key.getString())) {
+        if (!key.isComputedProp()
+            && !key.isQuotedString()
+            && !currentFileIsExterns
+            && !isAllowedProp(key.getString())) {
           errorReporter.warning(INVALID_ES3_PROP_NAME, sourceName,
-              key.getLineno(), "", key.getCharno());
+              key.getLineno(), key.getCharno());
+        }
+        if (key.getFirstChild() == null) {
+          maybeWarn = true;
         }
 
         node.addChildToBack(key);
+      }
+      if (maybeWarn) {
+        maybeWarnEs6Feature(objTree, "extended object literals");
       }
       return node;
     }
 
     @Override
+    Node processComputedPropertyDefinition(ComputedPropertyDefinitionTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      return newNode(Token.COMPUTED_PROP,
+          transform(tree.property), transform(tree.value));
+    }
+
+    @Override
+    Node processComputedPropertyMethod(ComputedPropertyMethodTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node n = newNode(Token.COMPUTED_PROP,
+          transform(tree.property), transform(tree.method));
+      n.putBooleanProp(Node.COMPUTED_PROP_METHOD, true);
+      if (tree.method.asFunctionDeclaration().isStatic) {
+        n.setStaticMember(true);
+      }
+      return n;
+    }
+
+    @Override
+    Node processComputedPropertyGetter(ComputedPropertyGetterTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node key = transform(tree.property);
+      Node body = transform(tree.body);
+      Node function = IR.function(IR.name(""), IR.paramList(), body);
+      function.useSourceInfoIfMissingFromForTree(body);
+      Node n = newNode(Token.COMPUTED_PROP, key, function);
+      n.putBooleanProp(Node.COMPUTED_PROP_GETTER, true);
+      return n;
+    }
+
+    @Override
+    Node processComputedPropertySetter(ComputedPropertySetterTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node key = transform(tree.property);
+      Node body = transform(tree.body);
+      Node paramList = IR.paramList(safeProcessName(tree.parameter));
+      Node function = IR.function(IR.name(""), paramList, body);
+      function.useSourceInfoIfMissingFromForTree(body);
+      Node n = newNode(Token.COMPUTED_PROP, key, function);
+      n.putBooleanProp(Node.COMPUTED_PROP_SETTER, true);
+      return n;
+    }
+
+    @Override
     Node processGetAccessor(GetAccessorTree tree) {
-      Node key = processObjecLitKeyAsString(tree.propertyName);
+      Node key = processObjectLitKeyAsString(tree.propertyName);
       key.setType(Token.GETTER_DEF);
       Node body = transform(tree.body);
       Node dummyName = IR.name("");
@@ -1376,7 +1566,7 @@ class NewIRFactory {
 
     @Override
     Node processSetAccessor(SetAccessorTree tree) {
-      Node key = processObjecLitKeyAsString(tree.propertyName);
+      Node key = processObjectLitKeyAsString(tree.propertyName);
       key.setType(Token.SETTER_DEF);
       Node body = transform(tree.body);
       Node dummyName = IR.name("");
@@ -1393,9 +1583,11 @@ class NewIRFactory {
 
     @Override
     Node processPropertyNameAssignment(PropertyNameAssignmentTree tree) {
-      Node key = processObjecLitKeyAsString(tree.name);
+      Node key = processObjectLitKeyAsString(tree.name);
       key.setType(Token.STRING_KEY);
-      key.addChildToFront(transform(tree.value));
+      if (tree.value != null) {
+        key.addChildToFront(transform(tree.value));
+      }
       return key;
     }
 
@@ -1409,23 +1601,22 @@ class NewIRFactory {
 
     @Override
     Node processParenthesizedExpression(ParenExpressionTree exprNode) {
-      Node node = transform(exprNode.expression);
-      return node;
+      return transform(exprNode.expression);
     }
 
     @Override
     Node processPropertyGet(MemberExpressionTree getNode) {
       Node leftChild = transform(getNode.operand);
       IdentifierToken nodeProp = getNode.memberName;
-      Node rightChild = processObjecLitKeyAsString(nodeProp);
-      if (!rightChild.isQuotedString() && !isAllowedProp(
-          rightChild.getString())) {
+      Node rightChild = processObjectLitKeyAsString(nodeProp);
+      if (!rightChild.isQuotedString()
+          && !currentFileIsExterns
+          && !isAllowedProp(
+            rightChild.getString())) {
         errorReporter.warning(INVALID_ES3_PROP_NAME, sourceName,
-            rightChild.getLineno(), "", rightChild.getCharno());
+            rightChild.getLineno(), rightChild.getCharno());
       }
-      Node newNode = newNode(
-          Token.GETPROP, leftChild, rightChild);
-      return newNode;
+      return newNode(Token.GETPROP, leftChild, rightChild);
     }
 
     @Override
@@ -1442,6 +1633,7 @@ class NewIRFactory {
       if (lastSlash < rawRegex.length()) {
         flags = rawRegex.substring(lastSlash + 1);
       }
+      validateRegExpFlags(literalTree, flags);
 
       if (!flags.isEmpty()) {
         Node flagsNode = newStringNode(flags);
@@ -1450,6 +1642,23 @@ class NewIRFactory {
         node.addChildToBack(flagsNode);
       }
       return node;
+    }
+
+    private void validateRegExpFlags(LiteralExpressionTree tree, String flags) {
+      for (char flag : Lists.charactersOf(flags)) {
+        switch (flag) {
+          case 'g': case 'i': case 'm':
+            break;
+          case 'u': case 'y':
+            maybeWarnEs6Feature(tree, "new RegExp flag '" + flag + "'");
+            break;
+          default:
+            errorReporter.error(
+                "Invalid RegExp flag '" + flag + "'",
+                sourceName,
+                lineno(tree), charno(tree));
+        }
+      }
     }
 
     @Override
@@ -1484,14 +1693,34 @@ class NewIRFactory {
         int end = token.location.end.offset;
         if (start < sourceString.length() &&
             (sourceString.substring(
-                 start, Math.min(sourceString.length(), end))
-             .indexOf("\\v") != -1)) {
+                start, Math.min(sourceString.length(), end)).contains("\\v"))) {
           n.putBooleanProp(Node.SLASH_V, true);
         }
       }
       return n;
     }
 
+    @Override
+    Node processTemplateLiteral(TemplateLiteralExpressionTree tree) {
+      maybeWarnEs6Feature(tree, "template literals");
+      Node node = tree.operand == null
+          ? newNode(Token.TEMPLATELIT)
+          : newNode(Token.TEMPLATELIT, transform(tree.operand));
+      for (ParseTree child : tree.elements) {
+        node.addChildToBack(transform(child));
+      }
+      return node;
+    }
+
+    @Override
+    Node processTemplateLiteralPortion(TemplateLiteralPortionTree tree) {
+      return processTemplateLiteralToken(tree.value.asLiteral());
+    }
+
+    @Override
+    Node processTemplateSubstitution(TemplateSubstitutionTree tree) {
+      return newNode(Token.TEMPLATELIT_SUB, transform(tree.expression));
+    }
 
     @Override
     Node processSwitchCase(CaseClauseTree caseNode) {
@@ -1551,10 +1780,8 @@ class NewIRFactory {
       if (cc != null) {
         // Mark the enclosing block at the same line as the first catch
         // clause.
-        if (lineSet == false) {
-          setSourceInfo(block, cc);
-          lineSet = true;
-        }
+        setSourceInfo(block, cc);
+        lineSet = true;
         block.addChildToBack(transform(cc));
       }
 
@@ -1568,7 +1795,7 @@ class NewIRFactory {
       // If we didn't set the line on the catch clause, then
       // we've got an empty catch clause.  Set its line to be the same
       // as the finally block (to match Old Rhino's behavior.)
-      if ((lineSet == false) && (finallyBlock != null)) {
+      if (!lineSet && (finallyBlock != null)) {
         setSourceInfo(block, finallyBlock);
       }
 
@@ -1605,21 +1832,20 @@ class NewIRFactory {
           errorReporter.error(
               msg,
               sourceName,
-              operand.getLineno(), "", 0);
+              operand.getLineno(), 0);
         } else  if (type == Token.INC || type == Token.DEC) {
-          if (!validAssignmentTarget(operand)) {
+          if (!operand.isValidAssignmentTarget()) {
             String msg = (type == Token.INC)
                 ? "invalid increment target"
                 : "invalid decrement target";
             errorReporter.error(
                 msg,
                 sourceName,
-                operand.getLineno(), "", 0);
+                operand.getLineno(), 0);
           }
         }
 
-        Node node = newNode(type, operand);
-        return node;
+        return newNode(type, operand);
       }
     }
 
@@ -1628,30 +1854,19 @@ class NewIRFactory {
       int type = transformPostfixTokenType(exprNode.operator.type);
       Node operand = transform(exprNode.operand);
       // Only INC and DEC
-      if (!validAssignmentTarget(operand)) {
+      if (!operand.isValidAssignmentTarget()) {
         String msg = (type == Token.INC)
             ? "invalid increment target"
             : "invalid decrement target";
         errorReporter.error(
             msg,
             sourceName,
-            operand.getLineno(), "", 0);
+            operand.getLineno(), 0);
       }
 
       Node node = newNode(type, operand);
       node.putBooleanProp(Node.INCRDECR_PROP, true);
       return node;
-    }
-
-    private boolean validAssignmentTarget(Node target) {
-      switch (target.getType()) {
-        case Token.CAST: // CAST is a bit weird, but syntactically valid.
-        case Token.NAME:
-        case Token.GETPROP:
-        case Token.GETELEM:
-          return true;
-      }
-      return false;
     }
 
     @Override
@@ -1743,9 +1958,7 @@ class NewIRFactory {
     @Override
     Node processIllegalToken(ParseTree node) {
       errorReporter.error(
-          "Unsupported syntax: " + node.type.toString(),
-          sourceName,
-          lineno(node), "", 0);
+          "Unsupported syntax: " + node.type, sourceName, lineno(node), 0);
       return newNode(Token.EMPTY);
     }
 
@@ -1753,21 +1966,21 @@ class NewIRFactory {
       errorReporter.error(
           "destructuring assignment forbidden",
           sourceName,
-          lineno(node), "", 0);
+          lineno(node), 0);
     }
 
     void reportGetter(ParseTree node) {
       errorReporter.error(
           GETTER_ERROR_MESSAGE,
           sourceName,
-          lineno(node), "", 0);
+          lineno(node), 0);
     }
 
     void reportSetter(ParseTree node) {
       errorReporter.error(
           SETTER_ERROR_MESSAGE,
           sourceName,
-          lineno(node), "", 0);
+          lineno(node), 0);
     }
 
     @Override
@@ -1809,12 +2022,10 @@ class NewIRFactory {
 
     @Override
     Node processClassDeclaration(ClassDeclarationTree tree) {
-      if (!isEs6Mode()) {
-        maybeWarnEs6Feature(tree, "class");
-      }
+      maybeWarnEs6Feature(tree, "class");
 
-      Node name = transformOrEmpty(tree.name);
-      Node superClass = transformOrEmpty(tree.superClass);
+      Node name = transformOrEmpty(tree.name, tree);
+      Node superClass = transformOrEmpty(tree.superClass, tree);
 
       Node body = newNode(Token.CLASS_MEMBERS);
       setSourceInfo(body, tree);
@@ -1827,10 +2038,7 @@ class NewIRFactory {
 
     @Override
     Node processSuper(SuperExpressionTree tree) {
-      if (!isEs6Mode()) {
-        maybeWarnEs6Feature(tree, "super");
-      }
-
+      maybeWarnEs6Feature(tree, "super");
       return newNode(Token.SUPER);
     }
 
@@ -1886,7 +2094,7 @@ class NewIRFactory {
     Node processImportDecl(ImportDeclarationTree tree) {
       maybeWarnEs6Feature(tree, "modules");
       Node export = newNode(Token.IMPORT,
-          transformOrEmpty(tree.defaultBindingIndentifier),
+          transformOrEmpty(tree.defaultBindingIndentifier, tree),
           transformListOrEmpty(Token.IMPORT_SPECS, tree.importSpecifierList),
           processString(tree.moduleSpecifier));
       return export;
@@ -1934,7 +2142,7 @@ class NewIRFactory {
         errorReporter.warning(
             "this language feature is only supported in es6 mode: " + feature,
             sourceName,
-            lineno(node), "", charno(node));
+            lineno(node), charno(node));
       }
     }
 
@@ -1943,7 +2151,7 @@ class NewIRFactory {
       errorReporter.error(
           "unsupported language feature: " + feature,
           sourceName,
-          lineno(node), "", charno(node));
+          lineno(node), charno(node));
       return createMissingExpressionNode();
     }
   }
@@ -1955,18 +2163,22 @@ class NewIRFactory {
   }
 
 
-  private String normalizeString(LiteralToken token) {
+  private String normalizeString(LiteralToken token, boolean templateLiteral) {
     String value = token.value;
-    int start = 1; // skip the leading quote
+    if (templateLiteral) {
+      // <CR><LF> and <CR> are normalized as <LF> for raw string value
+      value = value.replaceAll("(?<!\\\\)\r(\n)?", "\n");
+    }
+    int start = templateLiteral ? 0 : 1; // skip the leading quote
     int cur = value.indexOf('\\');
     if (cur == -1) {
       // short circuit no escapes.
-      return value.substring(1, value.length() - 1);
+      return templateLiteral ? value : value.substring(1, value.length() - 1);
     }
     StringBuilder result = new StringBuilder();
     while (cur != -1) {
       if (cur - start > 0) {
-        result.append(value.substring(start, cur));
+        result.append(value, start, cur);
       }
       cur += 1; // skip the escape char.
       char c = value.charAt(cur);
@@ -1998,46 +2210,67 @@ class NewIRFactory {
           if (!isEs5OrBetterMode()) {
             errorReporter.warning(STRING_CONTINUATION_WARNING,
                 sourceName,
-                lineno(token.location.start), "", charno(token.location.start));
+                lineno(token.location.start), charno(token.location.start));
           }
           // line continuation, skip the line break
           break;
-        case '0':
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7':
           char next1 = value.charAt(cur + 1);
-          if (!isOctalDigit(next1)) {
-            result.append('\0');
-          } else {
-            if (inStrictContext()) {
+
+          if (inStrictContext()) {
+            if (c == '0' && !isOctalDigit(next1)) {
+              // No warning: "\0" followed by a character which is not an octal digit
+              // is allowed in strict mode.
+            } else {
               errorReporter.warning(OCTAL_STRING_LITERAL_WARNING,
                   sourceName,
-                  lineno(token.location.start), "", charno(token.location.start));
+                  lineno(token.location.start), charno(token.location.start));
             }
+          }
+
+          if (!isOctalDigit(next1)) {
+            result.append((char) octaldigit(c));
+          } else {
             char next2 = value.charAt(cur + 2);
-            if (isOctalDigit(next2)) {
-              result.append((char) (8 * octaldigit(next1) + octaldigit(next2)));
-              cur += 2;
-            } else {
-              result.append((char) octaldigit(next1));
+            if (!isOctalDigit(next2)) {
+              result.append((char) (8 * octaldigit(c) + octaldigit(next1)));
               cur += 1;
+            } else {
+              result.append((char)
+                  (8 * 8 * octaldigit(c) + 8 * octaldigit(next1) + octaldigit(next2)));
+              cur += 2;
             }
           }
 
           break;
         case 'x':
           result.append((char) (
-              hexdigit(value.charAt(cur + 1)) * 16
+              hexdigit(value.charAt(cur + 1)) * 0x10
               + hexdigit(value.charAt(cur + 2))));
           cur += 2;
           break;
         case 'u':
-          result.append((char) (
-              hexdigit(value.charAt(cur + 1)) * 16 * 16 * 16
-              + hexdigit(value.charAt(cur + 2)) * 16 * 16
-              + hexdigit(value.charAt(cur + 3)) * 16
-              + hexdigit(value.charAt(cur + 4))));
-          cur += 4;
+          int escapeEnd;
+          String hexDigits;
+          if (value.charAt(cur + 1) != '{') {
+            // Simple escape with exactly four hex digits: \\uXXXX
+            escapeEnd = cur + 5;
+            hexDigits = value.substring(cur + 1, escapeEnd);
+          } else {
+            // Escape with braces can have any number of hex digits: \\u{XXXXXXX}
+            escapeEnd = cur + 2;
+            while (Character.digit(value.charAt(escapeEnd), 0x10) >= 0) {
+              escapeEnd++;
+            }
+            hexDigits = value.substring(cur + 2, escapeEnd);
+            escapeEnd++;
+          }
+          result.append(Character.toChars(Integer.parseInt(hexDigits, 0x10)));
+          cur = escapeEnd - 1;
           break;
         default:
+          // TODO(tbreisacher): Add a warning because the user probably
+          // intended to type an escape sequence.
           result.append(c);
           break;
       }
@@ -2045,7 +2278,7 @@ class NewIRFactory {
       cur = value.indexOf('\\', start);
     }
     // skip the trailing quote.
-    result.append(value.substring(start, value.length() - 1));
+    result.append(value, start, templateLiteral ? value.length() : value.length() - 1);
 
     return result.toString();
   }
@@ -2074,18 +2307,20 @@ class NewIRFactory {
     Preconditions.checkState(value.charAt(0) != '-'
         && value.charAt(0) != '+');
     if (value.charAt(0) == '.') {
-      return Double.valueOf("0" + value);
+      return Double.valueOf('0' + value);
     } else if (value.charAt(0) == '0' && length > 1) {
       // TODO(johnlenz): accept octal numbers in es3 etc.
       switch (value.charAt(1)) {
         case '.':
+        case 'e':
+        case 'E':
           return Double.valueOf(value);
         case 'b':
         case 'B': {
           if (!isEs6Mode()) {
             errorReporter.warning(BINARY_NUMBER_LITERAL_WARNING,
                 sourceName,
-                lineno(token.location.start), "", charno(token.location.start));
+                lineno(token.location.start), charno(token.location.start));
           }
           long v = 0;
           int c = 1;
@@ -2099,7 +2334,7 @@ class NewIRFactory {
           if (!isEs6Mode()) {
             errorReporter.warning(OCTAL_NUMBER_LITERAL_WARNING,
                 sourceName,
-                lineno(token.location.start), "", charno(token.location.start));
+                lineno(token.location.start), charno(token.location.start));
           }
           long v = 0;
           int c = 1;
@@ -2113,14 +2348,14 @@ class NewIRFactory {
           long v = 0;
           int c = 1;
           while (++c < length) {
-            v = (v * 16) + hexdigit(value.charAt(c));
+            v = (v * 0x10) + hexdigit(value.charAt(c));
           }
           return Double.valueOf(v);
         }
         case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7':
           errorReporter.warning(INVALID_ES5_STRICT_OCTAL, sourceName,
-              lineno(location.start), "", charno(location.start));
+              lineno(location.start), charno(location.start));
           if (!inStrictContext()) {
             long v = 0;
             int c = 0;
@@ -2131,39 +2366,35 @@ class NewIRFactory {
           } else {
             return Double.valueOf(value);
           }
+        default:
+          errorReporter.error(INVALID_NUMBER_LITERAL, sourceName,
+              lineno(location.start), charno(location.start));
+          return 0;
       }
     } else {
       return Double.valueOf(value);
     }
-    throw new IllegalStateException("unexpected");
   }
 
-  int binarydigit(char c) {
+  private static int binarydigit(char c) {
     if (c >= '0' && c <= '1') {
       return (c - '0');
     }
     throw new IllegalStateException("unexpected: " + c);
   }
 
-  private boolean isOctalDigit(char c) {
+  private static boolean isOctalDigit(char c) {
     return c >= '0' && c <= '7';
   }
 
-  int octaldigit(char c) {
+  private static int octaldigit(char c) {
     if (isOctalDigit(c)) {
       return (c - '0');
     }
     throw new IllegalStateException("unexpected: " + c);
   }
 
-  int digit(char c) {
-    if (c >= '0' && c <= '9') {
-      return (c - '0');
-    }
-    throw new IllegalStateException("unexpected: " + c);
-  }
-
-  int hexdigit(char c) {
+  private static int hexdigit(char c) {
     switch (c) {
       case '0': return 0;
       case '1': return 1;

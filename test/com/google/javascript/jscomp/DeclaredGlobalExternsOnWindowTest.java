@@ -23,28 +23,101 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
     return new DeclaredGlobalExternsOnWindow(compiler);
   }
 
-  public void testWindowProperty1() {
+  @Override
+  protected void setUp() {
     allowExternsChanges(true);
-    testExternChanges("var a", "", "window.a;var a");
+  }
+
+  @Override
+  protected int getNumRepetitions() {
+    return 1;
+  }
+
+  public void testWindowProperty1a() {
+    testExternChanges("var window; var a", "", "var window;var a;window.window;window.a");
+  }
+
+  // No "var window;" so this is a no-op.
+  public void testWindowProperty1b() {
+    testExternChanges("var a", "", "var a");
   }
 
   public void testWindowProperty2() {
-    allowExternsChanges(true);
     testExternChanges("", "var a", "");
   }
 
-  public void testWindowProperty3() {
-    allowExternsChanges(true);
-    testExternChanges("function f() {}", "var b", "window.f;function f(){}");
+  public void testWindowProperty3a() {
+    testExternChanges("var window; function f() {}", "var b",
+        "var window;function f(){};window.window;window.f;");
+  }
+
+  // No "var window;" so this is a no-op.
+  public void testWindowProperty3b() {
+    testExternChanges("function f() {}", "var b", "function f(){}");
   }
 
   public void testWindowProperty4() {
-    allowExternsChanges(true);
     testExternChanges("", "function f() {}", "");
   }
 
-  public void testWindowProperty5() {
-    allowExternsChanges(true);
-    testExternChanges("var x = function f() {}", "var b", "window.x;var x=function f(){}");
+  public void testWindowProperty5a() {
+    testExternChanges("var window; var x = function f() {}", "var b",
+        "var window;var x=function f(){};window.window;window.x;");
+  }
+
+  // No "var window;" so this is a no-op.
+  public void testWindowProperty5b() {
+    testExternChanges("var x = function f() {}", "var b", "var x=function f(){}");
+  }
+
+  /**
+   * Test to make sure the compiler knows the type of "window.x"
+   * is the same as that of "x".
+   */
+  public void testWindowPropertyWithJsDoc() {
+    enableTypeCheck(CheckLevel.ERROR);
+    runTypeCheckAfterProcessing = true;
+
+    testSame(
+        "var window;\n/** @type {string} */ var x;",
+        "/** @param {number} n*/\n" +
+        "function f(n) {}\n" +
+        "f(window.x);\n",
+        TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
+  public void testEnum() {
+    enableTypeCheck(CheckLevel.ERROR);
+    runTypeCheckAfterProcessing = true;
+
+    testSame(
+        "/** @enum {string} */ var Enum = {FOO: 'foo', BAR: 'bar'};",
+        "/** @param {Enum} e*/\n" +
+        "function f(e) {}\n" +
+        "f(window.Enum.FOO);\n",
+        null);
+  }
+
+  /**
+   * Test to make sure that if Foo is a constructor, Foo is considered
+   * to be the same type as window.Foo.
+   */
+  public void testConstructorIsSameType() {
+    enableTypeCheck(CheckLevel.ERROR);
+    runTypeCheckAfterProcessing = true;
+
+    testSame(
+        "var window;\n/** @constructor */ function Foo() {}\n",
+        "/** @param {!window.Foo} f*/\n" +
+        "function bar(f) {}\n" +
+        "bar(new Foo());",
+        null);
+
+    testSame(
+        "/** @constructor */ function Foo() {}\n",
+        "/** @param {!Foo} f*/\n" +
+        "function bar(f) {}\n" +
+        "bar(new window.Foo());",
+        null);
   }
 }

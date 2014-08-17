@@ -24,9 +24,10 @@ import com.google.javascript.rhino.Node;
  * Tests for {@link CollapseProperties}.
  *
  */
+
 public class CollapsePropertiesTest extends CompilerTestCase {
 
-  private static String EXTERNS =
+  private static final String EXTERNS =
       "var window;\n" +
       "function alert(s) {}\n" +
       "function parseInt(s) {}\n" +
@@ -48,6 +49,7 @@ public class CollapsePropertiesTest extends CompilerTestCase {
   public void setUp() {
     enableLineNumberCheck(true);
     enableNormalize(true);
+    compareJsDoc = false;
   }
 
   @Override public int getNumRepetitions() {
@@ -535,6 +537,17 @@ public class CollapsePropertiesTest extends CompilerTestCase {
     test("var a = {}; a = {}; /** @constructor */a.b = function() {};",
          "var a = {}; a = {}; var a$b = function() {};",
          null, CollapseProperties.NAMESPACE_REDEFINED_WARNING);
+  }
+
+  public void testNamespaceResetInGlobalScope3() {
+    test("var a = {}; /** @constructor */a.b = function() {}; a = a || {};",
+         "var a = {}; var a$b = function() {}; a = a || {};");
+  }
+
+
+  public void testNamespaceResetInGlobalScope4() {
+    test("var a = {}; /** @constructor */a.b = function() {}; var a = a || {};",
+         "var a = {}; var a$b = function() {}; var a = a || {};");
   }
 
   public void testNamespaceResetInLocalScope1() {
@@ -1145,7 +1158,7 @@ public class CollapsePropertiesTest extends CompilerTestCase {
          "for (var key in Foo) {}");
   }
 
-  private final String COMMON_ENUM =
+  private static final String COMMON_ENUM =
         "/** @enum {Object} */ var Foo = {A: {c: 2}, B: {c: 3}};";
 
   public void testEnumOfObjects1() {

@@ -19,13 +19,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
+import com.google.javascript.jscomp.NodeTraversal.AbstractPreOrderCallback;
 import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -39,7 +38,6 @@ import java.util.regex.Pattern;
  * ordering.
  */
 public class ProcessCommonJSModules implements CompilerPass {
-  private static final String MODULE_SLASH = ES6ModuleLoader.MODULE_SLASH;
   public static final String DEFAULT_FILENAME_PREFIX =
       "." + ES6ModuleLoader.MODULE_SLASH;
 
@@ -47,10 +45,6 @@ public class ProcessCommonJSModules implements CompilerPass {
   private static final String MODULE_NAME_PREFIX = "module$";
 
   private static final String EXPORTS = "exports";
-
-  static final DiagnosticType LOAD_ERROR = DiagnosticType.error(
-      "JSC_ES6_MODULE_LOAD_ERROR",
-      "Failed to load module \"{0}\"");
 
   private final Compiler compiler;
   private final ES6ModuleLoader loader;
@@ -68,16 +62,13 @@ public class ProcessCommonJSModules implements CompilerPass {
     this.reportDependencies = reportDependencies;
   }
 
-  void process(CompilerInput input) {
-    compiler.putCompilerInput(input.getInputId(), input);
-    Node root = input.getAstRoot(compiler);
-    if (!compiler.hasHaltingErrors()) {
-      process(null, root);
-    }
-  }
-
   @Override
   public void process(Node externs, Node root) {
+    FindGoogProvideOrGoogModule finder = new FindGoogProvideOrGoogModule();
+    NodeTraversal.traverse(compiler, root, finder);
+    if (finder.found) {
+      return;
+    }
     NodeTraversal
         .traverse(compiler, root, new ProcessCommonJsModulesCallback());
   }
@@ -97,13 +88,46 @@ public class ProcessCommonJSModules implements CompilerPass {
    */
   public static String toModuleName(String filename) {
     return MODULE_NAME_PREFIX +
-        filename.replaceAll("^\\." + Pattern.quote(MODULE_SLASH), "")
-            .replaceAll(Pattern.quote(MODULE_SLASH), MODULE_NAME_SEPARATOR)
+        filename.replaceAll("^\\." + Pattern.quote(ES6ModuleLoader.MODULE_SLASH), "")
+            .replaceAll(Pattern.quote(ES6ModuleLoader.MODULE_SLASH), MODULE_NAME_SEPARATOR)
             .replaceAll(Pattern.quote("\\"), MODULE_NAME_SEPARATOR)
             .replaceAll("\\.js$", "")
             .replaceAll("-", "_")
             .replaceAll(":", "_")
             .replaceAll("\\.", "");
+  }
+
+  /**
+   * Avoid processing if we find the appearance of goog.provide or goog.module.
+   *
+   * TODO(moz): Let ES6, CommonJS and goog.provide live happily together.
+   */
+  static class FindGoogProvideOrGoogModule extends AbstractPreOrderCallback {
+
+    private boolean found;
+
+    boolean isFound() {
+      return found;
+    }
+
+    @Override
+    public boolean shouldTraverse(NodeTraversal nodeTraversal, Node n, Node parent) {
+      // Shallow traversal, since we don't need to inspect within function declarations.
+      if (parent == null || !parent.isFunction()
+          || n == parent.getFirstChild()) {
+        if (n.isExprResult()) {
+          Node maybeGetProp = n.getFirstChild().getFirstChild();
+          if (maybeGetProp != null
+              && (maybeGetProp.matchesQualifiedName("goog.provide")
+                  || maybeGetProp.matchesQualifiedName("goog.module"))) {
+            found = true;
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
+    }
   }
 
   /**
@@ -119,7 +143,7 @@ public class ProcessCommonJSModules implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       if (n.isCall() && n.getChildCount() == 2 &&
-          "require".equals(n.getFirstChild().getQualifiedName()) &&
+          n.getFirstChild().matchesQualifiedName("require") &&
           n.getChildAtIndex(1).isString()) {
         visitRequireCall(t, n, parent);
       }
@@ -152,7 +176,7 @@ public class ProcessCommonJSModules implements CompilerPass {
       try {
         loader.load(loadAddress);
       } catch (ES6ModuleLoader.LoadFailedException e) {
-        t.makeError(require, LOAD_ERROR, requireName);
+        t.makeError(require, ES6ModuleLoader.LOAD_ERROR, requireName);
       }
 
       String moduleName = toModuleName(loadAddress);
@@ -178,8 +202,7 @@ public class ProcessCommonJSModules implements CompilerPass {
           "ProcessCommonJSModules supports only one invocation per " +
           "CompilerInput / script node");
 
-      String moduleName = toModuleName(
-          loader.getLoadAddress(t.getInput()));
+      String moduleName = toModuleName(loader.getLoadAddress(t.getInput()));
 
       // Rename vars to not conflict in global scope.
       NodeTraversal.traverse(compiler, script, new SuffixVarsCallback(
@@ -391,6 +414,11 @@ public class ProcessCommonJSModules implements CompilerPass {
           return;
         }
 
+        // closure_test_suite looks for test*() functions
+        if (compiler.getOptions().exportTestFunctions && name.startsWith("test")) {
+          return;
+        }
+
         Scope.Var var = t.getScope().getVar(name);
         if (var != null && var.isGlobal()) {
           n.setString(name + "$$" + suffix);
@@ -405,15 +433,39 @@ public class ProcessCommonJSModules implements CompilerPass {
     private void fixTypeNode(NodeTraversal t, Node typeNode) {
       if (typeNode.isString()) {
         String name = typeNode.getString();
-        int endIndex = name.indexOf('.');
-        if (endIndex == -1) {
-          endIndex = name.length();
-        }
-        String baseName = name.substring(0, endIndex);
-        Scope.Var var = t.getScope().getVar(baseName);
-        if (var != null && var.isGlobal()) {
-          typeNode.setString(baseName + "$$" + suffix + name.substring(endIndex));
-          typeNode.putProp(Node.ORIGINALNAME_PROP, name);
+        if (ES6ModuleLoader.isRelativeIdentifier(name)) {
+          int lastSlash = name.lastIndexOf("/");
+          int endIndex = name.indexOf('.', lastSlash);
+          String localTypeName = null;
+          if (endIndex == -1) {
+            endIndex = name.length();
+          } else {
+            localTypeName = name.substring(endIndex);
+          }
+
+          String moduleName = name.substring(0, endIndex);
+          String loadAddress = loader.locate(moduleName, t.getInput());
+          if (loadAddress == null) {
+            t.makeError(typeNode, ES6ModuleLoader.LOAD_ERROR, moduleName);
+            return;
+          }
+
+          String globalModuleName = toModuleName(loadAddress);
+          typeNode.setString(
+              localTypeName == null ?
+              globalModuleName :
+              globalModuleName + localTypeName);
+        } else {
+          int endIndex = name.indexOf('.');
+          if (endIndex == -1) {
+            endIndex = name.length();
+          }
+          String baseName = name.substring(0, endIndex);
+          Scope.Var var = t.getScope().getVar(baseName);
+          if (var != null && var.isGlobal()) {
+            typeNode.setString(baseName + "$$" + suffix + name.substring(endIndex));
+            typeNode.putProp(Node.ORIGINALNAME_PROP, name);
+          }
         }
       }
 

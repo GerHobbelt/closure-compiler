@@ -88,6 +88,7 @@ class GenerateExports implements CompilerPass {
   private void addExtern(String export) {
     Node propstmt = IR.exprResult(
         IR.getprop(qualifiedNameNode("Object.prototype"), IR.string(export)));
+    NodeUtil.setDebugInformation(propstmt, getSynthesizedExternsRoot(), export);
     getSynthesizedExternsRoot().addChildToBack(propstmt);
     compiler.reportCodeChange();
   }
@@ -194,7 +195,7 @@ class GenerateExports implements CompilerPass {
    * @param node node
    * @return property name.
    */
-  private String getPropertyName(Node node) {
+  private static String getPropertyName(Node node) {
     Preconditions.checkArgument(node.isGetProp());
     return node.getLastChild().getString();
   }

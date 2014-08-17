@@ -61,9 +61,18 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /**
    * The JavaScript language version that should be produced.
-   * Currently, this is always the same as {@link #languageIn}.
    */
   private LanguageMode languageOut;
+
+  boolean transpileOnly;
+
+  /**
+   * Only do transpilation, don't inject es6_runtime.js or
+   * do any optimizations (this is useful for per-file transpilation).
+   */
+  public void setTranspileOnly(boolean value) {
+    transpileOnly = value;
+  }
 
   /**
    * Whether the compiler accepts the `const' keyword.
@@ -75,9 +84,14 @@ public class CompilerOptions implements Serializable, Cloneable {
    * external clients. This is a transitional flag for a new type
    * of const analysis.
    *
-   * TODO(nicksantos): Turn this on by default and remove this option.
+   * TODO(nicksantos): Remove this option.
    */
-  boolean inferConsts;
+  boolean inferConsts = true;
+
+  // TODO(tbreisacher): Remove this method after ctemplate issues are solved.
+  public void setInferConst(boolean value) {
+    inferConsts = value;
+  }
 
   /**
    * Whether the compiler should assume that a function's "this" value
@@ -159,13 +173,6 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   /** Checks for suspicious statements that have no effect */
   public boolean checkSuspiciousCode;
-
-  /**
-   * TODO(tbreisacher): Remove this after the next release.
-   * @deprecated
-   */
-  @Deprecated
-  public boolean checkControlStructures;
 
   /** Checks types on expressions */
   public boolean checkTypes;
@@ -342,8 +349,14 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.checkMissingReturn = level;
   }
 
+  public enum ExtractPrototypeMemberDeclarationsMode {
+    OFF,
+    USE_GLOBAL_TEMP,
+    USE_IIFE
+  }
+
   /** Extracts common prototype member declarations */
-  public boolean extractPrototypeMemberDeclarations;
+  ExtractPrototypeMemberDeclarationsMode extractPrototypeMemberDeclarations;
 
   /** Removes unused member prototypes */
   public boolean removeUnusedPrototypeProperties;
@@ -551,6 +564,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Rename unrelated properties to the same name to reduce code size. */
   public boolean ambiguateProperties;
 
+  /** Input sourcemap files, indexed by the JS files they refer to */
+  ImmutableMap<String, SourceMapInput> inputSourceMaps;
+
   /** Give anonymous functions names for easier debugging */
   public AnonymousFunctionNamingPolicy anonymousFunctionNaming;
 
@@ -745,6 +761,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Rewrite CommonJS modules so that they can be concatenated together. */
   boolean processCommonJSModules = false;
 
+  /** Rewrite ES6 modules so that they can be concatenated together. */
+  boolean rewriteEs6Modules = false;
+
   /** CommonJS module prefix. */
   String commonJSModulePathPrefix =
       ProcessCommonJSModules.DEFAULT_FILENAME_PREFIX;
@@ -753,6 +772,8 @@ public class CompilerOptions implements Serializable, Cloneable {
   //--------------------------------
   // Output options
   //--------------------------------
+
+  public boolean preserveJsDoc;
 
   /** Output in pretty indented format */
   public boolean prettyPrint;
@@ -865,6 +886,12 @@ public class CompilerOptions implements Serializable, Cloneable {
       Collections.emptyList();
 
   /**
+   * Whether to return strings logged with AbstractCompiler#addToDebugLog
+   * in the compiler's Result.
+   */
+  boolean useDebugLog;
+
+  /**
    * Charset to use when generating code.  If null, then output ASCII.
    * This needs to be a string because CompilerOptions is serializable.
    */
@@ -874,6 +901,11 @@ public class CompilerOptions implements Serializable, Cloneable {
    * Whether the named objects types included 'undefined' by default.
    */
   boolean looseTypes;
+
+  /**
+   * Transitional option.
+   */
+  boolean enforceAccessControlCodingConventions;
 
   /**
    * When set, assume that apparently side-effect free code is meaningful.
@@ -902,6 +934,7 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   public boolean instrumentForCoverage;
 
+
   /**
    * Initializes compiler options. All options are disabled by default.
    *
@@ -911,11 +944,13 @@ public class CompilerOptions implements Serializable, Cloneable {
   public CompilerOptions() {
     // Accepted language
     languageIn = LanguageMode.ECMASCRIPT3;
+    languageOut = LanguageMode.NO_TRANSPILE;
 
     // Language variation
     acceptConstKeyword = false;
 
     // Checks
+    transpileOnly = false;
     skipAllPasses = false;
     nameAnonymousFunctionsOnly = false;
     devMode = DevMode.OFF;
@@ -958,7 +993,8 @@ public class CompilerOptions implements Serializable, Cloneable {
     smartNameRemoval = false;
     extraSmartNameRemoval = false;
     removeDeadCode = false;
-    extractPrototypeMemberDeclarations = false;
+    extractPrototypeMemberDeclarations =
+        ExtractPrototypeMemberDeclarationsMode.OFF;
     removeUnusedPrototypeProperties = false;
     removeUnusedPrototypePropertiesInExterns = false;
     removeUnusedClassProperties = false;
@@ -995,8 +1031,8 @@ public class CompilerOptions implements Serializable, Cloneable {
     ambiguateProperties = false;
     anonymousFunctionNaming = AnonymousFunctionNamingPolicy.OFF;
     exportTestFunctions = false;
-    gatherExternsFromTypes = false;
-    declaredGlobalExternsOnWindow = false;
+    gatherExternsFromTypes = true;
+    declaredGlobalExternsOnWindow = true;
 
     // Alterations
     runtimeTypeCheck = false;
@@ -1033,6 +1069,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     replaceStringsPlaceholderToken = "";
     replaceStringsReservedStrings = Collections.emptySet();
     propertyInvalidationErrors = Maps.newHashMap();
+    inputSourceMaps = ImmutableMap.of();
 
     // Instrumentation
     instrumentationTemplate = null;  // instrument functions
@@ -1040,6 +1077,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     instrumentForCoverage = false;  // instrument lines
 
     // Output
+    preserveJsDoc = false;
     printInputDelimiter = false;
     prettyPrint = false;
     lineBreak = false;
@@ -1056,6 +1094,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     // Debugging
     aliasHandler = NULL_ALIAS_TRANSFORMATION_HANDLER;
     errorHandler = null;
+    useDebugLog = false;
   }
 
   /**
@@ -1554,17 +1593,43 @@ public class CompilerOptions implements Serializable, Cloneable {
   /**
    * Sets ECMAScript version to use.
    */
+  public void setLanguage(LanguageMode language) {
+    Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
+    this.languageIn = language;
+    this.languageOut = language;
+  }
+
+  /**
+   * Sets ECMAScript version to use for the input. If you are not
+   * transpiling from one version to another, use #setLanguage instead.
+   */
   public void setLanguageIn(LanguageMode languageIn) {
+    Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
     this.languageIn = languageIn;
-    this.languageOut = languageIn;
   }
 
   public LanguageMode getLanguageIn() {
     return languageIn;
   }
 
+  /**
+   * Sets ECMAScript version to use for the output. If you are not
+   * transpiling from one version to another, use #setLanguage instead.
+   */
+  public void setLanguageOut(LanguageMode languageOut) {
+    this.languageOut = languageOut;
+  }
+
   public LanguageMode getLanguageOut() {
+    if (languageOut == LanguageMode.NO_TRANSPILE) {
+      return languageIn;
+    }
     return languageOut;
+  }
+
+  boolean needsConversion() {
+    return languageOut != LanguageMode.NO_TRANSPILE
+        && languageIn != languageOut;
   }
 
   /**
@@ -1673,10 +1738,6 @@ public class CompilerOptions implements Serializable, Cloneable {
         Maps.newHashMap(propertyInvalidationErrors);
   }
 
-  public void setLanguageOut(LanguageMode languageOut) {
-    this.languageOut = languageOut;
-  }
-
   public void setIdeMode(boolean ideMode) {
     this.ideMode = ideMode;
   }
@@ -1699,6 +1760,9 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   public void setCheckDeterminism(boolean checkDeterminism) {
     this.checkDeterminism = checkDeterminism;
+    if (checkDeterminism) {
+      this.useDebugLog = true;
+    }
   }
 
   public boolean getCheckDeterminism() {
@@ -1715,14 +1779,6 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   public void setCheckSuspiciousCode(boolean checkSuspiciousCode) {
     this.checkSuspiciousCode = checkSuspiciousCode;
-  }
-
-  /**
-   * TODO(tbreisacher): Remove this after the next release.
-   * @deprecated
-   */
-  @Deprecated
-  public void setCheckControlStructures(boolean checkControlStructures) {
   }
 
   public void setCheckTypes(boolean checkTypes) {
@@ -1804,7 +1860,13 @@ public class CompilerOptions implements Serializable, Cloneable {
   }
 
   public void setExtractPrototypeMemberDeclarations(boolean enabled) {
-    this.extractPrototypeMemberDeclarations = enabled;
+    this.extractPrototypeMemberDeclarations =
+        enabled ? ExtractPrototypeMemberDeclarationsMode.USE_GLOBAL_TEMP
+            : ExtractPrototypeMemberDeclarationsMode.OFF;
+  }
+
+  public void setExtractPrototypeMemberDeclarations(ExtractPrototypeMemberDeclarationsMode mode) {
+    this.extractPrototypeMemberDeclarations = mode;
   }
 
   public void setRemoveUnusedPrototypeProperties(boolean enabled) {
@@ -2163,6 +2225,14 @@ public class CompilerOptions implements Serializable, Cloneable {
   }
 
   /**
+   * Rewrites ES6 modules so that modules can be concatenated together,
+   * by renaming all globals to avoid conflicting with other modules.
+   */
+  public void setRewriteEs6Modules(boolean rewriteEs6Modules) {
+    this.rewriteEs6Modules = rewriteEs6Modules;
+  }
+
+  /**
    * Sets a path prefix for CommonJS modules.
    */
   public void setCommonJSModulePathPrefix(String commonJSModulePathPrefix) {
@@ -2198,46 +2268,76 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** When to do the extra sanity checks */
   public static enum LanguageMode {
     /**
-     * Traditional JavaScript
+     * 90's JavaScript
      */
     ECMASCRIPT3,
 
     /**
-     * Shiny new JavaScript
+     * Traditional JavaScript
      */
     ECMASCRIPT5,
 
     /**
-     * Nitpicky, shiny new JavaScript
+     * Nitpicky, traditional JavaScript
      */
     ECMASCRIPT5_STRICT,
 
     /**
-     * Experimental JavaScript
+     * Shiny new JavaScript
      */
     ECMASCRIPT6,
 
     /**
-     * Nitpicky, experimental JavaScript
+     * Nitpicky, shiny new JavaScript
      */
-    ECMASCRIPT6_STRICT;
+    ECMASCRIPT6_STRICT,
+
+    /**
+     * For languageOut only. The same language mode as the input.
+     */
+    NO_TRANSPILE;
+
+    /** Whether this is a "strict mode" language. */
+    public boolean isStrict() {
+      Preconditions.checkState(this != NO_TRANSPILE);
+      switch (this) {
+        case ECMASCRIPT5_STRICT:
+        case ECMASCRIPT6_STRICT:
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    /** Whether this is ECMAScript 6 or higher. */
+    public boolean isEs6OrHigher() {
+      Preconditions.checkState(this != NO_TRANSPILE);
+      switch (this) {
+        case ECMASCRIPT6:
+        case ECMASCRIPT6_STRICT:
+          return true;
+        default:
+          return false;
+      }
+    }
 
     public static LanguageMode fromString(String value) {
-      if (value.equals("ECMASCRIPT6_STRICT") ||
-          value.equals("ES6_STRICT")) {
-        return CompilerOptions.LanguageMode.ECMASCRIPT5_STRICT;
-      } else if (value.equals("ECMASCRIPT6") ||
-          value.equals("ES6")) {
-        return CompilerOptions.LanguageMode.ECMASCRIPT5;
-      } else if (value.equals("ECMASCRIPT5_STRICT") ||
-          value.equals("ES5_STRICT")) {
-        return CompilerOptions.LanguageMode.ECMASCRIPT5_STRICT;
-      } else if (value.equals("ECMASCRIPT5") ||
-          value.equals("ES5")) {
-        return CompilerOptions.LanguageMode.ECMASCRIPT5;
-      } else if (value.equals("ECMASCRIPT3") ||
-                 value.equals("ES3")) {
-        return CompilerOptions.LanguageMode.ECMASCRIPT3;
+      switch (value) {
+        case "ECMASCRIPT6_STRICT":
+        case "ES6_STRICT":
+          return LanguageMode.ECMASCRIPT6_STRICT;
+        case "ECMASCRIPT6":
+        case "ES6":
+          return LanguageMode.ECMASCRIPT6;
+        case "ECMASCRIPT5_STRICT":
+        case "ES5_STRICT":
+          return LanguageMode.ECMASCRIPT5_STRICT;
+        case "ECMASCRIPT5":
+        case "ES5":
+          return LanguageMode.ECMASCRIPT5;
+        case "ECMASCRIPT3":
+        case "ES3":
+          return LanguageMode.ECMASCRIPT3;
       }
       return null;
     }

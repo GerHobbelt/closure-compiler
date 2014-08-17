@@ -28,12 +28,20 @@ import junit.framework.TestCase;
 
 import java.util.List;
 
+
 public class CodePrinterTest extends TestCase {
+  // If this is set, ignore parse warnings and only fail the test
+  // for parse errors.
+  private boolean allowWarnings = false;
+
   private boolean trustedStrings = true;
+  private boolean preserveJsDoc = false;
   private Compiler lastCompiler = null;
   private LanguageMode languageMode = LanguageMode.ECMASCRIPT5;
 
   @Override public void setUp() {
+    allowWarnings = false;
+    preserveJsDoc = false;
     trustedStrings = true;
     lastCompiler = null;
     languageMode = LanguageMode.ECMASCRIPT5;
@@ -48,6 +56,7 @@ public class CodePrinterTest extends TestCase {
     lastCompiler = compiler;
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
+    options.preserveJsDoc = preserveJsDoc;
 
     // Allow getters and setters.
     options.setLanguageIn(languageMode);
@@ -70,16 +79,22 @@ public class CodePrinterTest extends TestCase {
     return n;
   }
 
-  private static void checkUnexpectedErrorsOrWarnings(
+  private void checkUnexpectedErrorsOrWarnings(
       Compiler compiler, int expected) {
-    int actual = compiler.getErrors().length + compiler.getWarnings().length;
+    int actual = compiler.getErrors().length;
+    if (!allowWarnings) {
+      actual += compiler.getWarnings().length;
+    }
+
     if (actual != expected) {
       String msg = "";
       for (JSError err : compiler.getErrors()) {
-        msg += "Error:" + err.toString() + "\n";
+        msg += "Error:" + err + "\n";
       }
-      for (JSError err : compiler.getWarnings()) {
-        msg += "Warning:" + err.toString() + "\n";
+      if (!allowWarnings) {
+        for (JSError err : compiler.getWarnings()) {
+          msg += "Warning:" + err + "\n";
+        }
       }
       assertEquals("Unexpected warnings or errors.\n " + msg, expected, actual);
     }
@@ -92,6 +107,7 @@ public class CodePrinterTest extends TestCase {
   CompilerOptions newCompilerOptions(boolean prettyprint, int lineThreshold) {
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
+    options.preserveJsDoc = preserveJsDoc;
     options.setLanguageOut(languageMode);
     options.setPrettyPrint(prettyprint);
     options.setLineLengthThreshold(lineThreshold);
@@ -357,6 +373,126 @@ public class CodePrinterTest extends TestCase {
     assertPrint("if(x){;;function y(){};;}", "if(x){function y(){}}");
   }
 
+  public void testPrintArrayPatternVar() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("var []=[]");
+    assertPrintSame("var [a]=[1]");
+    assertPrintSame("var [a,b]=[1,2]");
+    assertPrintSame("var [a,...b]=[1,2]");
+    assertPrintSame("var [,b]=[1,2]");
+    assertPrintSame("var [,,,,,,g]=[1,2,3,4,5,6,7]");
+    assertPrintSame("var [a,,c]=[1,2,3]");
+    assertPrintSame("var [a,,,d]=[1,2,3,4]");
+    assertPrintSame("var [a,,c,,e]=[1,2,3,4,5]");
+  }
+
+  public void testPrintArrayPatternLet() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("let []=[]");
+    assertPrintSame("let [a]=[1]");
+    assertPrintSame("let [a,b]=[1,2]");
+    assertPrintSame("let [a,...b]=[1,2]");
+    assertPrintSame("let [,b]=[1,2]");
+    assertPrintSame("let [,,,,,,g]=[1,2,3,4,5,6,7]");
+    assertPrintSame("let [a,,c]=[1,2,3]");
+    assertPrintSame("let [a,,,d]=[1,2,3,4]");
+    assertPrintSame("let [a,,c,,e]=[1,2,3,4,5]");
+  }
+
+  public void testPrintArrayPatternConst() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("const []=[]");
+    assertPrintSame("const [a]=[1]");
+    assertPrintSame("const [a,b]=[1,2]");
+    assertPrintSame("const [a,...b]=[1,2]");
+    assertPrintSame("const [,b]=[1,2]");
+    assertPrintSame("const [,,,,,,g]=[1,2,3,4,5,6,7]");
+    assertPrintSame("const [a,,c]=[1,2,3]");
+    assertPrintSame("const [a,,,d]=[1,2,3,4]");
+    assertPrintSame("const [a,,c,,e]=[1,2,3,4,5]");
+  }
+
+  public void testPrintArrayPatternAssign() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("[]=[]");
+    assertPrintSame("[a]=[1]");
+    assertPrintSame("[a,b]=[1,2]");
+    assertPrintSame("[a,...b]=[1,2]");
+    assertPrintSame("[,b]=[1,2]");
+    assertPrintSame("[,,,,,,g]=[1,2,3,4,5,6,7]");
+    assertPrintSame("[a,,c]=[1,2,3]");
+    assertPrintSame("[a,,,d]=[1,2,3,4]");
+    assertPrintSame("[a,,c,,e]=[1,2,3,4,5]");
+  }
+
+  public void testPrintArrayPatternWithInitializer() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("[x=1]=[]");
+    assertPrintSame("[a,,c=2,,e]=[1,2,3,4,5]");
+    assertPrintSame("[a=1,b=2,c=3]=foo()");
+  }
+
+  public void testPrintNestedArrayPattern() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("var [a,[b,c],d]=[1,[2,3],4]");
+    assertPrintSame("var [[[[a]]]]=[[[[1]]]]");
+
+    assertPrintSame("[a,[b,c],d]=[1,[2,3],4]");
+    assertPrintSame("[[[[a]]]]=[[[[1]]]]");
+  }
+
+  public void testPrintObjectPatternVar() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("var {a}=foo()");
+    assertPrintSame("var {a,b}=foo()");
+    assertPrintSame("var {a:a,b:b}=foo()");
+  }
+
+  public void testPrintObjectPatternLet() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("let {a}=foo()");
+    assertPrintSame("let {a,b}=foo()");
+    assertPrintSame("let {a:a,b:b}=foo()");
+  }
+
+  public void testPrintObjectPatternConst() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("const {a}=foo()");
+    assertPrintSame("const {a,b}=foo()");
+    assertPrintSame("const {a:a,b:b}=foo()");
+  }
+
+  public void testPrintObjectPatternAssign() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("({a})=foo()");
+    assertPrintSame("({a,b})=foo()");
+    assertPrintSame("({a:a,b:b})=foo()");
+  }
+
+  public void testPrintNestedObjectPattern() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("({a:{b,c}})=foo()");
+    assertPrintSame("({a:{b:{c:{d}}}})=foo()");
+  }
+
+  public void testPrintMixedDestructuring() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("({a:[b,c]})=foo()");
+    assertPrintSame("[a,{b,c}]=foo()");
+  }
+
+  public void testPrintDestructuringInParamList() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("function f([a]){}");
+    assertPrintSame("function f([a,b]){}");
+    assertPrintSame("function f([a,b]=c()){}");
+    assertPrintSame("function f({a}){}");
+    assertPrintSame("function f({a,b}){}");
+    assertPrintSame("function f({a,b}=c()){}");
+    assertPrintSame("function f([a,{b,c}]){}");
+    assertPrintSame("function f({a,b:[c,d]}){}");
+  }
+
   public void testBreakTrustedStrings() {
     // Break scripts
     assertPrint("'<script>'", "\"<script>\"");
@@ -471,6 +607,22 @@ public class CodePrinterTest extends TestCase {
 
     assertPrintSame("for(a of b)c");
     assertPrintSame("for(var a of b)c");
+  }
+
+  public void testLetFor() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("for(let a=0;a<5;a++)b");
+    assertPrintSame("for(let a in b)c");
+    assertPrintSame("for(let a of b)c");
+  }
+
+  public void testConstFor() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("for(const a=5;b<a;b++)c");
+    assertPrintSame("for(const a in b)c");
+    assertPrintSame("for(const a of b)c");
   }
 
   public void testLiteralProperty() {
@@ -601,7 +753,7 @@ public class CodePrinterTest extends TestCase {
   public void testPrettyPrinter() {
     // Ensure that the pretty printer inserts line breaks at appropriate
     // places.
-    assertPrettyPrint("(function(){})();","(function() {\n})();\n");
+    assertPrettyPrint("(function(){})();", "(function() {\n})();\n");
     assertPrettyPrint("var a = (function() {});alert(a);",
         "var a = function() {\n};\nalert(a);\n");
 
@@ -1256,6 +1408,11 @@ public class CodePrinterTest extends TestCase {
     assertPrintNumber("1E-6", 0.000001);
     assertPrintNumber("-0x38d7ea4c68001", -0x38d7ea4c68001L);
     assertPrintNumber("0x38d7ea4c68001", 0x38d7ea4c68001L);
+
+    assertPrintNumber("-1.01", -1.01);
+    assertPrintNumber("-.01", -0.01);
+    assertPrintNumber(".01", 0.01);
+    assertPrintNumber("1.01", 1.01);
   }
 
   // Make sure to test as both a String and a Node, because
@@ -1351,6 +1508,37 @@ public class CodePrinterTest extends TestCase {
         "var x={\"123456789012345671234567890123456712345678901234567\":1}");
   }
 
+  public void testExtendedObjectLit() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("var a={b}");
+    assertPrintSame("var a={b,c}");
+    assertPrintSame("var a={b,c:d,e}");
+    assertPrintSame("var a={b,c(){},d,e:f}");
+  }
+
+  public void testComputedProperties() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("var a={[b]:c}");
+    assertPrintSame("var a={[b+3]:c}");
+
+    assertPrintSame("var a={[b](){}}");
+    assertPrintSame("var a={[b](){alert(foo)}}");
+    assertPrintSame("var a={*[b](){yield\"foo\"}}");
+    assertPrintSame("var a={[b]:(()=>c)}");
+
+    assertPrintSame("var a={get [b](){return null}}");
+    assertPrintSame("var a={set [b](val){window.b=val}}");
+  }
+
+  public void testComputedPropertiesClassMethods() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("class C{[m](){}}");
+
+    assertPrintSame("class C{[\"foo\"+bar](){alert(1)}}");
+  }
+
   public void testGetter() {
     assertPrint("var x = {}", "var x={}");
     assertPrint("var x = {get a() {return 1}}", "var x={get a(){return 1}}");
@@ -1434,11 +1622,11 @@ public class CodePrinterTest extends TestCase {
   }
 
   public void testArrayLiteral() {
-    assertPrint("var x = [,];","var x=[,]");
-    assertPrint("var x = [,,];","var x=[,,]");
-    assertPrint("var x = [,s,,];","var x=[,s,,]");
-    assertPrint("var x = [,s];","var x=[,s]");
-    assertPrint("var x = [s,];","var x=[s]");
+    assertPrint("var x = [,];", "var x=[,]");
+    assertPrint("var x = [,,];", "var x=[,,]");
+    assertPrint("var x = [,s,,];", "var x=[,s,,]");
+    assertPrint("var x = [,s];", "var x=[,s]");
+    assertPrint("var x = [s,];", "var x=[s]");
   }
 
   public void testZero() {
@@ -1455,6 +1643,9 @@ public class CodePrinterTest extends TestCase {
     // Octal 12 = Hex 0A = \n
     assertPrint("var x ='\\012';", "var x=\"\\n\"");
 
+    // Octal 13 = Hex 0B = \v, but we print it as \x0B. See issue 601.
+    assertPrint("var x ='\\013';", "var x=\"\\x0B\"");
+
     // Octal 34 = Hex 1C
     assertPrint("var x ='\\034';", "var x=\"\\u001c\"");
 
@@ -1466,14 +1657,54 @@ public class CodePrinterTest extends TestCase {
     assertPrint("var x ='\\01234';", "var x=\"\\n34\"");
   }
 
+  public void testOctalInStringNoLeadingZero() {
+    assertPrint("var x ='\\7';", "var x=\"\\u0007\"");
+
+    // Octal 12 = Hex 0A = \n
+    assertPrint("var x ='\\12';", "var x=\"\\n\"");
+
+    // Octal 13 = Hex 0B = \v, but we print it as \x0B. See issue 601.
+    assertPrint("var x ='\\13';", "var x=\"\\x0B\"");
+
+    // Octal 34 = Hex 1C
+    assertPrint("var x ='\\34';", "var x=\"\\u001c\"");
+
+    // Octal 240 = Hex A0
+    assertPrint("var x ='\\240';", "var x=\"\\u00a0\"");
+
+    // Only the first three digits are part of the octal literal.
+    assertPrint("var x ='\\2400';", "var x=\"\\u00a00\"");
+
+    // Only the first two digits are part of the octal literal because '8'
+    // is not an octal digit.
+    // Octal 67 = Hex 37 = "7"
+    assertPrint("var x ='\\6789';", "var x=\"789\"");
+
+    // 8 and 9 are not octal digits. '\' is ignored and the digit
+    // is just a regular character.
+    assertPrint("var x ='\\8';", "var x=\"8\"");
+    assertPrint("var x ='\\9';", "var x=\"9\"");
+
+    // Only the first three digits are part of the octal literal.
+    // Octal 123 = Hex 53 = "S"
+    assertPrint("var x ='\\1234';", "var x=\"S4\"");
+  }
+
   public void testUnicode() {
     assertPrint("var x ='\\x0f';", "var x=\"\\u000f\"");
     assertPrint("var x ='\\x68';", "var x=\"h\"");
     assertPrint("var x ='\\x7f';", "var x=\"\\u007f\"");
   }
 
-  public void testNumericKeys() {
+  // Separate from testNumericKeys() so we can set allowWarnings.
+  public void testOctalNumericKey() {
+    allowWarnings = true;
+    languageMode = LanguageMode.ECMASCRIPT6;
+
     assertPrint("var x = {010: 1};", "var x={8:1}");
+  }
+
+  public void testNumericKeys() {
     assertPrint("var x = {'010': 1};", "var x={\"010\":1}");
 
     assertPrint("var x = {0x10: 1};", "var x={16:1}");
@@ -1625,6 +1856,41 @@ public class CodePrinterTest extends TestCase {
     assertPrintSame("3*(4%3*5)");
   }
 
+  public void testPreserveJsDoc() {
+    preserveJsDoc = true;
+    assertPrintSame("/** @type {foo} */var bar");
+    assertPrintSame(
+        "function/** void */f(/** string */s,/** number */n){}");
+
+    preserveJsDoc = false;
+    assertPrint("/** @type {foo} */\nvar bar;", "var bar");
+  }
+
+  public void testDefaultParameters() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("function f(a=0){}");
+    assertPrintSame("function f(a,b=0){}");
+  }
+
+  public void testRestParameters() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("function f(...args){}");
+    assertPrintSame("function f(first,...rest){}");
+  }
+
+  public void testDefaultParametersWithRestParameters() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("function f(first=0,...args){}");
+    assertPrintSame("function f(first,second=0,...rest){}");
+  }
+
+  public void testSpreadExpression() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("f(...args)");
+    assertPrintSame("f(...arrayOfArrays[0])");
+    assertPrintSame("f(...[1,2,3])");
+  }
+
   public void testClass() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("class C{}");
@@ -1655,6 +1921,8 @@ public class CodePrinterTest extends TestCase {
 
   public void testSuper() {
     languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("class C extends foo(){}");
+    assertPrintSame("class C extends m.foo(){}");
     assertPrintSame("class C extends D{member(){super.foo()}}");
   }
 
@@ -1672,6 +1940,7 @@ public class CodePrinterTest extends TestCase {
   public void testMemberGeneratorYield1() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("class C{*member(){(yield 1)+(yield 1)}}");
+    assertPrintSame("var obj={*member(){(yield 1)+(yield 1)}}");
   }
 
   public void testArrowFunction() {
@@ -1769,5 +2038,20 @@ public class CodePrinterTest extends TestCase {
     // export default
     assertPrintSame("export default x");
     assertPrintSame("export default 1");
+  }
+
+  public void testTemplateLiteral() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("`hello`");
+    assertPrint("`hel\rlo`", "`hel\nlo`");
+    assertPrint("`hel\r\nlo`", "`hel\nlo`");
+
+    assertPrintSame("`hello${world}!`");
+    assertPrintSame("`hello${world} ${name}!`");
+
+    assertPrintSame("`hello${(function(){let x=3})()}`");
+    assertPrintSame("(function(){})()`${(function(){})()}`");
+    assertPrintSame("url`hello`");
+    assertPrintSame("url(`hello`)");
   }
 }

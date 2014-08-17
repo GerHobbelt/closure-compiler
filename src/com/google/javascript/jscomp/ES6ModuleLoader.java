@@ -17,7 +17,6 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.collect.Maps;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -43,6 +42,10 @@ abstract class ES6ModuleLoader {
     return name.startsWith("." + MODULE_SLASH) ||
         name.startsWith(".." + MODULE_SLASH);
   }
+
+  static final DiagnosticType LOAD_ERROR = DiagnosticType.error(
+      "JSC_ES6_MODULE_LOAD_ERROR",
+      "Failed to load module \"{0}\"");
 
   /**
    * The normalize hook creates a global qualified name for a module, and then
@@ -117,7 +120,7 @@ abstract class ES6ModuleLoader {
     String locate(String name, CompilerInput referrer) {
       if (isRelativeIdentifier(name)) {
         return convertSourceUriToModuleAddress(
-            createUri(referrer.getName()).resolve(createUri(name)));
+            createUri(referrer).resolve(createUri(name)));
       }
       return createUri(name).normalize().toString();
     }
@@ -129,7 +132,12 @@ abstract class ES6ModuleLoader {
 
     @Override
     String getLoadAddress(CompilerInput input) {
-      return convertSourceUriToModuleAddress(createUri(input.getName()));
+      return convertSourceUriToModuleAddress(createUri(input));
+    }
+
+    private static URI createUri(CompilerInput input) {
+      return createUri(
+          input.getName().replace("\\", MODULE_SLASH));
     }
 
     // TODO(nicksantos): Figure out a better way to deal with

@@ -298,6 +298,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
       switch (parent.getType()) {
         case Token.DO:
         case Token.FOR:
+        case Token.FOR_OF:
         case Token.TRY:
         case Token.WHILE:
         case Token.WITH:
@@ -578,7 +579,8 @@ class ReferenceCollectingCallback implements ScopedCallback,
   static final class Reference implements StaticReference<JSType> {
 
     private static final Set<Integer> DECLARATION_PARENTS =
-        ImmutableSet.of(Token.VAR, Token.FUNCTION, Token.CATCH);
+        ImmutableSet.of(Token.VAR, Token.LET, Token.CONST, Token.PARAM_LIST,
+            Token.FUNCTION, Token.CLASS, Token.CATCH);
 
     private final Node nameNode;
     private final BasicBlock basicBlock;
@@ -589,14 +591,6 @@ class ReferenceCollectingCallback implements ScopedCallback,
     Reference(Node nameNode, NodeTraversal t,
         BasicBlock basicBlock) {
       this(nameNode, basicBlock, t.getScope(), t.getInput().getInputId());
-    }
-
-    // Bleeding functions are weird, because the declaration does
-    // not appear inside their scope. So they need their own constructor.
-    static Reference newBleedingFunction(NodeTraversal t,
-        BasicBlock basicBlock, Node func) {
-      return new Reference(func.getFirstChild(),
-          basicBlock, t.getScope(), t.getInput().getInputId());
     }
 
     /**
@@ -647,14 +641,34 @@ class ReferenceCollectingCallback implements ScopedCallback,
 
     boolean isDeclaration() {
       Node parent = getParent();
-      Node grandparent = parent.getParent();
-      return DECLARATION_PARENTS.contains(parent.getType()) ||
-          parent.isParamList() &&
-          grandparent.isFunction();
+      // Special case for class B extends A, A is not a redeclaration.
+      if (parent.isClass() && nameNode != parent.getFirstChild()) {
+        return false;
+      }
+
+      // Special case for array pattern: An array pattern is a declaration, only
+      // if it's a descendant of a declaration.
+      while (parent.isArrayPattern()) {
+        parent = parent.getParent();
+      }
+
+      if (parent.isDefaultValue() && nameNode == parent.getFirstChild()) {
+        return true;
+      }
+
+      return DECLARATION_PARENTS.contains(parent.getType());
     }
 
     boolean isVarDeclaration() {
       return getParent().isVar();
+    }
+
+    boolean isLetDeclaration() {
+      return getParent().isLet();
+    }
+
+    boolean isConstDeclaration() {
+      return getParent().isConst();
     }
 
     boolean isHoistedFunction() {
@@ -713,6 +727,8 @@ class ReferenceCollectingCallback implements ScopedCallback,
       Node parent = getParent();
       int parentType = parent.getType();
       return (parentType == Token.VAR && nameNode.getFirstChild() != null)
+          || (parentType == Token.LET && nameNode.getFirstChild() != null)
+          || (parentType == Token.CONST && nameNode.getFirstChild() != null)
           || parentType == Token.INC
           || parentType == Token.DEC
           || (NodeUtil.isAssignmentOp(parent)

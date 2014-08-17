@@ -17,17 +17,17 @@
 package com.google.javascript.jscomp.newtypes;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  *
@@ -45,6 +45,7 @@ public class FunctionType {
   private final NominalType nominalType;
   // Non-null iff this function has an @template annotation
   private final ImmutableList<String> typeParameters;
+  private static final boolean DEBUGGING = false;
 
   private FunctionType(
       ImmutableList<JSType> requiredFormals,
@@ -162,7 +163,7 @@ public class FunctionType {
       null, null, null, null, null, null, null, true);
   // Corresponds to Function, which is a subtype and supertype of all functions.
   static final FunctionType QMARK_FUNCTION = FunctionType.normalized(
-      null, null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, true);
+      null, null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, false);
 
   public boolean isTopFunction() {
     if (requiredFormals == null) {
@@ -176,8 +177,12 @@ public class FunctionType {
     return nominalType != null && !nominalType.isInterface();
   }
 
-  boolean isInterfaceDefinition() {
+  public boolean isInterfaceDefinition() {
     return nominalType != null && nominalType.isInterface();
+  }
+
+  public boolean isQmarkFunction() {
+    return this == QMARK_FUNCTION;
   }
 
   // 0-indexed
@@ -237,17 +242,6 @@ public class FunctionType {
   }
 
   // Returns non-null JSType
-  private static JSType nullAcceptingJoin(JSType t1, JSType t2) {
-    Preconditions.checkArgument(t1 != null || t2 != null);
-    if (t1 == null) {
-      return t2;
-    } else if (t2 == null) {
-      return t1;
-    }
-    return JSType.join(t1, t2);
-  }
-
-  // Returns non-null JSType
   private static JSType nullAcceptingMeet(JSType t1, JSType t2) {
     Preconditions.checkArgument(t1 != null || t2 != null);
     if (t1 == null) {
@@ -264,26 +258,26 @@ public class FunctionType {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
     int minRequiredArity = Math.min(f1.getMinArity(), f2.getMinArity());
     for (int i = 0; i < minRequiredArity; i++) {
-      builder.addReqFormal(nullAcceptingJoin(
+      builder.addReqFormal(JSType.nullAcceptingJoin(
           f1.getFormalType(i), f2.getFormalType(i)));
     }
     int maxTotalArity = Math.max(
         f1.requiredFormals.size() + f1.optionalFormals.size(),
         f2.requiredFormals.size() + f2.optionalFormals.size());
     for (int i = minRequiredArity; i < maxTotalArity; i++) {
-      builder.addOptFormal(nullAcceptingJoin(
+      builder.addOptFormal(JSType.nullAcceptingJoin(
           f1.getFormalType(i), f2.getFormalType(i)));
     }
     // Loose types never have varargs, because there is no way for that
     // information to make it to a function summary
-    return builder.addRetType(nullAcceptingJoin(f1.returnType, f2.returnType))
+    return builder.addRetType(
+        JSType.nullAcceptingJoin(f1.returnType, f2.returnType))
         .addLoose().buildFunction();
   }
 
   public boolean isSubtypeOf(FunctionType other) {
-    // t1 <= t2 iff t2 = t1 \/ t2 doesn't hold always,
-    // so we first create a new type by replacing ? in the right places.
-    if (other.isTopFunction()) {
+    if (other.isTopFunction() ||
+        other.isQmarkFunction() || this.isQmarkFunction()) {
       return true;
     }
     if (isTopFunction()) {
@@ -298,36 +292,61 @@ public class FunctionType {
       //  */
       // Foo.prototype.method = function(x) {};
 
-      // TODO(user): This also comes up in inheritance of classes with
+      // TODO(dimvar): This also comes up in inheritance of classes with
       // polymorphic methods; fix for that.
       return true;
     }
-    Preconditions.checkState(!other.isGeneric()); // TODO(user): implement it
-    FunctionTypeBuilder builder = new FunctionTypeBuilder();
-    int i = 0;
-    for (; i < other.requiredFormals.size(); i++) {
-      JSType formalType = other.getFormalType(i);
-      builder.addReqFormal(formalType.isUnknown() ? JSType.BOTTOM : formalType);
+    // TODO(dimvar): implement it
+    Preconditions.checkState(!other.isGeneric());
+    // NOTE(dimvar): We never happen to call isSubtypeOf for loose functions.
+    // If some analyzed program changes this, the preconditions check will tell
+    // us so we can handle looseness correctly.
+    Preconditions.checkState(!isLoose && !other.isLoose);
+    // The subtype must have an equal or smaller number of required formals
+    if (requiredFormals.size() > other.requiredFormals.size()) {
+      return false;
     }
-    for (int j = 0; j < other.optionalFormals.size(); j++) {
-      JSType formalType = other.getFormalType(i + j);
-      builder.addOptFormal(formalType.isUnknown() ? JSType.BOTTOM : formalType);
+    int otherMaxTotalArity =
+        other.requiredFormals.size() + other.optionalFormals.size();
+    for (int i = 0; i < otherMaxTotalArity; i++) {
+      // contravariance in the arguments
+      JSType thisFormal = getFormalType(i);
+      JSType otherFormal = other.getFormalType(i);
+      if (thisFormal != null
+          && !thisFormal.isUnknown() && !otherFormal.isUnknown()
+          && !otherFormal.isSubtypeOf(thisFormal)) {
+        return false;
+      }
     }
+
     if (other.restFormals != null) {
-      JSType formalType = other.restFormals;
-      builder.addOptFormal(formalType.isUnknown() ? JSType.BOTTOM : formalType);
+      int thisMaxTotalArity =
+          this.requiredFormals.size() + this.optionalFormals.size();
+      if (this.restFormals != null) {
+        thisMaxTotalArity++;
+      }
+      for (int i = otherMaxTotalArity; i < thisMaxTotalArity; i++) {
+        JSType thisFormal = getFormalType(i);
+        JSType otherFormal = other.getFormalType(i);
+        if (thisFormal != null
+            && !thisFormal.isUnknown() && !otherFormal.isUnknown()
+            && !otherFormal.isSubtypeOf(thisFormal)) {
+          return false;
+        }
+      }
     }
-    if (this.returnType.isUnknown()) {
-      builder.addRetType(JSType.UNKNOWN);
-    } else {
-      builder.addRetType(other.returnType);
+
+    // covariance for the new: type
+    if (nominalType == null && other.nominalType != null
+        || nominalType != null && other.nominalType == null
+        || nominalType != null && other.nominalType != null
+           && !nominalType.isSubclassOf(other.nominalType)) {
+      return false;
     }
-    if (other.isLoose()) {
-      builder.addLoose();
-    }
-    builder.addNominalType(other.nominalType);
-    FunctionType newOther = builder.buildFunction();
-    return newOther.equals(join(this, newOther));
+
+    // covariance in the return type
+    return returnType.isUnknown() || other.returnType.isUnknown()
+        || returnType.isSubtypeOf(other.returnType);
   }
 
   static FunctionType join(FunctionType f1, FunctionType f2) {
@@ -364,13 +383,14 @@ public class FunctionType {
           nullAcceptingMeet(f1.restFormals, f2.restFormals));
     }
     builder.addRetType(JSType.join(f1.returnType, f2.returnType));
+    builder.addNominalType(
+        NominalType.pickSuperclass(f1.nominalType, f2.nominalType));
     return builder.buildFunction();
   }
 
   FunctionType specialize(FunctionType other) {
-    if (other == null) {
-      return null;
-    } else if (!this.isLoose() && other.isLoose()) {
+    if (other == null ||
+        !this.isLoose() && other.isLoose()) {
       return this;
     } else {
       return FunctionType.meet(this, other);
@@ -380,10 +400,10 @@ public class FunctionType {
   static FunctionType meet(FunctionType f1, FunctionType f2) {
     if (f1 == null || f2 == null) {
       return null;
-    } else if (f1.isTopFunction()) {
-      return f2;
     } else if (f2.isTopFunction() || f1.equals(f2)) {
       return f1;
+    } else if (f1.isTopFunction()) {
+      return f2;
     }
 
     // War is peace, freedom is slavery, meet is join
@@ -396,20 +416,22 @@ public class FunctionType {
         f1.requiredFormals.size(), f2.requiredFormals.size());
     for (int i = 0; i < minRequiredArity; i++) {
       builder.addReqFormal(
-          nullAcceptingJoin(f1.getFormalType(i), f2.getFormalType(i)));
+          JSType.nullAcceptingJoin(f1.getFormalType(i), f2.getFormalType(i)));
     }
     int maxTotalArity = Math.max(
         f1.requiredFormals.size() + f1.optionalFormals.size(),
         f2.requiredFormals.size() + f2.optionalFormals.size());
     for (int i = minRequiredArity; i < maxTotalArity; i++) {
-      builder.addOptFormal(nullAcceptingJoin(
+      builder.addOptFormal(JSType.nullAcceptingJoin(
           f1.getFormalType(i), f2.getFormalType(i)));
     }
     if (f1.restFormals != null || f2.restFormals != null) {
       builder.addRestFormals(
-          nullAcceptingJoin(f1.restFormals, f2.restFormals));
+          JSType.nullAcceptingJoin(f1.restFormals, f2.restFormals));
     }
     builder.addRetType(JSType.meet(f1.returnType, f2.returnType));
+    builder.addNominalType(
+        NominalType.pickSubclass(f1.nominalType, f2.nominalType));
     return builder.buildFunction();
   }
 
@@ -428,12 +450,8 @@ public class FunctionType {
         return false;
       }
     }
-    if (!this.getReturnType().isBottom() &&
-        !f2.getReturnType().isBottom() &&
-        JSType.meet(this.getReturnType(), f2.getReturnType()).isBottom()) {
-      return false;
-    }
-    return true;
+    return this.getReturnType().isBottom() || f2.getReturnType().isBottom()
+        || !JSType.meet(this.getReturnType(), f2.getReturnType()).isBottom();
   }
 
   public boolean isGeneric() {
@@ -493,6 +511,9 @@ public class FunctionType {
    */
   private FunctionType applyInstantiation(
       boolean keepTypeParams, Map<String, JSType> typeMap) {
+    if (typeMap.isEmpty()) {
+      return this;
+    }
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
     for (JSType reqFormal : requiredFormals) {
       builder.addReqFormal(reqFormal.substituteGenerics(typeMap));
@@ -526,12 +547,16 @@ public class FunctionType {
    */
   FunctionType substituteGenerics(Map<String, JSType> concreteTypes) {
     Preconditions.checkState(outerVarPreconditions.isEmpty());
+    if (!hasFreeTypeVars(new HashSet<String>())) {
+      return this;
+    }
     Map<String, JSType> typeMap = concreteTypes;
     if (typeParameters != null) {
-      ImmutableMap.Builder builder = ImmutableMap.builder();
-      for (String typeParam: concreteTypes.keySet()) {
-        if (!typeParameters.contains(typeParam)) {
-          builder.put(typeParam, concreteTypes.get(typeParam));
+      ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+      for (Map.Entry<String, JSType> concreteTypeEntry
+               : concreteTypes.entrySet()) {
+        if (!typeParameters.contains(concreteTypeEntry.getKey())) {
+          builder.put(concreteTypeEntry.getKey(), concreteTypeEntry.getValue());
         }
       }
       typeMap = builder.build();
@@ -540,10 +565,30 @@ public class FunctionType {
   }
 
   public FunctionType instantiateGenerics(Map<String, JSType> typeMap) {
-    for (String typeParam: typeMap.keySet()) {
+    for (String typeParam : typeMap.keySet()) {
       Preconditions.checkState(typeParameters.contains(typeParam));
     }
     return applyInstantiation(false, typeMap);
+  }
+
+  boolean hasFreeTypeVars(Set<String> boundTypeVars) {
+    if (typeParameters != null) {
+      boundTypeVars.addAll(typeParameters);
+    }
+    for (JSType t : requiredFormals) {
+      if (t.hasFreeTypeVars(boundTypeVars)) {
+        return true;
+      }
+    }
+    for (JSType t : optionalFormals) {
+      if (t.hasFreeTypeVars(boundTypeVars)) {
+        return true;
+      }
+    }
+    return restFormals != null && restFormals.hasFreeTypeVars(boundTypeVars)
+        || returnType.hasFreeTypeVars(boundTypeVars)
+        || (nominalType != null
+            && nominalType.hasFreeTypeVars(boundTypeVars));
   }
 
   @Override
@@ -551,44 +596,79 @@ public class FunctionType {
     if (obj == null) {
       return false;
     }
+    if (this == obj) {
+      return true;
+    }
     Preconditions.checkArgument(obj instanceof FunctionType, "obj is: %s", obj);
     FunctionType f2 = (FunctionType) obj;
-    return Objects.equal(this.requiredFormals, f2.requiredFormals) &&
-        Objects.equal(this.optionalFormals, f2.optionalFormals) &&
-        Objects.equal(this.restFormals, f2.restFormals) &&
-        Objects.equal(this.returnType, f2.returnType);
+    return Objects.equals(this.requiredFormals, f2.requiredFormals) &&
+        Objects.equals(this.optionalFormals, f2.optionalFormals) &&
+        Objects.equals(this.restFormals, f2.restFormals) &&
+        Objects.equals(this.returnType, f2.returnType) &&
+        Objects.equals(this.nominalType, f2.nominalType);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(
-        requiredFormals, optionalFormals, restFormals, returnType);
+    return Objects.hash(
+        requiredFormals, optionalFormals, restFormals, returnType, nominalType);
   }
 
   @Override
   public String toString() {
+    return appendTo(new StringBuilder()).toString();
+  }
+
+  public StringBuilder appendTo(StringBuilder builder) {
     if (isTopFunction()) {
-      return "TOP_FUNCTION" + (isLoose ? " (loose)" : "");
+      if (isLoose) {
+        return builder.append("LOOSE_TOP_FUNCTION");
+      }
+      return builder.append("TOP_FUNCTION");
     }
-    List<String> formals = Lists.newLinkedList();
+    builder.append("function(");
     if (nominalType != null) {
-      formals.add("new:" + nominalType.getName());
+      builder.append("new:");
+      builder.append(nominalType.getName());
+      builder.append(',');
     }
-    for (JSType formal : requiredFormals) {
-      formals.add(formal.toString());
+    for (int i = 0; i < requiredFormals.size(); ++i) {
+      requiredFormals.get(i).appendTo(builder);
+      builder.append(',');
     }
-    for (JSType formal : optionalFormals) {
-      formals.add(formal.toString() + "=");
+    for (int i = 0; i < optionalFormals.size(); ++i) {
+      optionalFormals.get(i).appendTo(builder);
+      builder.append("=,");
     }
     if (restFormals != null) {
-      formals.add("..." + restFormals.toString());
+      builder.append("...");
+      restFormals.appendTo(builder);
     }
-    String result = "function (" + Joiner.on(", ").join(formals) + ")";
+    // Delete the trailing comma, if present
+    if (builder.charAt(builder.length() - 1) == ',') {
+      builder.deleteCharAt(builder.length() - 1);
+    }
+    builder.append(')');
     if (returnType != null) {
-      result += ": " + returnType.toString();
+      builder.append(':');
+      returnType.appendTo(builder);
     }
-    return result + (isLoose ? " (loose)" : "") +
-        (outerVarPreconditions.isEmpty() ?
-            "" : "\tFV:" + outerVarPreconditions);
+    if (isLoose) {
+      builder.append(" (loose)");
+    }
+    if (DEBUGGING && !outerVarPreconditions.isEmpty()) {
+      builder.append("\tFV: {");
+      boolean firstIteration = true;
+      for (Map.Entry<String, JSType> entry : outerVarPreconditions.entrySet()) {
+        if (!firstIteration) {
+          builder.append(',');
+        }
+        builder.append(entry.getKey());
+        builder.append('=');
+        entry.getValue().appendTo(builder);
+      }
+      builder.append('}');
+    }
+    return builder;
   }
 }

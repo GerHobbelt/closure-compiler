@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import static com.google.javascript.jscomp.VarCheck.VAR_MULTIPLY_DECLARED_ERROR;
 
 import com.google.common.collect.Lists;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
 
@@ -46,6 +47,7 @@ public class VarCheckTest extends CompilerTestCase {
     externValidationErrorLevel = null;
     sanityCheck = false;
     declarationCheck = false;
+    compareJsDoc = false;
   }
 
   @Override
@@ -65,7 +67,7 @@ public class VarCheckTest extends CompilerTestCase {
     return new CompilerPass() {
       @Override public void process(Node externs, Node root) {
         new VarCheck(compiler, sanityCheck).process(externs, root);
-        if (sanityCheck == false && !compiler.hasErrors()) {
+        if (!sanityCheck && !compiler.hasErrors()) {
           new VarCheck(compiler, true).process(externs, root);
         }
         if (declarationCheck) {
@@ -91,6 +93,11 @@ public class VarCheckTest extends CompilerTestCase {
 
   public void testReferencedVarNotDefined() {
     test("x = 0;", null, VarCheck.UNDEFINED_VAR_ERROR);
+  }
+
+  public void testReferencedLetNotDefined() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
+    test("{ let x = 1; } var y = x;", null, VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testReferencedVarDefined1() {
@@ -289,7 +296,7 @@ public class VarCheckTest extends CompilerTestCase {
     try {
       checkSynthesizedExtern("x", "");
     } catch (RuntimeException e) {
-      assertTrue(e.getMessage().indexOf("Unexpected variable x") != -1);
+      assertTrue(e.getMessage().contains("Unexpected variable x"));
     }
   }
 
@@ -372,7 +379,7 @@ public class VarCheckTest extends CompilerTestCase {
         ProcessClosurePrimitives.MISSING_PROVIDE_ERROR);
   }
 
-  private final static class VariableTestCheck implements CompilerPass {
+  private static final class VariableTestCheck implements CompilerPass {
 
     final AbstractCompiler compiler;
     VariableTestCheck(AbstractCompiler compiler) {

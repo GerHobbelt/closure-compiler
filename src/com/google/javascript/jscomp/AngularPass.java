@@ -70,11 +70,12 @@ import java.util.List;
  *
  * }</pre>
  */
-class AngularPass extends AbstractPostOrderCallback implements CompilerPass {
+class AngularPass extends AbstractPostOrderCallback
+    implements HotSwapCompilerPass {
   final AbstractCompiler compiler;
 
   /** Nodes annotated with @ngInject */
-  private final List<NodeContext> injectables = new ArrayList<NodeContext>();
+  private final List<NodeContext> injectables = new ArrayList<>();
 
   public AngularPass(AbstractCompiler compiler) {
     this.compiler = compiler;
@@ -98,8 +99,13 @@ class AngularPass extends AbstractPostOrderCallback implements CompilerPass {
 
   @Override
   public void process(Node externs, Node root) {
+    hotSwapScript(root, null);
+  }
+
+  @Override
+  public void hotSwapScript(Node scriptRoot, Node originalRoot) {
     // Traverses AST looking for nodes annotated with @ngInject.
-    NodeTraversal.traverse(compiler, root, this);
+    NodeTraversal.traverse(compiler, scriptRoot, this);
     CodingConvention convention = compiler.getCodingConvention();
     boolean codeChanged = false;
     // iterates through annotated nodes adding $inject property to elements.
@@ -108,7 +114,7 @@ class AngularPass extends AbstractPostOrderCallback implements CompilerPass {
       Node fn = entry.getFunctionNode();
       List<Node> dependencies = createDependenciesList(fn);
       // skips entry if it does have any dependencies.
-      if (dependencies.size() == 0) {
+      if (dependencies.isEmpty()) {
         continue;
       }
       Node dependenciesArray = IR.arraylit(dependencies.toArray(
@@ -122,6 +128,8 @@ class AngularPass extends AbstractPostOrderCallback implements CompilerPass {
               dependenciesArray
           )
       );
+      NodeUtil.setDebugInformation(statement, entry.getNode(), name);
+
       // adds `something.$inject = [...]` node after the annotated node or the following
       // goog.inherits call.
       Node insertionPoint = entry.getTarget();
@@ -265,7 +273,7 @@ class AngularPass extends AbstractPostOrderCallback implements CompilerPass {
     return n;
   }
 
-  class NodeContext {
+  static class NodeContext {
     /** Name of the function/object. */
     private final String name;
     /** Node jsDoc is attached to. */

@@ -64,7 +64,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   //
   static final DiagnosticType UNEXPECTED_TOKEN = DiagnosticType.error(
       "JSC_INTERNAL_ERROR_UNEXPECTED_TOKEN",
-      "Internal Error: Don't know how to handle {0}");
+      "Internal Error: TypeCheck doesn''t know how to handle {0}");
 
 
   //
@@ -248,7 +248,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "Illegal key, the object literal is a {0}");
 
   // If a diagnostic is disabled by default, do not add it in this list
-  // TODO(user): Either INEXISTENT_PROPERTY shouldn't be here, or we should
+  // TODO(dimvar): Either INEXISTENT_PROPERTY shouldn't be here, or we should
   // change DiagnosticGroups.setWarningLevel to not accidentally enable it.
   static final DiagnosticGroup ALL_DIAGNOSTICS = new DiagnosticGroup(
       DETERMINISTIC_TEST,
@@ -1770,9 +1770,9 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       if (functionType.getExtendedInterfacesCount() > 1) {
         // Only check when extending more than one interfaces
         HashMap<String, ObjectType> properties
-            = new HashMap<String, ObjectType>();
+            = new HashMap<>();
         HashMap<String, ObjectType> currentProperties
-            = new HashMap<String, ObjectType>();
+            = new HashMap<>();
         for (ObjectType interfaceType : functionType.getExtendedInterfaces()) {
           currentProperties.clear();
           checkInterfaceConflictProperties(t, n, functionPrivateName,

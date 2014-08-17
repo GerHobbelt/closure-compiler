@@ -22,6 +22,7 @@ import com.google.javascript.jscomp.DiagnosticType;
 import com.google.javascript.jscomp.NodeTraversal;
 import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.jscomp.graph.DiGraph;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.JSType;
 
@@ -60,7 +61,7 @@ public class CheckNullableReturn implements CompilerPass, NodeTraversal.Callback
     if (n.isBlock() && n.hasChildren() && isReturnTypeNullable(parent)
         && !canReturnNull(t.getControlFlowGraph())) {
       String fnName = NodeUtil.getNearestFunctionName(parent);
-      if (fnName != null && !fnName.equals("")) {
+      if (fnName != null && !fnName.isEmpty()) {
         compiler.report(t.makeError(parent, NULLABLE_RETURN_WITH_NAME, fnName));
       } else {
         compiler.report(t.makeError(parent, NULLABLE_RETURN));
@@ -69,10 +70,10 @@ public class CheckNullableReturn implements CompilerPass, NodeTraversal.Callback
   }
 
   /**
-   * @return True if n is a function node and we know its return type is
-   * a nullable type, other than {?}.
+   * @return True if n is a function node which is explicitly annotated
+   * as returning a nullable type, other than {?}.
    */
-  private boolean isReturnTypeNullable(Node n) {
+  private static boolean isReturnTypeNullable(Node n) {
     if (n == null) {
       return false;
     }
@@ -80,27 +81,43 @@ public class CheckNullableReturn implements CompilerPass, NodeTraversal.Callback
       return false;
     }
     JSType returnType = n.getJSType().toMaybeFunctionType().getReturnType();
-    if (returnType == null) {
+    if (returnType == null ||
+        returnType.isUnknownType() || !returnType.isNullable()) {
       return false;
     }
-    return !returnType.isUnknownType() && returnType.isNullable();
+    JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
+    return info != null && info.hasReturnType();
   }
 
   /**
    * @return True if the given ControlFlowGraph could return null.
    */
-  private boolean canReturnNull(ControlFlowGraph graph) {
+  private static boolean canReturnNull(ControlFlowGraph graph) {
     DiGraph.DiGraphNode<Node, ControlFlowGraph.Branch> ir = graph.getImplicitReturn();
     for (DiGraph.DiGraphEdge<Node, ControlFlowGraph.Branch> inEdge : ir.getInEdges()) {
       DiGraph.DiGraphNode<Node, ControlFlowGraph.Branch> graphNode = inEdge.getSource();
       Node possibleReturnNode = graphNode.getValue();
-      if (possibleReturnNode.isReturn() &&
-          possibleReturnNode.getFirstChild() != null &&
-          possibleReturnNode.getFirstChild().getJSType().isNullable()) {
-        return true;
+      if (possibleReturnNode.isReturn()) {
+        Node returnValue = possibleReturnNode.getFirstChild();
+        if (returnValue != null && isNullable(returnValue)) {
+          return true;
+        }
       }
     }
     return false;
+  }
+
+  /**
+   * @return True if the node represents a nullable value. Essentially, this
+   *     is just n.getJSType().isNullable(), but for purposes of this pass,
+   *     the expression {@code x || null} is considered nullable even if
+   *     x is always truthy. This often happens with expressions like
+   *     {@code arr[i] || null}: The compiler doesn't know that arr[i] can
+   *     be undefined.
+   */
+  private static boolean isNullable(Node n) {
+    return n.getJSType().isNullable() ||
+        (n.isOr() && n.getLastChild().isNull());
   }
 
   @Override

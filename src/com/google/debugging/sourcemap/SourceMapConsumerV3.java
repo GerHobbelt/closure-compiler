@@ -243,7 +243,7 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
 
     ArrayList<Entry> entries = lines.get(lineNumber);
     // No empty lists.
-    Preconditions.checkState(entries.size() > 0);
+    Preconditions.checkState(!entries.isEmpty());
     if (entries.get(0).getGeneratedColumn() > column) {
       return getPreviousMapping(lineNumber);
     }
@@ -326,24 +326,16 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
 
     void build() {
       int [] temp = new int[MAX_ENTRY_VALUES];
-      ArrayList<Entry> entries = new ArrayList<Entry>();
+      ArrayList<Entry> entries = new ArrayList<>();
       while (content.hasNext()) {
         // ';' denotes a new line.
         if (tryConsumeToken(';')) {
-          // The line is complete, store the result for the line,
-          // null if the line is empty.
-          ArrayList<Entry> result;
-          if (entries.size() > 0) {
-            result = entries;
+          // The line is complete, store the result
+          completeLine(entries);
+          if (!entries.isEmpty()) {
             // A new array list for the next line.
-            entries = new ArrayList<Entry>();
-          } else {
-            result = null;
+            entries = new ArrayList<>();
           }
-          lines.add(result);
-          entries.clear();
-          line++;
-          previousCol = 0;
         } else {
           // grab the next entry for the current line.
           int entryValues = 0;
@@ -360,6 +352,24 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
           tryConsumeToken(',');
         }
       }
+
+      // Some source map generator (e.g.UglifyJS) generates lines without
+      // a trailing line separator. So add the rest of the content.
+      if (!entries.isEmpty()) {
+        completeLine(entries);
+      }
+    }
+
+    private void completeLine(ArrayList<Entry> entries) {
+      // The line is complete, store the result for the line,
+      // null if the line is empty.
+      if (!entries.isEmpty()) {
+        lines.add(entries);
+      } else {
+        lines.add(null);
+      }
+      line++;
+      previousCol = 0;
     }
 
     /**
@@ -536,8 +546,7 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
    * OriginalMappings.
    */
   private void createReverseMapping() {
-    reverseSourceMapping =
-        new HashMap<String, Map<Integer, Collection<OriginalMapping>>>();
+    reverseSourceMapping = new HashMap<>();
 
     for (int targetLine = 0; targetLine < lines.size(); targetLine++) {
       ArrayList<Entry> entries = lines.get(targetLine);

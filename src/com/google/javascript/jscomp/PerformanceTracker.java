@@ -74,7 +74,7 @@ public class PerformanceTracker {
   private int diff = 0;
   private int gzDiff = 0;
 
-  private final Deque<Stats> currentPass = new ArrayDeque<Stats>();
+  private final Deque<Stats> currentPass = new ArrayDeque<>();
 
   /** Summary stats by pass name. */
   private final Map<String, Stats> summary = Maps.newHashMap();
@@ -176,6 +176,14 @@ public class PerformanceTracker {
         gzCodeSize = summaryStats.gzSize = logStats.gzSize = newSize;
       }
     }
+  }
+
+  public boolean tracksSize() {
+    return trackSize;
+  }
+
+  public boolean tracksGzSize() {
+    return trackGzSize;
   }
 
   public int getRuntime() {

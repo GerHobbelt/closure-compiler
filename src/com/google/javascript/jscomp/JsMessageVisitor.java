@@ -21,14 +21,17 @@ import static com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallba
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.JsMessage.Builder;
 import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
-import java.util.*;
-import java.util.regex.*;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 
@@ -146,12 +149,12 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
   /**
    * List of found goog.getMsg call nodes.
    *
-   * When we visit goog.getMsg() node we add a pair node:sourcename and later
-   * when we visit its parent we remove this pair. All nodes that are left at
+   * When we visit goog.getMsg() node we add it, and later
+   * when we visit its parent we remove it. All nodes that are left at
    * the end of traversing are orphaned nodes. It means have no corresponding
    * var or property node.
    */
-  private final Map<Node, String> googMsgNodes = Maps.newHashMap();
+  private final Set<Node> googMsgNodes = new HashSet<>();
 
   private final CheckLevel checkLevel;
 
@@ -186,8 +189,8 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
   public void process(Node externs, Node root) {
     NodeTraversal.traverse(compiler, root, this);
 
-    for (Map.Entry<Node, String> msgNode : googMsgNodes.entrySet()) {
-      compiler.report(JSError.make(msgNode.getValue(), msgNode.getKey(),
+    for (Node msgNode : googMsgNodes) {
+      compiler.report(JSError.make(msgNode,
           checkLevel, MESSAGE_NODE_IS_ORPHANED));
     }
   }
@@ -196,7 +199,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
   public void visit(NodeTraversal traversal, Node node, Node parent) {
     String messageKey;
     boolean isVar;
-    Node msgNode, msgNodeParent;
+    Node msgNode;
 
     switch (node.getType()) {
       case Token.NAME:
@@ -209,7 +212,6 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
         }
 
         msgNode = node.getFirstChild();
-        msgNodeParent = node;
         break;
       case Token.ASSIGN:
         // somenamespace.someclass.MSG_HELLO = 'Message'
@@ -224,14 +226,13 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
 
         messageKey = propNode.getString();
         msgNode = node.getLastChild();
-        msgNodeParent = node;
         break;
       case Token.CALL:
         // goog.getMsg()
-        String fnName = node.getFirstChild().getQualifiedName();
-        if (MSG_FUNCTION_NAME.equals(fnName)) {
-          googMsgNodes.put(node, traversal.getSourceName());
-        } else if (MSG_FALLBACK_FUNCTION_NAME.equals(fnName)) {
+        if (node.getFirstChild().matchesQualifiedName(MSG_FUNCTION_NAME)) {
+          googMsgNodes.add(node);
+        } else if (node.getFirstChild().matchesQualifiedName(
+            MSG_FALLBACK_FUNCTION_NAME)) {
           visitFallbackFunctionCall(traversal, node);
         }
         return;
@@ -265,13 +266,20 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
 
     Builder builder = new Builder(
         isUnnamedMsg ? null : messageKey);
-    builder.setSourceName(traversal.getSourceName());
+    OriginalMapping mapping = compiler.getSourceMapping(
+        traversal.getSourceName(), traversal.getLineNumber(),
+        traversal.getCharno());
+    if (mapping != null) {
+      builder.setSourceName(mapping.getOriginalFile());
+    } else {
+      builder.setSourceName(traversal.getSourceName());
+    }
 
     try {
       if (isVar) {
         extractMessageFromVariable(builder, node, parent, parent.getParent());
       } else {
-        extractMessageFromProperty(builder, node.getFirstChild(), node);
+        extractMessageFrom(builder, msgNode, node);
       }
     } catch (MalformedException ex) {
       compiler.report(traversal.makeError(ex.getNode(),
@@ -308,8 +316,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
           messageKey));
     }
 
-    JsMessageDefinition msgDefinition = new JsMessageDefinition(
-        node, msgNode, msgNodeParent);
+    JsMessageDefinition msgDefinition = new JsMessageDefinition(msgNode);
     processJsMessage(extractedMessage, msgDefinition);
   }
 
@@ -327,7 +334,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
     if (!isUnnamedMessage) {
       MessageLocation location = new MessageLocation(message, msgNode);
       messageNames.put(msgName, location);
-    } else if (msgNode.isName()) {
+    } else {
       Var var = t.getScope().getVar(msgName);
       if (var != null) {
         unnamedMessages.put(var, message);
@@ -413,17 +420,16 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
    * a qualified name (e.g <code>a.b.MSG_X = goog.getMsg(...);</code>).
    *
    * @param builder the message builder
-   * @param getPropNode a GETPROP node in a JS message assignment
-   * @param assignNode an ASSIGN node, parent of {@code getPropNode}.
+   * @param valueNode a node in a JS message value
+   * @param docNode the node containing the jsdoc.
    * @throws MalformedException if {@code getPropNode} does not
    *         correspond to a valid JS message node
    */
-  private void extractMessageFromProperty(
-      Builder builder, Node getPropNode, Node assignNode)
+  private void extractMessageFrom(
+      Builder builder, Node valueNode, Node docNode)
       throws MalformedException {
-    Node callNode = getPropNode.getNext();
-    maybeInitMetaDataFromJsDoc(builder, assignNode);
-    extractFromCallNode(builder, callNode);
+    maybeInitMetaDataFromJsDoc(builder, docNode);
+    extractFromCallNode(builder, valueNode);
   }
 
   /**
@@ -462,7 +468,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
    * @param sibling a node adjacent to the message VAR node
    * @return true iff message has corresponding description variable
    */
-  private boolean maybeInitMetaDataFromHelpVar(Builder builder,
+  private static boolean maybeInitMetaDataFromHelpVar(Builder builder,
       @Nullable Node sibling) throws MalformedException {
     if ((sibling != null) && (sibling.isVar())) {
       Node nameNode = sibling.getFirstChild();
@@ -491,7 +497,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
    * @return true if message has JsDoc with valid description in @desc
    *         annotation
    */
-  private boolean maybeInitMetaDataFromJsDoc(Builder builder, Node node) {
+  private static boolean maybeInitMetaDataFromJsDoc(Builder builder, Node node) {
     boolean messageHasDesc = false;
     JSDocInfo info = node.getJSDocInfo();
     if (info != null) {
@@ -621,7 +627,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
    * @param node the node from where we extract a message
    * @throws MalformedException if the parsed message is invalid
    */
-  private void extractFromReturnDescendant(Builder builder, Node node)
+  private static void extractFromReturnDescendant(Builder builder, Node node)
       throws MalformedException {
 
     switch (node.getType()) {
@@ -677,7 +683,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
     }
 
     Node fnNameNode = node.getFirstChild();
-    if (!MSG_FUNCTION_NAME.equals(fnNameNode.getQualifiedName())) {
+    if (!fnNameNode.matchesQualifiedName(MSG_FUNCTION_NAME)) {
       throw new MalformedException(
           "Message initialized using unrecognized function. " +
           "Please use " + MSG_FUNCTION_NAME + "() instead.", fnNameNode);
@@ -751,7 +757,7 @@ abstract class JsMessageVisitor extends AbstractPostOrderCallback
    * @throws MalformedException if {@code value} contains a reference to
    *         an unregistered placeholder
    */
-  private void parseMessageTextNode(Builder builder, Node node)
+  private static void parseMessageTextNode(Builder builder, Node node)
       throws MalformedException {
     String value = extractStringFromStringExprNode(node);
 

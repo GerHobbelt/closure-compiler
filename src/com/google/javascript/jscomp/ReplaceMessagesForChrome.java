@@ -56,10 +56,10 @@ class ReplaceMessagesForChrome extends JsMessageVisitor {
       Node newValue = getNewValueNode(msgNode, message);
       newValue.copyInformationFromForTree(msgNode);
 
-      definition.getMessageParentNode().replaceChild(msgNode, newValue);
+      msgNode.getParent().replaceChild(msgNode, newValue);
       compiler.reportCodeChange();
     } catch (MalformedException e) {
-      compiler.report(JSError.make(message.getSourceName(), e.getNode(),
+      compiler.report(JSError.make(e.getNode(),
           MESSAGE_TREE_MALFORMED, e.getMessage()));
     }
   }
@@ -94,7 +94,7 @@ class ReplaceMessagesForChrome extends JsMessageVisitor {
     return newValueNode;
   }
 
-  private Node getPlaceholderValue(
+  private static Node getPlaceholderValue(
       Node placeholderValues, String placeholderName) {
     for (Node key : placeholderValues.children()) {
       if (key.getString().equals(placeholderName)) {

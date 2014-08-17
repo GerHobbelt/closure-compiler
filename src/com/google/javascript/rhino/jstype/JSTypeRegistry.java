@@ -1479,6 +1479,11 @@ public class JSTypeRegistry implements Serializable {
     return new TemplateType(this, name);
   }
 
+  public TemplateType createTemplateTypeWithTransformation(
+      String name, Node expr) {
+    return new TemplateType(this, name, expr);
+  }
+
   /**
    * Creates a template type map from the specified list of template keys and
    * template value types.
@@ -1662,7 +1667,7 @@ public class JSTypeRegistry implements Serializable {
               // SomeType is not actually a valid type. To prevent these clients
               // from seeing unknown type errors, we explicitly don't parse
               // these types.
-              // TODO(user): Address this issue by removing bad template
+              // TODO(dimvar): Address this issue by removing bad template
               // annotations on non-templatized classes.
               if (++templateNodeIndex > nAllowedTypes) {
                 break;
@@ -1835,5 +1840,26 @@ public class JSTypeRegistry implements Serializable {
    */
   public void clearTemplateTypeNames() {
     templateTypes.clear();
+  }
+
+  private boolean isNonNullable(JSType type) {
+    // TODO(lpino): Verify that nonNullableTypeNames is correct
+    for (String s : nonNullableTypeNames) {
+      if (type.isEquivalentTo(getType(s))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether the input type can be templatized. It must be an
+   * {@code Object} type which is not a {@code NamespaceType} and is not a
+   * non-nullable type.
+   */
+  public boolean isTemplatizable(JSType type) {
+    return (type instanceof ObjectType)
+        && !(type instanceof NamespaceType)
+        && !isNonNullable(type);
   }
 }

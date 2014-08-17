@@ -124,8 +124,8 @@ public final class SimpleFormat {
       out.append(cs, start, end);
     }
 
-    private Object getArgument(Object[] args, int index, FormatSpecifierParser fsp,
-            Object lastArgument, boolean hasLastArgumentSet) {
+    private static Object getArgument(Object[] args, int index, FormatSpecifierParser fsp,
+                                      Object lastArgument, boolean hasLastArgumentSet) {
         if (index == FormatToken.LAST_ARGUMENT_INDEX && !hasLastArgumentSet) {
             throw new MissingFormatArgumentException("<");
         }
@@ -524,7 +524,7 @@ public final class SimpleFormat {
     }
 
     private CharSequence transformFromString() {
-        CharSequence result = arg != null ? arg.toString() : "null";
+    CharSequence result = String.valueOf(arg);
         return padding(result, 0);
     }
 
@@ -552,7 +552,7 @@ public final class SimpleFormat {
         return padding("%", 0);
     }
 
-    private CharSequence transformFromLineSeparator() {
+    private static CharSequence transformFromLineSeparator() {
         return "\n";
     }
 
@@ -603,7 +603,7 @@ public final class SimpleFormat {
         return result;
     }
 
-    private StringBuilder toStringBuilder(CharSequence cs) {
+    private static StringBuilder toStringBuilder(CharSequence cs) {
         return cs instanceof StringBuilder ? (StringBuilder) cs : new StringBuilder(cs);
     }
 
@@ -651,7 +651,7 @@ public final class SimpleFormat {
         if ('d' == currentConversionType) {
             if (formatToken.flagComma) {
               // TO bad... we don't care about the comma...
-                result.append(arg.toString());
+              result.append(arg);
             } else {
               result.append(value);
             }
@@ -745,7 +745,7 @@ public final class SimpleFormat {
         }
 
         StringBuilder result = new StringBuilder();
-        result.append(date.toString());
+        result.append(date);
         return padding(result, 0);
     }
 
@@ -872,8 +872,8 @@ public final class SimpleFormat {
     }
 
     private void transform_f(StringBuilder result) {
-        // Removed all the actual logic...
-        result.append(arg.toString());
+      // Removed all the actual logic...
+      result.append(arg);
     }
 
     private void transform_a(StringBuilder result) {
@@ -962,7 +962,7 @@ public final class SimpleFormat {
             throw new UnknownFormatConversionException(getFormatSpecifierText());
         }
 
-        private boolean isDigit(int ch) {
+        private static boolean isDigit(int ch) {
           return ch >= '0' && ch <= '9';
         }
 

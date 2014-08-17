@@ -96,6 +96,7 @@ public class RenameVarsTest extends CompilerTestCase {
     shouldShadow = false;
     preferStableNames = false;
     nameGenerator = null;
+    compareJsDoc = false;
 
     // TODO(johnlenz): Enable Normalize during these tests.
   }
@@ -615,9 +616,9 @@ public class RenameVarsTest extends CompilerTestCase {
   }
 
   private static String createManyVarFunction(int numVars) {
-    List<String> locals = new ArrayList<String>();
+    List<String> locals = new ArrayList<>();
     for (int i = 0; i < numVars; i++) {
-      locals.add("a" + Integer.toString(i));
+      locals.add("a" + i);
     }
     return "function foo() { var " + Joiner.on(",").join(locals) + "; }";
   }

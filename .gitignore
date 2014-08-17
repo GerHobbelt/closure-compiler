@@ -2,6 +2,13 @@ build/
 TESTS-TestSuites.xml
 junit*.properties
 build/*
+
 #IDE
 .idea
 *.iml
+target/
+.settings
+
+# editor bak files
+*~
+*.bak

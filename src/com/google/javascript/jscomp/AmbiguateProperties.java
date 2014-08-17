@@ -20,6 +20,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -42,7 +43,6 @@ import com.google.javascript.rhino.jstype.ObjectType;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -182,6 +182,10 @@ class AmbiguateProperties implements CompilerPass {
 
   /** Returns an integer that uniquely identifies a JSType. */
   private int getIntForType(JSType type) {
+    // Templatized types don't exist at runtime, so collapse to raw type
+    if (type != null && type.isTemplatizedType()) {
+      type = type.toMaybeTemplatizedType().getReferencedType();
+    }
     if (intForType.containsKey(type)) {
       return intForType.get(type).intValue();
     }
@@ -194,14 +198,13 @@ class AmbiguateProperties implements CompilerPass {
   public void process(Node externs, Node root) {
     NodeTraversal.traverse(compiler, root, new ProcessProperties());
 
-    Set<String> reservedNames =
-        new HashSet<String>(externedNames.size() + quotedNames.size());
-    reservedNames.addAll(externedNames);
-    reservedNames.addAll(quotedNames);
+    ImmutableSet.Builder<String> reservedNames = ImmutableSet.<String>builder()
+        .addAll(externedNames)
+        .addAll(quotedNames);
 
     int numRenamedPropertyNames = 0;
     int numSkippedPropertyNames = 0;
-    Set<Property> propsByFreq = new TreeSet<Property>(FREQUENCY_COMPARATOR);
+    Set<Property> propsByFreq = new TreeSet<>(FREQUENCY_COMPARATOR);
     for (Property p : propertyMap.values()) {
       if (!p.skipAmbiguating) {
         ++numRenamedPropertyNames;
@@ -214,11 +217,11 @@ class AmbiguateProperties implements CompilerPass {
 
     PropertyGraph graph = new PropertyGraph(Lists.newLinkedList(propsByFreq));
     GraphColoring<Property, Void> coloring =
-        new GreedyGraphColoring<Property, Void>(graph, FREQUENCY_COMPARATOR);
+        new GreedyGraphColoring<>(graph, FREQUENCY_COMPARATOR);
     int numNewPropertyNames = coloring.color();
 
     NameGenerator nameGen = new NameGenerator(
-        reservedNames, "", reservedCharacters);
+        reservedNames.build(), "", reservedCharacters);
     Map<Integer, String> colorMap = Maps.newHashMap();
     for (int i = 0; i < numNewPropertyNames; ++i) {
       colorMap.put(i, nameGen.generateNextName());
@@ -437,7 +440,7 @@ class AmbiguateProperties implements CompilerPass {
         case Token.GETPROP: {
           Node propNode = n.getFirstChild().getNext();
           JSType jstype = getJSType(n.getFirstChild());
-          maybeMarkCandidate(propNode, jstype, t);
+          maybeMarkCandidate(propNode, jstype);
           break;
         }
         case Token.OBJECTLIT:
@@ -449,7 +452,7 @@ class AmbiguateProperties implements CompilerPass {
             // Keys are STRING, GET, SET
             if (!key.isQuotedString()) {
               JSType jstype = getJSType(n.getFirstChild());
-              maybeMarkCandidate(key, jstype, t);
+              maybeMarkCandidate(key, jstype);
             } else {
               // Ensure that we never rename some other property in a way
               // that could conflict with this quoted key.
@@ -474,9 +477,8 @@ class AmbiguateProperties implements CompilerPass {
      * and increments the property name's access count.
      *
      * @param n The STRING node for a property
-     * @param t The traversal
      */
-    private void maybeMarkCandidate(Node n, JSType type, NodeTraversal t) {
+    private void maybeMarkCandidate(Node n, JSType type) {
       String name = n.getString();
       if (!externedNames.contains(name)) {
         stringNodesToRename.add(n);

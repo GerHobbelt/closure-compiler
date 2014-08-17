@@ -16,32 +16,29 @@
 
 package com.google.javascript.jscomp.parsing;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
+import com.google.javascript.jscomp.parsing.ParserRunner.ParseResult;
 import com.google.javascript.jscomp.testing.TestErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import com.google.javascript.rhino.head.ScriptRuntime;
 import com.google.javascript.rhino.jstype.SimpleSourceFile;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
 
-import java.io.IOException;
 import java.util.List;
-import java.util.logging.Logger;
 
 public class NewParserTest extends BaseJSTypeTestCase {
   private static final String SUSPICIOUS_COMMENT_WARNING =
-      IRFactory.SUSPICIOUS_COMMENT_WARNING;
+      NewIRFactory.SUSPICIOUS_COMMENT_WARNING;
 
   private static final String TRAILING_COMMA_MESSAGE =
-      ScriptRuntime.getMessage0("msg.extra.trailing.comma");
+      "Trailing comma is not legal in an ECMA-262 object initializer";
 
   private static final String MISSING_GT_MESSAGE =
-      "Bad type annotation. " +
-      com.google.javascript.rhino.SimpleErrorReporter.getMessage0(
-          "msg.jsdoc.missing.gt");
+      "Bad type annotation. missing closing >";
 
   private static final String UNLABELED_BREAK =
       "unlabelled break must be inside loop or switch";
@@ -60,7 +57,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
       "safe for all browsers currently in use.";
 
   private static final String MISPLACED_TYPE_ANNOTATION =
-      IRFactory.MISPLACED_TYPE_ANNOTATION;
+      NewIRFactory.MISPLACED_TYPE_ANNOTATION;
 
   private Config.LanguageMode mode;
   private boolean isIdeMode = false;
@@ -70,6 +67,16 @@ public class NewParserTest extends BaseJSTypeTestCase {
     super.setUp();
     mode = LanguageMode.ECMASCRIPT3;
     isIdeMode = false;
+  }
+
+  public void testFunction() {
+    parse("var f = function(x,y,z) { return 0; }");
+    parse("function f(x,y,z) { return 0; }");
+
+    parseError("var f = function(x,y,z,) {}",
+        "Invalid trailing comma in formal parameter list");
+    parseError("function f(x,y,z,) {}",
+        "Invalid trailing comma in formal parameter list");
   }
 
   public void testWhile() {
@@ -130,6 +137,38 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parseError(
         "a:switch(1){case(1):function f(){while(1){continue a;}}}",
         UNDEFINED_LABEL + " \"a\"");
+  }
+
+  public void testLabel1() {
+    parse("foo:bar");
+  }
+
+  public void testLabel2() {
+    parse("{foo:bar}");
+  }
+
+  public void testLabel3() {
+    parse("foo:bar:baz");
+  }
+
+  public void testDuplicateLabelWithoutBraces() {
+    parseError("foo:foo:bar", "Duplicate label \"foo\"");
+  }
+
+  public void testDuplicateLabelWithBraces() {
+    parseError("foo:{bar;foo:baz}", "Duplicate label \"foo\"");
+  }
+
+  public void testDuplicateLabelWithFor() {
+    parseError("foo:for(;;){foo:bar}", "Duplicate label \"foo\"");
+  }
+
+  public void testNonDuplicateLabelSiblings() {
+    parse("foo:1;foo:2");
+  }
+
+  public void testNonDuplicateLabelCrossFunction() {
+    parse("foo:(function(){foo:2})");
   }
 
   public void testLinenoCharnoAssign1() throws Exception {
@@ -345,14 +384,42 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
     // VAR
     assertEquals(Token.VAR, varNode.getType());
-    JSDocInfo info = varNode.getJSDocInfo();
-    assertNotNull(info);
-    assertTypeEquals(NUMBER_TYPE, info.getType());
+    JSDocInfo varInfo = varNode.getJSDocInfo();
+    assertNotNull(varInfo);
+    assertTypeEquals(NUMBER_TYPE, varInfo.getType());
 
-    // NAME
-    Node nameNode = varNode.getFirstChild();
-    assertEquals(Token.NAME, nameNode.getType());
-    assertNull(nameNode.getJSDocInfo());
+    // VAR NAME
+    Node varNameNode = varNode.getFirstChild();
+    assertEquals(Token.NAME, varNameNode.getType());
+    assertNull(varNameNode.getJSDocInfo());
+
+    mode = LanguageMode.ECMASCRIPT6;
+
+    Node letNode = parse("/** @type number */let a;").getFirstChild();
+
+    // LET
+    assertEquals(Token.LET, letNode.getType());
+    JSDocInfo letInfo = letNode.getJSDocInfo();
+    assertNotNull(letInfo);
+    assertTypeEquals(NUMBER_TYPE, letInfo.getType());
+
+    // LET NAME
+    Node letNameNode = letNode.getFirstChild();
+    assertEquals(Token.NAME, letNameNode.getType());
+    assertNull(letNameNode.getJSDocInfo());
+
+    Node constNode = parse("/** @type number */const a = 0;").getFirstChild();
+
+    // CONST
+    assertEquals(Token.CONST, constNode.getType());
+    JSDocInfo constInfo = constNode.getJSDocInfo();
+    assertNotNull(constInfo);
+    assertTypeEquals(NUMBER_TYPE, constInfo.getType());
+
+    // LET NAME
+    Node constNameNode = constNode.getFirstChild();
+    assertEquals(Token.NAME, constNameNode.getType());
+    assertNull(constNameNode.getJSDocInfo());
   }
 
   public void testJSDocAttachment2() {
@@ -732,12 +799,35 @@ public class NewParserTest extends BaseJSTypeTestCase {
               + " ignoring it"));
   }
 
-  public void testUnescapedSlashInRegexpCharClass() throws Exception {
-    // The tokenizer without the fix for this bug throws an error.
+  public void testUnescapedSlashInRegexpCharClass() {
     parse("var foo = /[/]/;");
     parse("var foo = /[hi there/]/;");
     parse("var foo = /[/yo dude]/;");
     parse("var foo = /\\/[@#$/watashi/wa/suteevu/desu]/;");
+  }
+
+  /**
+   * Test for https://github.com/google/closure-compiler/issues/389.
+   */
+  public void testMalformedRegexp() {
+    // Simple repro case
+    String js = "var x = com\\";
+    parseError(js, "Invalid escape sequence");
+
+    // The original repro case as reported.
+    js = Joiner.on('\n').join(
+        "(function() {",
+        "  var url=\"\";",
+        "  switch(true)",
+        "  {",
+        "    case /a.com\\/g|l.i/N/.test(url):",
+        "      return \"\";",
+        "    case /b.com\\/T/.test(url):",
+        "      return \"\";",
+        "  }",
+        "}",
+        ")();");
+    parseError(js, "primary expression expected");
   }
 
   private void assertNodeEquality(Node expected, Node found) {
@@ -829,6 +919,128 @@ public class NewParserTest extends BaseJSTypeTestCase {
     Node script = new Node(Token.SCRIPT);
     script.addChildToBack(n);
     return script;
+  }
+
+  public void testMethodInObjectLiteral() {
+    testMethodInObjectLiteral("var a = {b() {}};");
+    testMethodInObjectLiteral("var a = {b() { alert('b'); }};");
+
+    // Static methods not allowed in object literals.
+    parseError("var a = {static b() { alert('b'); }};", "'}' expected");
+  }
+
+  private void testMethodInObjectLiteral(String js) {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(js);
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning(js, "this language feature is only supported in es6 mode:"
+        + " member declarations");
+  }
+
+  public void testExtendedObjectLiteral() {
+    testExtendedObjectLiteral("var a = {b};");
+    testExtendedObjectLiteral("var a = {b, c};");
+    testExtendedObjectLiteral("var a = {b, c: d, e};");
+  }
+
+  private void testExtendedObjectLiteral(String js) {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(js);
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning(js, "this language feature is only supported in es6 mode:"
+        + " extended object literals");
+  }
+
+  public void testComputedPropertiesObjLit() {
+    // Method
+    testComputedProperty(Joiner.on('\n').join(
+        "var x = {",
+        "  [prop + '_']() {}",
+        "}"));
+
+    // Getter
+    testComputedProperty(Joiner.on('\n').join(
+        "var x = {",
+        "  get [prop + '_']() {}",
+        "}"));
+
+    // Setter
+    testComputedProperty(Joiner.on('\n').join(
+        "var x = {",
+        "  set [prop + '_'](val) {}",
+        "}"));
+
+    // Generator method
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(Joiner.on('\n').join(
+        "var x = {",
+        "  *[prop + '_']() {}",
+        "}"));
+
+  }
+
+  public void testComputedMethodClass() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(Joiner.on('\n').join(
+        "class X {",
+        "  [prop + '_']() {}",
+        "}"));
+
+    parse(Joiner.on('\n').join(
+        "class X {",
+        "  static [prop + '_']() {}",
+        "}"));
+  }
+
+  public void testComputedProperty() {
+    testComputedProperty(Joiner.on('\n').join(
+        "var prop = 'some complex expression';",
+        "",
+        "var x = {",
+        "  [prop]: 'foo'",
+        "}"));
+
+    testComputedProperty(Joiner.on('\n').join(
+        "var prop = 'some complex expression';",
+        "",
+        "var x = {",
+        "  [prop + '!']: 'foo'",
+        "}"));
+
+    testComputedProperty(Joiner.on('\n').join(
+        "var prop;",
+        "",
+        "var x = {",
+        "  [prop = 'some expr']: 'foo'",
+        "}"));
+
+    testComputedProperty(Joiner.on('\n').join(
+        "var x = {",
+        "  [1 << 8]: 'foo'",
+        "}"));
+
+    String js = Joiner.on('\n').join(
+        "var x = {",
+        "  [1 << 8]: 'foo',",
+        "  [1 << 7]: 'bar'",
+        "}");
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(js);
+    mode = LanguageMode.ECMASCRIPT5;
+    String warning = "this language feature is only supported in es6 mode:"
+        + " computed property";
+    parseWarning(js, warning, warning);
+  }
+
+  private void testComputedProperty(String js) {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(js);
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning(js, "this language feature is only supported in es6 mode:"
+        + " computed property");
   }
 
   public void testTrailingCommaWarning1() {
@@ -924,36 +1136,133 @@ public class NewParserTest extends BaseJSTypeTestCase {
         "const declarations");
   }
 
-  public void testDestructuringAssignForbidden() {
-    parseError("var [x, y] = foo();",
-        "unsupported language feature: destructuring");
+  public void testAnonymousFunctionExpression() {
+    mode = LanguageMode.ECMASCRIPT5;
+    parseError("function () {}", "'identifier' expected");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("function () {}", "'identifier' expected");
   }
 
-  public void testDestructuringAssignForbidden2() {
-    parseError("var {x, y} = foo();",
-        "unsupported language feature: destructuring");
+  public void testArrayDestructuringVar() {
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning("var [x,y] = foo();",
+        "this language feature is only supported in es6 mode: destructuring");
+    parseWarning("[x,y] = foo();",
+        "this language feature is only supported in es6 mode: destructuring");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("var [x,y] = foo();");
+    parse("[x,y] = foo();");
   }
 
-  public void testDestructuringAssignForbidden3() {
-    parseError("var {x: x, y: y} = foo();",
-        "unsupported language feature: destructuring");
+  public void testArrayDestructuringInitializer() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("var [x=1,y] = foo();");
+    parse("[x=1,y] = foo();");
+    parse("var [x,y=2] = foo();");
+    parse("[x,y=2] = foo();");
   }
 
-  public void testDestructuringAssignForbidden4() {
-    parseError("[x, y] = foo();",
-        "unsupported language feature: destructuring");
+  public void testArrayDestructuringTrailingComma() {
+    mode = LanguageMode.ECMASCRIPT6;
+    // TODO(tbreisacher): Make this error clearer. The error we want
+    // ("Array pattern may not end with a comma") is reported in a
+    // lookahead parser so it doesn't get reported to the user.
+    parseError("var [x,] = ['x',];", "'identifier' expected");
+  }
+
+  public void testArrayDestructuringRest() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("var [first, ...rest] = foo();");
+    parse("let [first, ...rest] = foo();");
+    parse("const [first, ...rest] = foo();");
+
+    // TODO(tbreisacher): Make these errors clearer.
+    parseError("var [first, ...more, last] = foo();", "'identifier' expected");
+    parseError("var [first, ...[re, st]] = foo();", "'identifier' expected");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning("var [first, ...rest] = foo();",
+        "this language feature is only supported in es6 mode: destructuring");
+  }
+
+  public void testArrayDestructuringFnDeclaration() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("function f([x, y]) { use(x); use(y); }");
+    parse("function f([x, [y, z]]) {}");
+    parse("function f([x, y] = [1, 2]) { use(x); use(y); }");
+    parse("function f([x, x]) {}");
+  }
+
+  public void testObjectDestructuringVar() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("var {x, y} = foo();");
+    parse("var {x: x, y: y} = foo();");
+    parse("var {x: {y, z}} = foo();");
+
+    // Useless, but legal.
+    parse("var {} = foo();");
+  }
+
+  public void testObjectDestructuringAssign() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("({x, y}) = foo();");
+    parse("({x: x, y: y}) = foo();");
+    parse("({x: {y, z}}) = foo();");
+
+    // Useless, but legal.
+    parse("({}) = foo();");
+  }
+
+  public void testObjectDestructuringFnDeclaration() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("function f({x, y}) { use(x); use(y); }");
+    parse("function f({w, x: {y, z}}) {}");
+    parse("function f({x, y} = {x:1, y:2}) {}");
+    parse("function f({x, x}) {}");
+  }
+
+  public void testMixedDestructuring() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("var {x: [y, z]} = foo();");
+    parse("var [x, {y, z}] = foo();");
+
+    parse("({x: [y, z]} = foo());");
+    parse("[x, {y, z}] = foo();");
+
+    parse("function f([x, {y, z}]) {}");
+    parse("function f({x: [y, z]}) {}");
+  }
+
+  public void testComprehensions() {
+    mode = LanguageMode.ECMASCRIPT6;
+    String error = "unsupported language feature:"
+        + " array/generator comprehensions";
+
+    // array comprehensions
+    parseError("[for (x of y) z];", error);
+    parseError("[for ({x,y} of z) x+y];", error);
+    parseError("[for (x of y) if (x<10) z];", error);
+    parseError("[for (a = 5 of v) a];", "'identifier' expected");
+
+    // generator comprehensions
+    parseError("(for (x of y) z);", error);
+    parseError("(for ({x,y} of z) x+y);", error);
+    parseError("(for (x of y) if (x<10) z);", error);
+    parseError("(for (a = 5 of v) a);", "'identifier' expected");
   }
 
   public void testLetForbidden1() {
     parseWarning("let x = 3;",
-        "this language feature is only supported in es6 mode: " +
-        "let declarations");
+        "this language feature is only supported in es6 mode:"
+        + " let declarations");
   }
 
   public void testLetForbidden2() {
     parseWarning("function f() { let x = 3; };",
-        "this language feature is only supported in es6 mode: " +
-        "let declarations");
+        "this language feature is only supported in es6 mode:"
+        + " let declarations");
   }
 
   public void testLetForbidden3() {
@@ -972,8 +1281,17 @@ public class NewParserTest extends BaseJSTypeTestCase {
   }
 
   public void testGenerator() {
+    mode = LanguageMode.ECMASCRIPT6_STRICT;
+    parse("var obj = { *f() { yield 3; } };");
+    parse("function* f() { yield 3; }");
+    parse("function f() { return function* g() {} }");
+
+    mode = LanguageMode.ECMASCRIPT5_STRICT;
     parseWarning("function* f() { yield 3; }",
         "this language feature is only supported in es6 mode: generators");
+    parseWarning("var obj = { * f() { yield 3; } };",
+        "this language feature is only supported in es6 mode: generators",
+        "this language feature is only supported in es6 mode: member declarations");
   }
 
   public void testBracelessFunctionForbidden() {
@@ -988,7 +1306,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
   public void testGettersForbidden1() {
     parseError("var x = {get foo() { return 3; }};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
   }
 
   public void testGettersForbidden2() {
@@ -998,33 +1316,33 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
   public void testGettersForbidden3() {
     parseError("var x = {a getter:function b() { return 3; }};",
-        "':' expected");
+        "'}' expected");
   }
 
   public void testGettersForbidden4() {
     parseError("var x = {\"a\" getter:function b() { return 3; }};",
-        "':' expected");
+        "'}' expected");
   }
 
   public void testGettersForbidden5() {
     parseError("var x = {a: 2, get foo() { return 3; }};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
   }
 
   public void testGettersForbidden6() {
     parseError("var x = {get 'foo'() { return 3; }};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
   }
 
   public void testSettersForbidden() {
     parseError("var x = {set foo(a) { y = 3; }};",
-        IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
   }
 
   public void testSettersForbidden2() {
     // TODO(johnlenz): maybe just report the first error, when not in IDE mode?
     parseError("var x = {a setter:function b() { return 3; }};",
-        "':' expected");
+        "'}' expected");
   }
 
   public void testFileOverviewJSDoc1() {
@@ -1032,7 +1350,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
 
     Node n = parse("/** @fileoverview Hi mom! */ function Foo() {}");
     assertEquals(Token.FUNCTION, n.getFirstChild().getType());
-    assertTrue(n.getJSDocInfo() != null);
+    assertNotNull(n.getJSDocInfo());
     assertNull(n.getFirstChild().getJSDocInfo());
     assertEquals("Hi mom!",
         n.getJSDocInfo().getFileOverview());
@@ -1060,11 +1378,11 @@ public class NewParserTest extends BaseJSTypeTestCase {
   public void testFileOverviewJSDoc2() {
     isIdeMode = true;
 
-    Node n = parse("/** @fileoverview Hi mom! */ " +
-        "/** @constructor */ function Foo() {}");
-    assertTrue(n.getJSDocInfo() != null);
+    Node n = parse("/** @fileoverview Hi mom! */"
+        + " /** @constructor */ function Foo() {}");
+    assertNotNull(n.getJSDocInfo());
     assertEquals("Hi mom!", n.getJSDocInfo().getFileOverview());
-    assertTrue(n.getFirstChild().getJSDocInfo() != null);
+    assertNotNull(n.getFirstChild().getJSDocInfo());
     assertFalse(n.getFirstChild().getJSDocInfo().hasFileOverview());
     assertTrue(n.getFirstChild().getJSDocInfo().isConstructor());
   }
@@ -1081,7 +1399,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
   }
 
   public void testDuplicatedParam() {
-    parseWarning("function foo(x, x) {}", "Duplicate parameter name \"x\".");
+    parseWarning("function foo(x, x) {}", "Duplicate parameter name \"x\"");
   }
 
   public void testLet() {
@@ -1121,7 +1439,7 @@ public class NewParserTest extends BaseJSTypeTestCase {
   public void testYield2() {
     mode = LanguageMode.ECMASCRIPT6_STRICT;
     parse("function * f() { yield; }");
-    parse("function * f() { yield /a/b; }");
+    parse("function * f() { yield /a/i; }");
 
     parseError("function * f() { 1 + yield; }", "primary expression expected");
     parseError("function * f() { 1 + yield 2; }", "primary expression expected");
@@ -1131,6 +1449,8 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("function * f() { yield * yield; }"); // OK  (yield * (yield))
     parseError("function * f() { yield + yield; }", "primary expression expected");
     parse("function * f() { (yield) + (yield); }"); // OK
+    parse("function * f() { return yield; }"); // OK
+    parse("function * f() { return yield 1; }"); // OK
   }
 
   public void testYield3() {
@@ -1148,6 +1468,75 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("'\\\n';");
     mode = LanguageMode.ECMASCRIPT6;
     parse("'\\\n';");
+  }
+
+  private void testTemplateLiteral(String s) {
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning(s,
+        "this language feature is only supported in es6 mode: template literals");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(s);
+  }
+
+  public void testUseTemplateLiteral() {
+    testTemplateLiteral("f`hello world`;");
+    testTemplateLiteral("`hello ${name} ${world}`.length;");
+  }
+
+  public void testTemplateLiteral() {
+    testTemplateLiteral("``");
+    testTemplateLiteral("`\"`");
+    testTemplateLiteral("`\\\"`");
+    testTemplateLiteral("`\\``");
+    testTemplateLiteral("`hello world`;");
+    testTemplateLiteral("`hello\nworld`;");
+    testTemplateLiteral("`string containing \\`escaped\\` backticks`;");
+    testTemplateLiteral("{ `in block` }");
+    testTemplateLiteral("{ `in ${block}` }");
+  }
+
+  public void testTemplateLiteralSubstitution() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("`hello ${name}`;");
+    parse("`hello ${name} ${world}`;");
+    parse("`hello ${name }`");
+    parseError("`hello ${name", "Expected '}' after expression in template literal");
+    parseError("`hello ${name tail}", "Expected '}' after expression in template literal");
+  }
+
+  public void testUnterminatedTemplateLiteral() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("`hello",
+        "Unterminated template literal");
+    parseError("`hello\\`",
+        "Unterminated template literal");
+  }
+
+  public void testIncorrectEscapeSequenceInTemplateLiteral() {
+    parseError("`hello\\x",
+        "Hex digit expected");
+    parseError("`hello\\x`",
+        "Hex digit expected");
+  }
+
+  public void testExponentialLiterals() {
+    parse("0e0");
+    parse("0E0");
+    parse("0E1");
+    parse("1E0");
+    parse("1E-0");
+    parse("10E10");
+    parse("10E-10");
+    parse("1.0E1");
+    parseError("01E0",
+        "Semi-colon expected");
+    parseError("0E",
+        "Exponent part must contain at least one digit");
+    parseError("1E-",
+        "Exponent part must contain at least one digit");
+    parseError("1E1.1",
+        "Semi-colon expected");
   }
 
   public void testBinaryLiterals() {
@@ -1172,15 +1561,57 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("0o0001;");
   }
 
+  public void testOldStyleOctalLiterals() {
+    mode = LanguageMode.ECMASCRIPT3;
+    parseWarning("0001;",
+        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning("0001;",
+        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseWarning("0001;",
+        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+  }
+
+  // TODO(tbreisacher): We need much clearer error messages for this case.
+  public void testInvalidOctalLiterals() {
+    mode = LanguageMode.ECMASCRIPT3;
+    parseError("0o08;",
+        "Semi-colon expected");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseError("0o08;",
+        "Semi-colon expected");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("0o08;",
+        "Semi-colon expected");
+  }
+
+  public void testInvalidOldStyleOctalLiterals() {
+    mode = LanguageMode.ECMASCRIPT3;
+    parseError("08;",
+        "Invalid number literal.");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseError("08;",
+        "Invalid number literal.");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("08;",
+        "Invalid number literal.");
+  }
 
   public void testGetter() {
     mode = LanguageMode.ECMASCRIPT3;
     parseError("var x = {get 1(){}};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
     parseError("var x = {get 'a'(){}};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
     parseError("var x = {get a(){}};",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
     mode = LanguageMode.ECMASCRIPT5;
     parse("var x = {get 1(){}};");
     parse("var x = {get 'a'(){}};");
@@ -1191,11 +1622,11 @@ public class NewParserTest extends BaseJSTypeTestCase {
   public void testSetter() {
     mode = LanguageMode.ECMASCRIPT3;
     parseError("var x = {set 1(x){}};",
-        IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
     parseError("var x = {set 'a'(x){}};",
-        IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
     parseError("var x = {set a(x){}};",
-        IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
     mode = LanguageMode.ECMASCRIPT5;
     parse("var x = {set 1(x){}};");
     parse("var x = {set 'a'(x){}};");
@@ -1261,9 +1692,8 @@ public class NewParserTest extends BaseJSTypeTestCase {
         "identifier is a reserved word");
     parseError("boolean = 1;", "identifier is a reserved word");
 
-    // TODO(johnlenz): reenable
-    // parseError("class = 1;", "identifier is a reserved word");
-    // parseError("public = 2;", "identifier is a reserved word");
+    parseError("class = 1;", "'identifier' expected");
+    parseError("public = 2;", "primary expression expected");
 
     mode = LanguageMode.ECMASCRIPT5;
 
@@ -1271,9 +1701,9 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("function boolean() {};");
     parse("boolean = 1;");
 
+    parseError("class = 1;", "'identifier' expected");
     // TODO(johnlenz): reenable
-    // parseError("class = 1;", "identifier is a reserved word");
-    // parse("public = 2;");
+    //parse("public = 2;");
 
     mode = LanguageMode.ECMASCRIPT5_STRICT;
 
@@ -1282,38 +1712,37 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("boolean = 1;");
     parseError("public = 2;", "primary expression expected");
 
-    // TODO(johnlenz): reenable
-    // parseError("class = 1;", "'identifier' expected");
+    parseError("class = 1;", "'identifier' expected");
   }
 
   public void testKeywordsAsProperties() {
     mode = LanguageMode.ECMASCRIPT3;
 
-    // parseWarning("var x = {function: 1};", IRFactory.INVALID_ES3_PROP_NAME);
-    parseWarning("x.function;", IRFactory.INVALID_ES3_PROP_NAME);
+    parseWarning("var x = {function: 1};", NewIRFactory.INVALID_ES3_PROP_NAME);
+    parseWarning("x.function;", NewIRFactory.INVALID_ES3_PROP_NAME);
     parseError("var x = {get x(){} };",
-        IRFactory.GETTER_ERROR_MESSAGE);
-    parseError("var x = {get function(){} };", IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
+    parseError("var x = {get function(){} };", NewIRFactory.GETTER_ERROR_MESSAGE);
     parseError("var x = {get 'function'(){} };",
-        IRFactory.GETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
     parseError("var x = {get 1(){} };",
-        IRFactory.GETTER_ERROR_MESSAGE);
-    parseError("var x = {set function(a){} };", IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.GETTER_ERROR_MESSAGE);
+    parseError("var x = {set function(a){} };", NewIRFactory.SETTER_ERROR_MESSAGE);
     parseError("var x = {set 'function'(a){} };",
-        IRFactory.SETTER_ERROR_MESSAGE);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
     parseError("var x = {set 1(a){} };",
-        IRFactory.SETTER_ERROR_MESSAGE);
-    parseWarning("var x = {class: 1};", IRFactory.INVALID_ES3_PROP_NAME);
+        NewIRFactory.SETTER_ERROR_MESSAGE);
+    parseWarning("var x = {class: 1};", NewIRFactory.INVALID_ES3_PROP_NAME);
     parse("var x = {'class': 1};");
-    parseWarning("x.class;", IRFactory.INVALID_ES3_PROP_NAME);
+    parseWarning("x.class;", NewIRFactory.INVALID_ES3_PROP_NAME);
     parse("x['class'];");
     parse("var x = {let: 1};");  // 'let' is not reserved in ES3
     parse("x.let;");
     parse("var x = {yield: 1};"); // 'yield' is not reserved in ES3
     parse("x.yield;");
     parseWarning("x.prototype.catch = function() {};",
-        IRFactory.INVALID_ES3_PROP_NAME);
-    parseWarning("x().catch();", IRFactory.INVALID_ES3_PROP_NAME);
+        NewIRFactory.INVALID_ES3_PROP_NAME);
+    parseWarning("x().catch();", NewIRFactory.INVALID_ES3_PROP_NAME);
 
     mode = LanguageMode.ECMASCRIPT5;
 
@@ -1354,42 +1783,89 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("x().catch();");
   }
 
+  public void testKeywordsAsPropertiesInExterns1() {
+    mode = LanguageMode.ECMASCRIPT3;
+
+    parse("/** @fileoverview\n@externs\n*/\n var x = {function: 1};");
+  }
+
+  public void testKeywordsAsPropertiesInExterns2() {
+    mode = LanguageMode.ECMASCRIPT3;
+
+    parse("/** @fileoverview\n@externs\n*/\n var x = {}; x.function + 1;");
+  }
+
   public void testUnicodeInIdentifiers() {
     parse("var \\u00fb");
     parse("Js\\u00C7ompiler");
     parse("Js\\u0043ompiler");
   }
 
+  public void testUnicodePointEscapeInIdentifiers() {
+    parse("var \\u{0043}");
+    parse("Js\\u{0043}ompiler");
+    parse("Js\\u{765}ompiler");
+  }
+
+  public void testUnicodePointEscapeStringLiterals() {
+    parse("var i = \'\\u0043ompiler\'");
+    parse("var i = \'\\u{43}ompiler\'");
+    parse("var i = \'\\u{1f42a}ompiler\'");
+    parse("var i = \'\\u{2603}ompiler\'");
+    parse("var i = \'\\u{1}ompiler\'");
+  }
+
+  public void testInvalidUnicodePointEscapeInIdentifiers() {
+    parseError("var \\u{defg", "Invalid escape sequence");
+    parseError("var \\u{defgRestOfIdentifier", "Invalid escape sequence");
+    parseError("var \\u{DEFG}", "Invalid escape sequence");
+    parseError("Js\\u{}ompiler", "Invalid escape sequence");
+    // Legal unicode but invalid in identifier
+    parseError("Js\\u{99}ompiler", "Invalid escape sequence");
+    parseError("Js\\u{10000}ompiler", "Invalid escape sequence");
+  }
+
+  public void testInvalidUnicodePointEscapeStringLiterals() {
+    parseError("var i = \'\\u{defg\'", "Hex digit expected");
+    parseError("var i = \'\\u{defgRestOfIdentifier\'", "Hex digit expected");
+    parseError("var i = \'\\u{DEFG}\'", "Hex digit expected");
+    parseError("var i = \'Js\\u{}ompiler\'", "Empty unicode escape");
+    parseError("var i = \'\\u{345", "Hex digit expected");
+  }
+
   public void testInvalidEscape() {
-    parseError("var \\x39abc", "Invalid escape sequence '\\x'");
-    parseError("var abc\\t", "Invalid escape sequence '\\t'");
+    parseError("var \\x39abc", "Invalid escape sequence");
+    parseError("var abc\\t", "Invalid escape sequence");
   }
 
   public void testEOFInUnicodeEscape() {
-    parseError("var \\u1", "Hex digit expected");
-    parseError("var \\u12", "Hex digit expected");
-    parseError("var \\u123", "Hex digit expected");
+    parseError("var \\u1", "Invalid escape sequence");
+    parseError("var \\u12", "Invalid escape sequence");
+    parseError("var \\u123", "Invalid escape sequence");
   }
 
   public void testEndOfIdentifierInUnicodeEscape() {
-    parseError("var \\u1 = 1;", "Hex digit expected");
-    parseError("var \\u12 = 2;", "Hex digit expected");
-    parseError("var \\u123 = 3;", "Hex digit expected");
+    parseError("var \\u1 = 1;", "Invalid escape sequence");
+    parseError("var \\u12 = 2;", "Invalid escape sequence");
+    parseError("var \\u123 = 3;", "Invalid escape sequence");
   }
 
   public void testInvalidUnicodeEscape() {
-    parseError("var \\uDEFG", "Hex digit expected");
+    parseError("var \\uDEFG", "Invalid escape sequence");
   }
 
   public void testUnicodeEscapeInvalidIdentifierStart() {
+    parseError("var \\u0037yler",
+        "Character '7' (U+0037) is not a valid identifier start char");
+    parseError("var \\u{37}yler",
+        "Character '7' (U+0037) is not a valid identifier start char");
     parseError("var \\u0020space",
-        "Character ' ' (U+0020) is not a valid identifier start char");
+        "Invalid escape sequence");
   }
 
   public void testUnicodeEscapeInvalidIdentifierChar() {
-    // TODO(tbreisacher): This error could be clearer.
     parseError("var sp\\u0020ce",
-        "Character ' ' (U+0020) is not a valid identifier start char");
+        "Invalid escape sequence");
   }
 
   /**
@@ -1414,10 +1890,12 @@ public class NewParserTest extends BaseJSTypeTestCase {
     isIdeMode = true;
     parseError("function a.b() {}",
         "'(' expected",
-        "',' expected");
+        "',' expected",
+        "Invalid trailing comma in formal parameter list");
     parseError("var x = function a.b() {}",
         "'(' expected",
-        "',' expected");
+        "',' expected",
+        "Invalid trailing comma in formal parameter list");
   }
 
   public void testIdeModePartialTree() {
@@ -1522,12 +2000,87 @@ public class NewParserTest extends BaseJSTypeTestCase {
     parse("/**/");
   }
 
+  public void testUnterminatedStringLiteral() {
+    parseError("var unterm = 'forgot closing quote",
+        "Unterminated string literal");
+
+    parseError("var unterm = 'forgot closing quote\n"
+        + "alert(unterm);",
+        "Unterminated string literal");
+  }
+
+  /**
+   * @bug 14231379
+   */
+  public void testUnterminatedRegExp() {
+    parseError("var unterm = /forgot trailing slash",
+        "Expected '/' in regular expression literal");
+
+    parseError("var unterm = /forgot trailing slash\n" +
+        "alert(unterm);",
+        "Expected '/' in regular expression literal");
+  }
+
   public void testRegExp() {
     assertNodeEquality(parse("/a/"), script(expr(regex("a"))));
     assertNodeEquality(parse("/\\\\/"), script(expr(regex("\\\\"))));
     assertNodeEquality(parse("/\\s/"), script(expr(regex("\\s"))));
     assertNodeEquality(parse("/\\u000A/"), script(expr(regex("\\u000A"))));
     assertNodeEquality(parse("/[\\]]/"), script(expr(regex("[\\]]"))));
+  }
+
+  public void testRegExpFlags() {
+    // Various valid combinations.
+    parse("/a/");
+    parse("/a/i");
+    parse("/a/g");
+    parse("/a/m");
+    parse("/a/ig");
+    parse("/a/gm");
+    parse("/a/mgi");
+
+    // Invalid combinations
+    parseError("/a/a", "Invalid RegExp flag 'a'");
+    parseError("/a/b", "Invalid RegExp flag 'b'");
+    parseError("/a/abc",
+        "Invalid RegExp flag 'a'",
+        "Invalid RegExp flag 'b'",
+        "Invalid RegExp flag 'c'");
+  }
+
+  /**
+   * New RegExp flags added in ES6.
+   */
+  public void testES6RegExpFlags() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("/a/y");
+    parse("/a/u");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning("/a/y",
+        "this language feature is only supported in es6 mode: new RegExp flag 'y'");
+    parseWarning("/a/u",
+        "this language feature is only supported in es6 mode: new RegExp flag 'u'");
+    parseWarning("/a/yu",
+        "this language feature is only supported in es6 mode: new RegExp flag 'y'",
+        "this language feature is only supported in es6 mode: new RegExp flag 'u'");
+  }
+
+  public void testDefaultParameters() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("function f(a, b=0) {}");
+    parse("function f(a, b=0, c) {}");
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseWarning("function f(a, b=0) {}",
+        "this language feature is only supported in es6 mode: default parameters");
+  }
+
+  public void testDefaultParametersWithRestParameters() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("function f(a=0, ...b) {}");
+    parse("function f(a, b=0, ...c) {}");
+    parse("function f(a, b=0, c=1, ...d) {}");
   }
 
   public void testClass1() {
@@ -1559,6 +2112,31 @@ public class NewParserTest extends BaseJSTypeTestCase {
         "  static get field() {}\n" +
         "  static set field(a) {}\n" +
         "}\n");
+  }
+
+  public void testClass3() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse("class C {\n" +
+          "  member() {};\n" +
+          "  get field() {};\n" +
+          "  set field(a) {};\n" +
+          "}\n");
+
+    parse("class C {\n" +
+        "  static member() {};\n" +
+        "  static get field() {};\n" +
+        "  static set field(a) {};\n" +
+        "}\n");
+  }
+
+  public void testClassKeywordsAsMethodNames() {
+    mode = LanguageMode.ECMASCRIPT6;
+    parse(Joiner.on('\n').join(
+        "class KeywordMethods {",
+        "  continue() {}",
+        "  throw() {}",
+        "  else() {}",
+        "}"));
   }
 
   public void testSuper1() {
@@ -1624,6 +2202,12 @@ public class NewParserTest extends BaseJSTypeTestCase {
         "for-of statement may not have initializer");
   }
 
+  public void testShebang() {
+    parse("#!/usr/bin/node\n var x = 1;");
+    parseError("var x = 1; \n #!/usr/bin/node",
+        "primary expression expected");
+  }
+
   private Node script(Node stmt) {
     Node n = new Node(Token.SCRIPT, stmt);
     n.setIsSyntheticBlock(true);
@@ -1642,18 +2226,14 @@ public class NewParserTest extends BaseJSTypeTestCase {
    * Verify that the given code has the given parse errors.
    * @return If in IDE mode, returns a partial tree.
    */
-  private Node parseError(String string, String... errors) {
+  private Node parseError(String source, String... errors) {
     TestErrorReporter testErrorReporter = new TestErrorReporter(errors, null);
-    Node script = null;
-    try {
-      StaticSourceFile file = new SimpleSourceFile("input", false);
-      script = ParserRunner.parseEs6(
-          file, string,
-          ParserRunner.createConfig(isIdeMode, mode, false),
-          testErrorReporter, Logger.getAnonymousLogger()).ast;
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    ParseResult result = ParserRunner.parse(
+        new SimpleSourceFile("input", false),
+        source,
+        ParserRunner.createConfig(isIdeMode, isIdeMode, mode, false, null),
+        testErrorReporter);
+    Node script = result.ast;
 
     // verifying that all errors were seen
     assertTrue(testErrorReporter.hasEncounteredAllErrors());
@@ -1670,15 +2250,11 @@ public class NewParserTest extends BaseJSTypeTestCase {
   private Node parseWarning(String string, String... warnings) {
     TestErrorReporter testErrorReporter = new TestErrorReporter(null, warnings);
     Node script = null;
-    try {
-      StaticSourceFile file = new SimpleSourceFile("input", false);
-      script = ParserRunner.parseEs6(
-          file, string,
-          ParserRunner.createConfig(isIdeMode, mode, false),
-          testErrorReporter, Logger.getAnonymousLogger()).ast;
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    StaticSourceFile file = new SimpleSourceFile("input", false);
+    script = ParserRunner.parse(file,
+      string,
+      ParserRunner.createConfig(isIdeMode, isIdeMode, mode, false, null),
+      testErrorReporter).ast;
 
     // verifying that all warnings were seen
     assertTrue(testErrorReporter.hasEncounteredAllErrors());

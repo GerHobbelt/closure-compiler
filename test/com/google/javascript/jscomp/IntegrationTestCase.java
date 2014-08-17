@@ -210,10 +210,10 @@ abstract class IntegrationTestCase extends TestCase {
     if (actual != expected) {
       String msg = "";
       for (JSError err : compiler.getErrors()) {
-        msg += "Error:" + err.toString() + "\n";
+        msg += "Error:" + err + "\n";
       }
       for (JSError err : compiler.getWarnings()) {
-        msg += "Warning:" + err.toString() + "\n";
+        msg += "Warning:" + err + "\n";
       }
       assertEquals("Unexpected warnings or errors.\n " + msg,
         expected, actual);
@@ -245,9 +245,12 @@ abstract class IntegrationTestCase extends TestCase {
   protected Node parseExpectedCode(
       String[] original, CompilerOptions options, boolean normalize) {
     boolean oldProcessCommonJsModules = options.processCommonJSModules;
+    boolean oldProcessEs6Modules = options.rewriteEs6Modules;
     options.processCommonJSModules = false;
+    options.rewriteEs6Modules = false;
     Node expectedRoot = parse(original, options, normalize);
     options.processCommonJSModules = oldProcessCommonJsModules;
+    options.rewriteEs6Modules = oldProcessEs6Modules;
     return expectedRoot;
   }
 

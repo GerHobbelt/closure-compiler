@@ -34,11 +34,13 @@ import java.util.TreeSet;
  * Unit test for the Compiler DisambiguateProperties pass.
  *
  */
+
 public class DisambiguatePropertiesTest extends CompilerTestCase {
   private DisambiguateProperties<?> lastPass;
 
   public DisambiguatePropertiesTest() {
     parseTypeInfo = true;
+    compareJsDoc = false;
   }
 
   @Override
@@ -54,8 +56,7 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
     return new CompilerPass() {
       @Override
       public void process(Node externs, Node root) {
-        Map<String, CheckLevel> propertiesToErrorFor =
-            Maps.<String, CheckLevel>newHashMap();
+        Map<String, CheckLevel> propertiesToErrorFor = Maps.newHashMap();
         propertiesToErrorFor.put("foobar", CheckLevel.ERROR);
 
         // This must be created after type checking is run as it depends on

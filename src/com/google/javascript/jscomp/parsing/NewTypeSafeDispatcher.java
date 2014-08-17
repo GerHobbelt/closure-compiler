@@ -16,63 +16,7 @@
 
 package com.google.javascript.jscomp.parsing;
 
-import com.google.javascript.jscomp.parsing.parser.trees.ArrayLiteralExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.BinaryOperatorTree;
-import com.google.javascript.jscomp.parsing.parser.trees.BlockTree;
-import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.CallExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.CaseClauseTree;
-import com.google.javascript.jscomp.parsing.parser.trees.CatchTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ClassDeclarationTree;
-import com.google.javascript.jscomp.parsing.parser.trees.CommaExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ContinueStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.DebuggerStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.DefaultClauseTree;
-import com.google.javascript.jscomp.parsing.parser.trees.DoWhileStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.EmptyStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ExportDeclarationTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ExportSpecifierTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ExpressionStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.FinallyTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ForInStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ForOfStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ForStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.FormalParameterListTree;
-import com.google.javascript.jscomp.parsing.parser.trees.FunctionDeclarationTree;
-import com.google.javascript.jscomp.parsing.parser.trees.GetAccessorTree;
-import com.google.javascript.jscomp.parsing.parser.trees.IdentifierExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.IfStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ImportDeclarationTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ImportSpecifierTree;
-import com.google.javascript.jscomp.parsing.parser.trees.LabelledStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.LiteralExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
-import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
-import com.google.javascript.jscomp.parsing.parser.trees.PostfixExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
-import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ReturnStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.SetAccessorTree;
-import com.google.javascript.jscomp.parsing.parser.trees.SuperExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.SwitchStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.TryStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.UnaryExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationListTree;
-import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree;
-import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.WhileStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
-import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.*;
 
 /**
  * Type safe dispatcher interface for use with new ES6 parser ASTs.
@@ -83,6 +27,10 @@ abstract class NewTypeSafeDispatcher<T> {
   abstract T processBlock(BlockTree tree);
   abstract T processBreakStatement(BreakStatementTree breakStatementTree);
   abstract T processCatchClause(CatchTree tree);
+  abstract T processComputedPropertyDefinition(ComputedPropertyDefinitionTree tree);
+  abstract T processComputedPropertyGetter(ComputedPropertyGetterTree tree);
+  abstract T processComputedPropertyMethod(ComputedPropertyMethodTree tree);
+  abstract T processComputedPropertySetter(ComputedPropertySetterTree tree);
   abstract T processConditionalExpression(ConditionalExpressionTree tree);
   abstract T processContinueStatement(ContinueStatementTree tree);
   abstract T processDoLoop(DoWhileStatementTree tree);
@@ -108,6 +56,9 @@ abstract class NewTypeSafeDispatcher<T> {
   abstract T processSwitchCase(CaseClauseTree tree);
   abstract T processSwitchStatement(SwitchStatementTree tree);
   abstract T processThrowStatement(ThrowStatementTree tree);
+  abstract T processTemplateLiteral(TemplateLiteralExpressionTree tree);
+  abstract T processTemplateLiteralPortion(TemplateLiteralPortionTree tree);
+  abstract T processTemplateSubstitution(TemplateSubstitutionTree tree);
   abstract T processTryStatement(TryStatementTree tree);
   abstract T processUnaryExpression(UnaryExpressionTree tree);
   abstract T processVariableStatement(VariableStatementTree tree);
@@ -129,6 +80,16 @@ abstract class NewTypeSafeDispatcher<T> {
   abstract T processSetAccessor(SetAccessorTree tree);
   abstract T processPropertyNameAssignment(PropertyNameAssignmentTree tree);
   abstract T processFormalParameterList(FormalParameterListTree tree);
+  abstract T processDefaultParameter(DefaultParameterTree tree);
+  abstract T processRestParameter(RestParameterTree tree);
+  abstract T processSpreadExpression(SpreadExpressionTree tree);
+  abstract T processArrayPattern(ArrayPatternTree tree);
+  abstract T processObjectPattern(ObjectPatternTree tree);
+  abstract T processObjectPatternField(ObjectPatternFieldTree tree);
+  abstract T processAssignmentRestElement(AssignmentRestElementTree tree);
+  abstract T processComprehension(ComprehensionTree tree);
+  abstract T processComprehensionFor(ComprehensionForTree tree);
+  abstract T processComprehensionIf(ComprehensionIfTree tree);
 
   abstract T processClassDeclaration(ClassDeclarationTree tree);
   abstract T processSuper(SuperExpressionTree tree);
@@ -160,10 +121,8 @@ abstract class NewTypeSafeDispatcher<T> {
       case REGULAR_EXPRESSION:
         return processRegExpLiteral(expr);
       default:
-        throw new IllegalStateException("Unexpected literal type: " +
-            expr.literalToken.getClass() +
-            " type: " +
-            expr.literalToken.type.toString());
+        throw new IllegalStateException("Unexpected literal type: "
+            + expr.literalToken.getClass() + " type: " + expr.literalToken.type);
     }
   }
 
@@ -174,6 +133,12 @@ abstract class NewTypeSafeDispatcher<T> {
         return processBinaryExpression(node.asBinaryOperator());
       case ARRAY_LITERAL_EXPRESSION:
         return processArrayLiteral(node.asArrayLiteralExpression());
+      case TEMPLATE_LITERAL_EXPRESSION:
+        return processTemplateLiteral(node.asTemplateLiteralExpression());
+      case TEMPLATE_LITERAL_PORTION:
+        return processTemplateLiteralPortion(node.asTemplateLiteralPortion());
+      case TEMPLATE_SUBSTITUTION:
+        return processTemplateSubstitution(node.asTemplateSubstitution());
       case UNARY_EXPRESSION:
         return processUnaryExpression(node.asUnaryExpression());
       case BLOCK:
@@ -224,6 +189,14 @@ abstract class NewTypeSafeDispatcher<T> {
         return processNewExpression(node.asNewExpression());
       case OBJECT_LITERAL_EXPRESSION:
         return processObjectLiteral(node.asObjectLiteralExpression());
+      case COMPUTED_PROPERTY_DEFINITION:
+        return processComputedPropertyDefinition(node.asComputedPropertyDefinition());
+      case COMPUTED_PROPERTY_GETTER:
+        return processComputedPropertyGetter(node.asComputedPropertyGetter());
+      case COMPUTED_PROPERTY_METHOD:
+        return processComputedPropertyMethod(node.asComputedPropertyMethod());
+      case COMPUTED_PROPERTY_SETTER:
+        return processComputedPropertySetter(node.asComputedPropertySetter());
       case RETURN_STATEMENT:
         return processReturnStatement(node.asReturnStatement());
       case POSTFIX_EXPRESSION:
@@ -289,17 +262,27 @@ abstract class NewTypeSafeDispatcher<T> {
         return processModuleImport(node.asModuleImport());
 
       case ARRAY_PATTERN:
+        return processArrayPattern(node.asArrayPattern());
       case OBJECT_PATTERN:
+        return processObjectPattern(node.asObjectPattern());
       case OBJECT_PATTERN_FIELD:
-      case SPREAD_PATTERN_ELEMENT:
-        return unsupportedLanguageFeature(node, "destructuring");
+        return processObjectPatternField(node.asObjectPatternField());
+      case ASSIGNMENT_REST_ELEMENT:
+        return processAssignmentRestElement(node.asAssignmentRestElement());
+
+      case COMPREHENSION:
+        return processComprehension(node.asComprehension());
+      case COMPREHENSION_FOR:
+        return processComprehensionFor(node.asComprehensionFor());
+      case COMPREHENSION_IF:
+        return processComprehensionIf(node.asComprehensionIf());
 
       case DEFAULT_PARAMETER:
-        return unsupportedLanguageFeature(node, "default parameters");
+        return processDefaultParameter(node.asDefaultParameter());
       case REST_PARAMETER:
-        return unsupportedLanguageFeature(node, "rest parameters");
+        return processRestParameter(node.asRestParameter());
       case SPREAD_EXPRESSION:
-        return unsupportedLanguageFeature(node, "spread parameters");
+        return processSpreadExpression(node.asSpreadExpression());
 
       // TODO(johnlenz): handle these or remove parser support
       case ARGUMENT_LIST:

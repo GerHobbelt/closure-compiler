@@ -901,11 +901,13 @@ function ViewCSS() {}
 
 /**
  * @param {Element} elt
- * @param {?string} pseudoElt
+ * @param {?string=} opt_pseudoElt This argument is required according to the
+ *     CSS2 specification, but optional in all major browsers. See the note at
+ *     https://developer.mozilla.org/en-US/docs/Web/API/Window.getComputedStyle
  * @return {CSSStyleDeclaration}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSview-getComputedStyle
  */
-ViewCSS.prototype.getComputedStyle = function(elt, pseudoElt) {};
+ViewCSS.prototype.getComputedStyle = function(elt, opt_pseudoElt) {};
 
 /**
  * @constructor
@@ -2057,13 +2059,13 @@ CaretPosition.prototype.offset;
 // http://www.w3.org/TR/cssom-view/#extensions-to-the-element-interface
 
 /**
- * @return {ClientRectList}
+ * @return {!ClientRectList}
  * @see http://www.w3.org/TR/cssom-view/#dom-element-getclientrects
  */
 Element.prototype.getClientRects = function() {};
 
 /**
- * @return {ClientRect}
+ * @return {!ClientRect}
  * @see http://www.w3.org/TR/cssom-view/#dom-element-getboundingclientrect
  */
 Element.prototype.getBoundingClientRect = function() {};
@@ -2158,13 +2160,13 @@ HTMLElement.prototype.offsetHeight;
 // http://www.w3.org/TR/cssom-view/#extensions-to-the-range-interface
 
 /**
- * @return {ClientRectList}
+ * @return {!ClientRectList}
  * @see http://www.w3.org/TR/cssom-view/#dom-range-getclientrects
  */
 Range.prototype.getClientRects = function() {};
 
 /**
- * @return {ClientRect}
+ * @return {!ClientRect}
  * @see http://www.w3.org/TR/cssom-view/#dom-range-getboundingclientrect
  */
 Range.prototype.getBoundingClientRect = function() {};
@@ -2438,20 +2440,34 @@ function FontFaceSet() {}
 
 /**
  * @param {!FontFace} value
- * @see http://dev.w3.org/csswg/css-font-loading/#set-modifications
+ * @see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-add
  */
 FontFaceSet.prototype.add = function(value) {};
 
 /**
- * @see http://dev.w3.org/csswg/css-font-loading/#set-modifications
+ * @see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-clear
  */
 FontFaceSet.prototype.clear = function() {};
 
 /**
  * @param {!FontFace} value
- * @see http://dev.w3.org/csswg/css-font-loading/#set-modifications
+ * @see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-delete
  */
 FontFaceSet.prototype.delete = function(value) {};
+
+/**
+ * @param {!FontFace} font
+ * @return {boolean}
+ * @see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-has
+ */
+FontFaceSet.prototype.has = function(font) {};
+
+/**
+ * @param {function(!FontFace, number, !FontFaceSet)} cb
+ * @param {Object|undefined=} opt_selfObj
+ * see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-foreach
+ */
+FontFaceSet.prototype.forEach = function(cb, opt_selfObj) {};
 
 /**
  * @param {string} font

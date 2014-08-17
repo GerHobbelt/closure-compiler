@@ -16,7 +16,10 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.rhino.IR;
+import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
 
 import java.util.LinkedHashSet;
@@ -24,14 +27,17 @@ import java.util.Set;
 
 /**
  * A compiler pass to normalize externs by declaring global names on
- * the "window" object.
+ * the "window" object, if it is declared in externs.
  */
 class DeclaredGlobalExternsOnWindow
     extends NodeTraversal.AbstractShallowStatementCallback
     implements CompilerPass {
 
   private final AbstractCompiler compiler;
-  private final Set<String> names = new LinkedHashSet<>();
+  private final Set<Node> nodes = new LinkedHashSet<>();
+
+  // Whether there is a "var window" declaration in the externs.
+  private boolean windowInExterns = false;
 
   public DeclaredGlobalExternsOnWindow(AbstractCompiler compiler) {
     this.compiler = compiler;
@@ -40,39 +46,75 @@ class DeclaredGlobalExternsOnWindow
   @Override
   public void process(Node externs, Node root) {
     NodeTraversal.traverse(compiler, externs, this);
-
     addWindowProperties();
   }
 
   private void addWindowProperties() {
-    if (names.size() > 0) {
-      Node declRoot = getSynthesizedExternsRoot();
-      for (String prop : names) {
-        addExtern(declRoot, prop);
+    if (nodes.size() > 0 && windowInExterns) {
+      for (Node node : nodes) {
+        addExtern(node);
       }
       compiler.reportCodeChange();
     }
   }
 
-  private void addExtern(Node declRoot, String export) {
-    // TODO(johnlenz): add type declarations.
-    Node propstmt = IR.exprResult(
-        IR.getprop(IR.name("window"), IR.string(export)));
-    declRoot.addChildToBack(propstmt);
-  }
+  private static void addExtern(Node node) {
+    String name = node.getString();
+    JSDocInfo oldJSDocInfo = NodeUtil.getBestJSDocInfo(node);
 
-  /** Lazily create a "new" externs root for undeclared variables. */
-  private Node getSynthesizedExternsRoot() {
-    return  compiler.getSynthesizedExternsInput().getAstRoot(compiler);
+    // TODO(tbreisacher): Consider adding externs to 'this' instead of 'window',
+    // for environments where the global object is not called 'window.'
+    Node window = IR.name("window");
+    Node string = IR.string(name);
+    Node getprop = IR.getprop(window, string);
+    Node newNode = getprop;
+
+    if (oldJSDocInfo != null) {
+      JSDocInfoBuilder builder;
+
+      if (oldJSDocInfo.isConstructor() || oldJSDocInfo.isInterface()
+          || oldJSDocInfo.hasEnumParameterType()) {
+        Node nameNode = IR.name(name);
+        newNode = IR.assign(getprop, nameNode);
+
+        builder = new JSDocInfoBuilder(false);
+        if (oldJSDocInfo.isConstructor()) {
+          builder.recordConstructor();
+        }
+        if (oldJSDocInfo.isInterface()) {
+          builder.recordInterface();
+        }
+        if (oldJSDocInfo.hasEnumParameterType()) {
+          builder.recordEnumParameterType(oldJSDocInfo.getEnumParameterType());
+        }
+      } else {
+        builder = JSDocInfoBuilder.copyFrom(oldJSDocInfo);
+      }
+
+      builder.recordSuppressions(ImmutableSet.of("duplicate"));
+      JSDocInfo jsDocInfo = builder.build(newNode);
+      jsDocInfo.setAssociatedNode(newNode);
+      newNode.setJSDocInfo(jsDocInfo);
+    }
+
+    NodeUtil.setDebugInformation(newNode, node, name);
+    node.getParent().getParent().addChildToBack(IR.exprResult(newNode));
   }
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     if (n.isFunction()) {
-      names.add(n.getFirstChild().getString());
+      nodes.add(n.getFirstChild());
     } else if (n.isVar()) {
       for (Node c : n.children()) {
-        names.add(c.getString());
+        // Skip 'location' since there is an existing definition
+        // for window.location which conflicts with the "var location" one.
+        if (!c.getString().equals("location")) {
+          nodes.add(c);
+        }
+        if (!windowInExterns && c.getString().equals("window")) {
+          windowInExterns = true;
+        }
       }
     }
   }

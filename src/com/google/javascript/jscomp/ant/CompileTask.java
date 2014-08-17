@@ -16,8 +16,11 @@
 
 package com.google.javascript.jscomp.ant;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.io.Files;
 import com.google.javascript.jscomp.CheckLevel;
 import com.google.javascript.jscomp.CommandLineRunner;
 import com.google.javascript.jscomp.CompilationLevel;
@@ -76,6 +79,7 @@ public final class CompileTask
   private String replacePropertiesPrefix;
   private File outputFile;
   private String outputWrapper;
+  private File outputWrapperFile;
   private final List<Parameter> defineParams;
   private final List<Parameter> entryPointParams;
   private final List<FileList> externFileLists;
@@ -112,15 +116,30 @@ public final class CompileTask
    *     (ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT).
    */
   public void setLanguageIn(String value) {
-    if (value.equals("ECMASCRIPT5_STRICT") || value.equals("ES5_STRICT")) {
-      this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT5_STRICT;
-    } else if (value.equals("ECMASCRIPT5") || value.equals("ES5")) {
-      this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT5;
-    } else if (value.equals("ECMASCRIPT3") || value.equals("ES3")) {
-      this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT3;
-    } else {
-      throw new BuildException(
-          "Unrecognized 'languageIn' option value (" + value + ")");
+    switch (value) {
+      case "ECMASCRIPT6_STRICT":
+      case "ES6_STRICT":
+        this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT6_STRICT;
+        break;
+      case "ECMASCRIPT6":
+      case "ES6":
+        this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT6;
+        break;
+      case "ECMASCRIPT5_STRICT":
+      case "ES5_STRICT":
+        this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT5_STRICT;
+        break;
+      case "ECMASCRIPT5":
+      case "ES5":
+        this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT5;
+        break;
+      case "ECMASCRIPT3":
+      case "ES3":
+        this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT3;
+        break;
+      default:
+        throw new BuildException(
+            "Unrecognized 'languageIn' option value (" + value + ")");
     }
   }
 
@@ -190,6 +209,13 @@ public final class CompileTask
    */
   public void setOutputWrapper(String value) {
     this.outputWrapper = value;
+  }
+
+  /**
+   * Set output wrapper file.
+   */
+  public void setOutputWrapperFile(File value) {
+    this.outputWrapperFile = value;
   }
 
   /**
@@ -309,8 +335,17 @@ public final class CompileTask
           externs.size() + " extern(s)");
 
       Result result = compiler.compile(externs, sources, options);
+
       if (result.success) {
         StringBuilder source = new StringBuilder(compiler.toSource());
+
+        if (this.outputWrapperFile != null) {
+          try {
+            this.outputWrapper = Files.toString(this.outputWrapperFile, UTF_8);
+          } catch (Exception e) {
+            throw new BuildException("Invalid output_wrapper_file specified.");
+          }
+        }
 
         if (this.outputWrapper != null) {
           int pos = -1;
@@ -323,6 +358,9 @@ public final class CompileTask
             int suffixStart = pos + CommandLineRunner.OUTPUT_MARKER.length();
             String suffix = this.outputWrapper.substring(suffixStart);
             source.append(suffix);
+          } else {
+            throw new BuildException("Invalid output_wrapper specified. " +
+                "Missing '" + CommandLineRunner.OUTPUT_MARKER + "'.");
           }
         }
 

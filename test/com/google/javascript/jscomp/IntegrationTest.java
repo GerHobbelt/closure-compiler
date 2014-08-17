@@ -29,6 +29,7 @@ import com.google.javascript.rhino.Token;
  *
  * @author nicksantos@google.com (Nick Santos)
  */
+
 public class IntegrationTest extends IntegrationTestCase {
 
   @Override public void setUp() {
@@ -101,8 +102,7 @@ public class IntegrationTest extends IntegrationTestCase {
     test(options,
          CLOSURE_BOILERPLATE + "/** @export */ goog.CONSTANT = 1;" +
          "var x = goog.CONSTANT;",
-         "(function() {})('goog.CONSTANT', 1);" +
-         "var x = 1;");
+         "(function() {})('goog.CONSTANT', 1);");
   }
 
   public void testBug2410122() {
@@ -418,7 +418,7 @@ public class IntegrationTest extends IntegrationTestCase {
     options.checkSymbols = true;
     options.aggressiveVarCheck = CheckLevel.ERROR;
     test(options, "x = 3; var x = 5;",
-         VariableReferenceCheck.UNDECLARED_REFERENCE);
+         VariableReferenceCheck.EARLY_REFERENCE);
   }
 
   public void testInferTypes() {
@@ -431,12 +431,12 @@ public class IntegrationTest extends IntegrationTestCase {
         CLOSURE_BOILERPLATE +
         "goog.provide('Foo'); /** @enum */ Foo = {a: 3};",
         TypeCheck.ENUM_NOT_CONSTANT);
-    assertTrue(lastCompiler.getErrorManager().getTypedPercent() == 0);
+    assertEquals(0.0, lastCompiler.getErrorManager().getTypedPercent());
 
     // This does not generate a warning.
     test(options, "/** @type {number} */ var n = window.name;",
         "var n = window.name;");
-    assertTrue(lastCompiler.getErrorManager().getTypedPercent() == 0);
+    assertEquals(0.0, lastCompiler.getErrorManager().getTypedPercent());
   }
 
   public void testTypeCheckAndInference() {
@@ -444,7 +444,7 @@ public class IntegrationTest extends IntegrationTestCase {
     options.checkTypes = true;
     test(options, "/** @type {number} */ var n = window.name;",
          TypeValidator.TYPE_MISMATCH_WARNING);
-    assertTrue(lastCompiler.getErrorManager().getTypedPercent() > 0);
+    assertTrue(lastCompiler.getErrorManager().getTypedPercent() > 0.0);
   }
 
   public void testTypeNameParser() {
@@ -816,7 +816,6 @@ public class IntegrationTest extends IntegrationTestCase {
   public void testAllChecksOn() {
     CompilerOptions options = createCompilerOptions();
     options.checkSuspiciousCode = true;
-    options.checkControlStructures = true;
     options.checkRequires = CheckLevel.ERROR;
     options.checkProvides = CheckLevel.ERROR;
     options.generateExports = true;
@@ -1063,7 +1062,7 @@ public class IntegrationTest extends IntegrationTestCase {
     testSame(options, code);
 
     options.inlineConstantVars = true;
-    test(options, code, "function foo() {} var x = 3; foo(x); foo(4);");
+    test(options, code, "function foo() {} foo(3); foo(4);");
   }
 
   public void testMinimizeExits() {
@@ -1419,7 +1418,7 @@ public class IntegrationTest extends IntegrationTestCase {
     }
     testSame(options, code);
 
-    options.extractPrototypeMemberDeclarations = true;
+    options.setExtractPrototypeMemberDeclarations(true);
     options.variableRenaming = VariableRenamingPolicy.ALL;
     test(options, code, expected);
 
@@ -1432,7 +1431,7 @@ public class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     options.devirtualizePrototypeMethods = true;
     options.collapseAnonymousFunctions = true;
-    options.extractPrototypeMemberDeclarations = true;
+    options.setExtractPrototypeMemberDeclarations(true);
     options.variableRenaming = VariableRenamingPolicy.ALL;
     String code = "var f = function() {};";
     String expected = "var a; function b() {} a = b.prototype;";
@@ -1888,6 +1887,7 @@ public class IntegrationTest extends IntegrationTestCase {
   public void testLanguageMode() {
     CompilerOptions options = createCompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT3);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
 
     String code = "var a = {get f(){}}";
 
@@ -1902,10 +1902,12 @@ public class IntegrationTest extends IntegrationTestCase {
         compiler.getErrors()[0].toString());
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
 
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5_STRICT);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5_STRICT);
 
     testSame(options, code);
   }
@@ -1913,6 +1915,7 @@ public class IntegrationTest extends IntegrationTestCase {
   public void testLanguageMode2() {
     CompilerOptions options = createCompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT3);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
     options.setWarningLevel(DiagnosticGroups.ES5_STRICT, CheckLevel.OFF);
 
     String code = "var a  = 2; delete a;";
@@ -1920,10 +1923,12 @@ public class IntegrationTest extends IntegrationTestCase {
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
 
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5_STRICT);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5_STRICT);
 
     test(options,
         code,
@@ -1937,6 +1942,7 @@ public class IntegrationTest extends IntegrationTestCase {
     WarningLevel.VERBOSE.setOptionsForWarningLevel(options);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
 
     String code =
         "'use strict';\n" +
@@ -2394,7 +2400,7 @@ public class IntegrationTest extends IntegrationTestCase {
            "function f() { return x + z; }");
       fail("Expected run-time exception");
     } catch (RuntimeException e) {
-      assertTrue(e.getMessage().indexOf("Unexpected variable x") != -1);
+      assertTrue(e.getMessage().contains("Unexpected variable x"));
     }
   }
 
@@ -2774,6 +2780,23 @@ public class IntegrationTest extends IntegrationTestCase {
     test(options, code, TypeValidator.TYPE_MISMATCH_WARNING);
   }
 
+  public void testGoogDefineClass4() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
+    level.setOptionsForCompilationLevel(options);
+    WarningLevel warnings = WarningLevel.VERBOSE;
+    warnings.setOptionsForWarningLevel(options);
+    options.setWarningLevel(
+        DiagnosticGroups.GLOBAL_THIS, CheckLevel.WARNING);
+
+    String code = "" +
+        "var C = goog.defineClass(null, {\n" +
+        "  /** @param {string} a */\n" +
+        "  constructor: function (a) {this.someProperty = 1}\n" +
+        "});\n";
+    test(options, code, "");
+  }
+
   public void testCheckConstants1() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
@@ -2940,6 +2963,8 @@ public class IntegrationTest extends IntegrationTestCase {
     WarningLevel warnings = WarningLevel.DEFAULT;
     warnings.setOptionsForWarningLevel(options);
 
+    options.removeUnusedPrototypePropertiesInExterns = true;
+
     String code = "" +
         "/** @constructor */ var X = function() {" +
            "/** @export */ this.abc = 1;};\n" +
@@ -3038,6 +3063,7 @@ public class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = new CompilerOptions();
     options.setCodingConvention(new GoogleCodingConvention());
     options.setRenamePrefixNamespaceAssumeCrossModuleNames(true);
+    options.declaredGlobalExternsOnWindow = false;
     return options;
   }
 }

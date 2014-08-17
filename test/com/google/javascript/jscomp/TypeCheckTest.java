@@ -39,6 +39,7 @@ import java.util.Set;
  * Tests {@link TypeCheck}.
  *
  */
+
 public class TypeCheckTest extends CompilerTypeTestCase {
 
   private CheckLevel reportMissingOverrides = CheckLevel.WARNING;
@@ -2275,9 +2276,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "var goog = goog || {};" +
         "/** @param {number} x */ goog.foo = function(x) {};" +
         "/** @param {number} x */ goog.foo = function(x) {};",
-        "variable goog.foo redefined with type function (number): undefined, " +
-        "original definition at [testcode]:1 " +
-        "with type function (number): undefined");
+        "variable goog.foo redefined, original definition at [testcode]:1");
   }
 
   public void testDuplicateStaticMethodDecl2() throws Exception {
@@ -2307,9 +2306,8 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "var goog = goog || {};" +
         "goog.foo = function(x) {};" +
         "/** @return {undefined} */ goog.foo = function(x) {};",
-        "variable goog.foo redefined with type function (?): undefined, " +
-        "original definition at [testcode]:1 with type " +
-        "function (?): undefined");
+        "variable goog.foo redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testDuplicateStaticMethodDecl6() throws Exception {
@@ -2447,9 +2445,8 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "/** @constructor */ function F() {}" +
         "/** jsdoc */ F.prototype.bar = function() {};" +
         "/** jsdoc */ F.prototype.bar = function() {};",
-        "variable F.prototype.bar redefined with type " +
-        "function (this:F): undefined, original definition at " +
-        "[testcode]:1 with type function (this:F): undefined");
+        "variable F.prototype.bar redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testDuplicateInstanceMethod3() throws Exception {
@@ -2457,9 +2454,8 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "/** @constructor */ function F() {}" +
         "F.prototype.bar = function() {};" +
         "/** jsdoc */ F.prototype.bar = function() {};",
-        "variable F.prototype.bar redefined with type " +
-        "function (this:F): undefined, original definition at " +
-        "[testcode]:1 with type function (this:F): undefined");
+        "variable F.prototype.bar redefined, " +
+        "original definition at [testcode]:1");
   }
 
   public void testDuplicateInstanceMethod4() throws Exception {
@@ -2937,8 +2933,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
 
   public void testEnum3() throws Exception {
     testTypes("/**@enum*/var a={BB:1,BB:2}",
-        "variable a.BB redefined with type a.<number>, " +
-        "original definition at [testcode]:1 with type a.<number>");
+        "variable a.BB redefined, original definition at [testcode]:1");
   }
 
   public void testEnum4() throws Exception {
@@ -3033,8 +3028,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
   public void testEnum16() throws Exception {
     testTypes("var goog = {};" +
         "/**@enum*/goog .a={BB:1,BB:2}",
-        "variable goog.a.BB redefined with type goog.a.<number>, " +
-        "original definition at [testcode]:1 with type goog.a.<number>");
+        "variable goog.a.BB redefined, original definition at [testcode]:1");
   }
 
   public void testEnum17() throws Exception {
@@ -8596,6 +8590,31 @@ public class TypeCheckTest extends CompilerTypeTestCase {
               "typeof 123 == 'unknown'); }");
   }
 
+  public void testConstDecl1() throws Exception {
+    testTypes(
+        "/** @param {?number} x \n @return {boolean} */" +
+        "function f(x) { " +
+        "  if (x) { /** @const */ var y = x; return y } return true; "  +
+        "}",
+        "inconsistent return type\n" +
+        "found   : number\n" +
+        "required: boolean");
+  }
+
+  public void testConstDecl2() throws Exception {
+    testTypes(
+        "/** @param {?number} x */" +
+        "function f(x) { " +
+        "  if (x) {" +
+        "    /** @const */ var y = x; " +
+        "    /** @return {boolean} */ function g() { return y; } " +
+        "  }" +
+        "}",
+        "inconsistent return type\n" +
+        "found   : number\n" +
+        "required: boolean");
+  }
+
   public void testConstructorType1() throws Exception {
     testTypes("/**@constructor*/function Foo(){}" +
         "/**@type{!Foo}*/var f = new Date();",
@@ -8893,9 +8912,9 @@ public class TypeCheckTest extends CompilerTypeTestCase {
     JSType googScopeType = p.scope.getVar("goog").getType();
     assertTrue(googScopeType instanceof ObjectType);
     assertTrue("foo property not present on goog type",
-        ((ObjectType) googScopeType).hasProperty("foo"));
+        googScopeType.hasProperty("foo"));
     assertFalse("bar property present on goog type",
-        ((ObjectType) googScopeType).hasProperty("bar"));
+        googScopeType.hasProperty("bar"));
 
     // goog type on the VAR node
     Node varNode = p.root.getFirstChild();
@@ -8904,7 +8923,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googNodeType instanceof ObjectType);
 
     // goog scope type and goog type on VAR node must be the same
-    assertTrue(googScopeType == googNodeType);
+    assertSame(googNodeType, googScopeType);
 
     // goog type on the left of the GETPROP node (under fist ASSIGN)
     Node getpropFoo1 = varNode.getNext().getFirstChild().getFirstChild();
@@ -8914,7 +8933,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googGetpropFoo1Type instanceof ObjectType);
 
     // still the same type as the one on the variable
-    assertTrue(googGetpropFoo1Type == googScopeType);
+    assertSame(googScopeType, googGetpropFoo1Type);
 
     // the foo property should be defined on goog
     JSType googFooType = ((ObjectType) googScopeType).getPropertyType("foo");
@@ -8930,7 +8949,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
     assertTrue(googGetpropFoo2Type instanceof ObjectType);
 
     // still the same type as the one on the variable
-    assertTrue(googGetpropFoo2Type == googScopeType);
+    assertSame(googScopeType, googGetpropFoo2Type);
 
     // goog.foo type on the left of the top-level GETPROP node
     // (under second ASSIGN)
@@ -11636,6 +11655,49 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "required: undefined");
   }
 
+  public void testTemplateType21() throws Exception {
+    // "this" types is inferred when the parameters are declared.
+    testTypes(
+        "/** @interface @template T */ function A() {}\n" +
+        "/** @constructor @implements {A.<Foo>} */\n" +
+        "function Foo() {}\n" +
+        "/** @constructor @implements {A.<Bar>} */\n" +
+        "function Bar() {}\n" +
+        "/** @type {!Foo} */\n" +
+        "var x = new Bar();\n",
+        "initializing variable\n" +
+        "found   : Bar\n" +
+        "required: Foo");
+  }
+
+  public void testTemplateType22() throws Exception {
+    // "this" types is inferred when the parameters are declared.
+    testTypes(
+        "/** @interface @template T */ function A() {}\n" +
+        "/** @interface @template T */ function B() {}\n" +
+        "/** @constructor @implements {A.<Foo>} */\n" +
+        "function Foo() {}\n" +
+        "/** @constructor @implements {B.<Foo>} */\n" +
+        "function Bar() {}\n" +
+        "/** @constructor @implements {B.<Foo>} */\n" +
+        "function Qux() {}\n" +
+        "/** @type {!Qux} */\n" +
+        "var x = new Bar();\n",
+        "initializing variable\n" +
+        "found   : Bar\n" +
+        "required: Qux");
+  }
+
+  public void testTemplateType23() throws Exception {
+    // "this" types is inferred when the parameters are declared.
+    testTypes(
+        "/** @interface @template T */ function A() {}\n" +
+        "/** @constructor @implements {A.<Foo>} */\n" +
+        "function Foo() {}\n" +
+        "/** @type {!Foo} */\n" +
+        "var x = new Foo();\n");
+  }
+
   public void testTemplateTypeWithUnresolvedType() throws Exception {
     testClosureTypes(
         "var goog = {};\n" +
@@ -12942,6 +13004,11 @@ public class TypeCheckTest extends CompilerTypeTestCase {
         "required: null", false);
   }
 
+  public void testModuleReferenceNotAllowed() throws Exception {
+    testTypes(
+        "/** @param {./Foo} z */ function f(z) {}",
+        "Bad type annotation. Unknown type ./Foo");
+  }
 
   private void testTypes(String js) throws Exception {
     testTypes(js, (String) null);
@@ -13049,7 +13116,7 @@ public class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   void testTypesWithExterns(String externs, String js) throws Exception {
-    testTypes(externs, js, (String)null, false);
+    testTypes(externs, js, (String) null, false);
   }
 
   void testTypes(

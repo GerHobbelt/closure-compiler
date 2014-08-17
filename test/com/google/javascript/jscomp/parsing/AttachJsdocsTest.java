@@ -22,11 +22,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.SimpleSourceFile;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
-
-import java.io.IOException;
-import java.util.logging.Logger;
 
 /**
  * Ported from rhino/testsrc/org/mozilla/javascript/tests/AttachJsDocsTest.java
@@ -87,7 +83,7 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
     Node root = parse("FOO: for (;;) { break /** don't attach */ FOO; }");
     Node forStm = root.getFirstChild().getLastChild();
     Node breakStm = forStm.getChildAtIndex(3).getFirstChild();
-    assertTrue(breakStm.getType() == Token.BREAK);
+    assertSame(Token.BREAK, breakStm.getType());
     assertNull(breakStm.getJSDocInfo());
     assertNull(breakStm.getFirstChild().getJSDocInfo());
   }
@@ -106,7 +102,7 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
 
   public void testOldJsdocCall3() {
     // Incorrect attachment b/c the parser doesn't preserve comma positions.
-    // TODO(user): if this case comes up often, modify the parser to
+    // TODO(dimvar): if this case comes up often, modify the parser to
     // remember comma positions for function decls and calls and fix the bug.
     Node root = parse("foo(1 /** attach to 2nd parameter */, 2);");
     Node call = root.getFirstChild().getFirstChild();
@@ -167,7 +163,7 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
     Node root = parse("FOO: for (;;) { continue /** don't attach */ FOO; }");
     Node forStm = root.getFirstChild().getLastChild();
     Node cont = forStm.getChildAtIndex(3).getFirstChild();
-    assertTrue(cont.getType() == Token.CONTINUE);
+    assertSame(Token.CONTINUE, cont.getType());
     assertNull(cont.getJSDocInfo());
     assertNull(cont.getFirstChild().getJSDocInfo());
   }
@@ -541,11 +537,11 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
     assertNotNull(objlit.getFirstChild().getLastChild().getJSDocInfo());
   }
 
-  // public void testOldJsdocPostfix1() {
-  //   Node root = parse("/** attach */ (x)++;");
-  //   Node unary = root.getFirstChild().getFirstChild();
-  //   assertNotNull(unary.getFirstChild().getJSDocInfo());
-  // }
+  public void testOldJsdocPostfix1() {
+    Node root = parse("/** attach */ (x)++;");
+    Node unary = root.getFirstChild().getFirstChild();
+    assertNotNull(unary.getFirstChild().getJSDocInfo());
+  }
 
   public void testOldJsdocPostfix2() {
     Node root = parse("/** attach */ x++;");
@@ -782,17 +778,13 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
     assertEquals("/** bar */", info.getOriginalCommentString());
   }
 
-  private Node parse(String string, String... warnings) {
+  private Node parse(String source, String... warnings) {
     TestErrorReporter testErrorReporter = new TestErrorReporter(null, warnings);
-    Node script = null;
-    try {
-      StaticSourceFile file = new SimpleSourceFile("input", false);
-      script = ParserRunner.parseEs6(
-          file, string, ParserRunner.createConfig(true, mode, false),
-          testErrorReporter, Logger.getAnonymousLogger()).ast;
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    Node script = ParserRunner.parse(
+        new SimpleSourceFile("input", false),
+        source,
+        ParserRunner.createConfig(true, true, mode, false, null),
+        testErrorReporter).ast;
 
     // verifying that all warnings were seen
     assertTrue(testErrorReporter.hasEncounteredAllErrors());
