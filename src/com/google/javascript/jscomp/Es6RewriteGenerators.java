@@ -88,6 +88,8 @@ public class Es6RewriteGenerators extends NodeTraversal.AbstractPostOrderCallbac
 
   private static final String GENERATOR_FOR_IN_VAR = "$jscomp$generator$forin$var";
 
+  private static final String GENERATOR_FOR_IN_ITER = "$jscomp$generator$forin$iter";
+
   // Maintains a stack of numbers which identify the cases which mark the end of loops. These
   // are used to manage jump destinations for break and continue statements.
   private List<LoopContext> currentLoopContext;
@@ -167,7 +169,8 @@ public class Es6RewriteGenerators extends NodeTraversal.AbstractPostOrderCallbac
    * <code>
    * var $jscomp$generator$yield$all = gen();
    * var $jscomp$generator$yield$entry;
-   * while (!($jscomp$generator$yield$entry = $jscomp$generator$yield$all.next()).done) {
+   * while (!($jscomp$generator$yield$entry =
+   *     $jscomp$generator$yield$all.next($jscomp$generator$next$arg)).done) {
    *   yield $jscomp$generator$yield$entry.value;
    * }
    * var i = $jscomp$generator$yield$entry.value;
@@ -183,7 +186,8 @@ public class Es6RewriteGenerators extends NodeTraversal.AbstractPostOrderCallbac
 
     Node assignIterResult = IR.assign(
         IR.name(GENERATOR_YIELD_ALL_ENTRY),
-        IR.call(IR.getprop(IR.name(GENERATOR_YIELD_ALL_NAME), IR.string("next"))));
+        IR.call(IR.getprop(IR.name(GENERATOR_YIELD_ALL_NAME), IR.string("next")),
+            IR.name(GENERATOR_NEXT_ARG)));
     Node loopCondition = IR.not(IR.getprop(assignIterResult, IR.string("done")));
     Node elemValue = IR.getprop(IR.name(GENERATOR_YIELD_ALL_ENTRY), IR.string("value"));
     Node yieldStatement = IR.exprResult(IR.yield(elemValue.cloneTree()));
@@ -667,11 +671,15 @@ public class Es6RewriteGenerators extends NodeTraversal.AbstractPostOrderCallbac
    *
    * <code>
    * $jscomp$arr = []
-   * for ($jscomp$var in j) {
-   *   $jscomp$arr.push($jscomp$var);
+   * $jscomp$iter = j
+   * for (i in $jscomp$iter) {
+   *   $jscomp$arr.push(i);
    * }
    * for ($jscomp$var = 0; $jscomp$var < $jscomp$arr.length; $jscomp$var++) {
    *   i = $jscomp$arr[$jscomp$var];
+   *   if (!(i in $jscomp$iter)) {
+   *     continue;
+   *   }
    *   s;
    * }
    * </code>
@@ -684,26 +692,33 @@ public class Es6RewriteGenerators extends NodeTraversal.AbstractPostOrderCallbac
     String loopId = generatorCounter.get();
     Node arrayName = IR.name(GENERATOR_FOR_IN_ARRAY + loopId);
     Node varName = IR.name(GENERATOR_FOR_IN_VAR + loopId);
+    Node iterableName = IR.name(GENERATOR_FOR_IN_ITER + loopId);
 
     if (variable.isVar()) {
       variable = variable.removeFirstChild();
     }
-    body.addChildToFront(IR.var(variable,
+    body.addChildToFront(IR.ifNode(
+        IR.not(IR.in(variable.cloneTree(), iterableName.cloneTree())),
+        IR.block(IR.continueNode())));
+    body.addChildToFront(IR.var(variable.cloneTree(),
         IR.getelem(arrayName.cloneTree(), varName.cloneTree())));
     hoistRoot.getParent().addChildAfter(IR.var(arrayName.cloneTree()), hoistRoot);
     hoistRoot.getParent().addChildAfter(IR.var(varName.cloneTree()), hoistRoot);
+    hoistRoot.getParent().addChildAfter(IR.var(iterableName.cloneTree()), hoistRoot);
 
     Node arrayDef = IR.exprResult(IR.assign(arrayName.cloneTree(), IR.arraylit()));
-    Node newForIn = IR.forIn(varName.cloneTree(), iterable,
+    Node iterDef = IR.exprResult(IR.assign(iterableName.cloneTree(), iterable));
+    Node newForIn = IR.forIn(variable.cloneTree(), iterableName,
         IR.block(IR.exprResult(
             IR.call(IR.getprop(arrayName.cloneTree(), IR.string("push")),
-                varName.cloneTree()))));
+                variable))));
     Node newFor = IR.forNode(IR.assign(varName.cloneTree(), IR.number(0)),
         IR.lt(varName.cloneTree(), IR.getprop(arrayName, IR.string("length"))),
         IR.inc(varName, true),
         body);
 
     enclosingBlock.addChildToBack(arrayDef);
+    enclosingBlock.addChildToBack(iterDef);
     enclosingBlock.addChildToBack(newForIn);
     originalGeneratorBody.addChildToFront(newFor);
   }
