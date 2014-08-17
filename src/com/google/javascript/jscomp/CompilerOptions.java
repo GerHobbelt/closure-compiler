@@ -28,7 +28,11 @@ import com.google.javascript.rhino.SourcePosition;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Properties;
 
 /**
  * Compiler options

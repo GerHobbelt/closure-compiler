@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.CompilerOptions.Reach;
+import com.google.javascript.jscomp.CompilerOptions.ExtractPrototypeMemberDeclarationsMode;
 
 /**
  * A CompilationLevel represents the level of optimization that should be
@@ -194,6 +195,20 @@ public enum CompilationLevel {
   private static Boolean getBoolProperty(CompilerOptions options, String prop) {
     return Boolean.parseBoolean(options.inputCompilerOptions.getProperty(prop));
   }
+
+  private static ExtractPrototypeMemberDeclarationsMode getPrototypeMemberDeclarationsMode(CompilerOptions options, String prop) {
+    String val = options.inputCompilerOptions.getProperty(prop).toUpperCase();
+    if (val == "OFF") {
+      return ExtractPrototypeMemberDeclarationsMode.OFF;
+    }
+    if (val == "USE_GLOBAL_TEMP") {
+      return ExtractPrototypeMemberDeclarationsMode.USE_GLOBAL_TEMP;
+    }
+    if (val == "USE_IIFE") {
+      return ExtractPrototypeMemberDeclarationsMode.USE_IIFE;
+    }
+    throw new RuntimeException("Unknown member declaration mode.");
+  }
   
   /**
    * Add the options that will work only if the user exported all the symbols
@@ -207,7 +222,7 @@ public enum CompilationLevel {
     options.foldConstants = getBoolProperty(options, "foldConstants");
     options.coalesceVariableNames = getBoolProperty(options, "coalesceVariableNames");
     options.deadAssignmentElimination = getBoolProperty(options, "deadAssignmentElimination");
-    options.extractPrototypeMemberDeclarations = getBoolProperty(options, "extractPrototypeMemberDeclarations");
+    options.extractPrototypeMemberDeclarations = getPrototypeMemberDeclarationsMode(options, "extractPrototypeMemberDeclarations");
     options.collapseVariableDeclarations = getBoolProperty(options, "collapseVariableDeclarations");
     options.convertToDottedProperties = getBoolProperty(options, "convertToDottedProperties");
     options.labelRenaming = getBoolProperty(options, "labelRenaming");
