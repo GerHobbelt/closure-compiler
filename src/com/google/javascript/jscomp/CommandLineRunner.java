@@ -495,18 +495,30 @@ public class CommandLineRunner extends
     @Argument
     private List<String> arguments = new ArrayList<>();
 
-    private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP =
-        ImmutableMap.of(
+    private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP = fillCompilationLevelMap();
+
+    private static Map<String, CompilationLevel> fillCompilationLevelMap() {
+        Map<String, CompilationLevel> table = new HashMap<String, CompilationLevel>(6);
+        table.put(
             "WHITESPACE_ONLY",
-            CompilationLevel.WHITESPACE_ONLY,
+            CompilationLevel.WHITESPACE_ONLY);
+        table.put(
             "SIMPLE",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
+            CompilationLevel.SIMPLE_OPTIMIZATIONS);
+        table.put(
             "SIMPLE_OPTIMIZATIONS",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
+            CompilationLevel.SIMPLE_OPTIMIZATIONS);
+        table.put(
             "ADVANCED",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS,
-            "ADVANCED_OPTIMIZATIONS",
             CompilationLevel.ADVANCED_OPTIMIZATIONS);
+        table.put(
+            "ADVANCED_OPTIMIZATIONS",
+            CompilationLevel.ADVANCED_OPTIMIZATIONS); // google guave immutable can't do more than 5 entries :-(
+        table.put(
+            "FROM_CONFIG_FILE",
+            CompilationLevel.FROM_CONFIG_FILE);
+        return table;
+    }
 
     /**
      * Parse the given args list.
