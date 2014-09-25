@@ -1,9 +1,9 @@
 {
-    "name"        : "scribe/closure-compiler",
+    "name"        : "scribe/closurecompiler-library",
     "description" : "An up-to-date fork of Google's Closure Compiler, kept in regular sync with upstream, except this one comes with a composer file.",
     "keywords"    : ["scribe", "javascript", "compiler", "closure"],
     "type"        : "library",
-    "homepage"    : "https://github.com/scribenet/closure-compiler",
+    "homepage"    : "https://github.com/scribenet/ScribeClosureCompilerLibrary",
     "license"     : "Apache-2.0",
     "authors"     : [
         {
@@ -226,6 +226,6 @@
             "role": "CLA Signer"
         }
     ],
-    "target-dir": "Scribe/ClosureCompiler",
-    "bin": ["dist/closure-compiler"]
+    "target-dir": "Scribe/Library/ClosureCompiler",
+    "bin": ["dist/scribe-closurecompiler"]
 }

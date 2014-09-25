@@ -1,0 +1,144 @@
+#!/bin/bash
+
+##
+ #
+ # Wrapper script that calls the jre and passes the requested jar file
+ #
+ # Expects to be within the same folder as the *.jar file, and can determine
+ # that location through one level of symlink abstraction. Nothing fancy. A
+ # clone of this script is also used in:
+ # -https://github.com/scribenet/ScribeClosureCompilerLibrary
+ # -https://github.com/scribenet/ScribeYuiCompressorLibrary
+ # -https://github.com/scribenet/ScribeCssEmbedLibrary
+ #
+ # @author    Rob Frawley 2nd <opencode@scribenet.com>
+ # @license   MIT
+ # @copyright 2014 Scribe Inc.
+ #
+ ##
+
+#
+# introduce some sanity
+#
+set -e
+
+#
+# define the jar name
+#
+JAR_NAME="compiler.jar"
+
+#
+# feel free to set this if you need an alternate java
+#
+JAVA_BIN="$( which java )"
+
+#
+# get the script's basename
+#
+SELF_NAME="$( basename ${0} )"
+
+#
+# first attempt at retrieving the localtion of itself
+#
+SELF_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+#
+# if the returned directory is a symlink, there is more work to be done
+#
+if [[ -L "${SELF_DIR}/$( basename ${0})" ]]; then
+
+	#
+	# looks like it was a symlink, let's begin by entering that location
+	#
+	cd "${SELF_DIR}";
+
+	#
+	# use readlink to derrive the relative path to target
+	#
+	TARGET_PATH="$( readlink "./${SELF_NAME}" )"
+
+	#
+	# now we theoretically have a dirpath we can use
+	#
+	TARGET_DIR="$( dirname "${TARGET_PATH}" )"
+
+	#
+	# final checks: does the target directory we now have exist?
+	#
+	if [[ ! -d "${TARGET_DIR}" ]]; then
+
+		#
+		# no? better luck next time...
+		#
+		echo "The original executable is symlinked and I seem to be lost. Where's you local Target?";
+		exit 1;
+
+	#
+	# have we hit another symlink? if so, we're done here...
+	#
+	elif [[ -L "${TARGET_DIR}/${SELF_NAME}" ]]; then
+
+		#
+		# too bad; your symlinks are throwing me in a tussle
+		#
+		exit "After resolving the first symlink, another was hit. Sadly, I need to call it a night.";
+		exit 1;
+
+	fi
+
+	#
+	# we made it this far?! we can finally enter the correct dir...
+	#
+	cd "${TARGET_DIR}";
+
+	#
+	# ...and then get a valid fullpath to this script and it's friend Jar
+	#
+	SELF_DIR="$( pwd )";
+
+fi
+
+#
+# the full path to the jar file
+#
+JAR_PATH="${SELF_DIR}/${JAR_NAME}";
+
+#
+# let's hope noone moved the jar on ya...
+#
+if [[ ! -f "${JAR_PATH}" ]]; then
+
+	#
+	# ...they have ;-/
+	#
+	echo "Looks like someone moved the jar '${JAR_NAME}' on you as it doesn't exist in '${SELF_DIR}' - sorry ;-/";
+	exit 1;
+
+fi
+
+#
+# last thing! - do you have java available within your path?
+#
+if [[ ! -n "${JAVA_BIN}" || ! -x "${JAVA_BIN}" ]]; then
+
+	#
+	# bad luck on your part
+	#
+	echo "Could not find the java executable within your path enviornment or it wasn't executable."
+	exit 1;
+
+fi
+
+#
+# finalle: let's do this thang
+#
+"${JAVA_BIN}" -jar "${JAR_PATH}" $@
+
+#
+# exit with return value of java/jar command
+#
+exit $?;
+
+#
+# EOF
+#
