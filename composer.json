@@ -226,6 +226,5 @@
             "role": "CLA Signer"
         }
     ],
-    "target-dir": "Scribe/Library/ClosureCompiler",
     "bin": ["dist/scribe-closurecompiler"]
 }
