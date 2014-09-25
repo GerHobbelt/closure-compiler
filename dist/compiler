@@ -1,0 +1,62 @@
+#!/bin/bash
+
+#
+# Simple script to call closure, linked within your composer project root
+#
+
+# get the script's basename
+BASE_NAME="$(basename $0)"
+
+# get the (supposed) realpath of this scipt
+DIR_SELF="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# are we simlinked? we don't search more than one level deep...
+if [[ -L "${DIR_SELF}/$(basename $0)" ]]; then 
+
+	# enter directory of symlinked file
+	cd "${DIR_SELF}";
+
+	# use readlink to get the target filepath of self
+	SYM_TARGET="$(readlink "./${BASE_NAME}")"
+
+	# get the new target dirname
+	SYM_TARGET_DIR="$(dirname "$SYM_TARGET")"
+
+	# does the target directory exist?
+	if [[ ! -d "$SYM_TARGET_DIR" ]]; then 
+		echo "This executable is symlinked and I'm lost... where's my target?"
+		exit 1;
+	fi
+
+	# are we done with symlinks?
+	if [[ -L "$SYM_TARGET_DIR/$BASE_NAME" ]]; then
+		echo "We hit another symlink - bailing."
+		exit 1
+	fi
+
+	# we got this far?! enter the target directory and get the fully qualified path
+	cd "$SYM_TARGET_DIR";
+	DIR_SELF="$( pwd )"
+fi
+
+# closure jar file path
+PATH_CLOSURE="${DIR_SELF}/compiler.jar"
+
+# can't continue without closure.jar
+if [ ! -f "${PATH_CLOSURE}" ]; then
+	echo "Could not find 'compiler.jar' in expected path '${DIR_SELF}'."
+	exit 1;
+fi
+
+# look for java executable within path
+BIN_JAVA="$( which java )"
+
+if [ "$?" != "0" ]; then
+	echo "Could not find 'java' executable within your path enviornment."
+	exit 1;
+fi
+
+# lets do this
+"${BIN_JAVA}" -jar "${PATH_CLOSURE}" $@
+
+# EOF
