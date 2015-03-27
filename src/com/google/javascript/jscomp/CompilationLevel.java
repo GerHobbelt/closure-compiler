@@ -305,7 +305,7 @@ public enum CompilationLevel {
 
     // Call optimizations
     options.devirtualizePrototypeMethods = true;
-    options.optimizeParameters = true;
+    options.optimizeParameters = false;
     options.optimizeReturns = true;
 
     // The following optimizations break Shumway builds and need further investigation:
