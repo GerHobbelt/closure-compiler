@@ -54,9 +54,6 @@ public class WhitelistWarningsGuard extends WarningsGuard {
   /** The set of white-listed warnings, same format as {@code formatWarning}. */
   private final Set<String> whitelist;
 
-  /** Pattern to match line number in error descriptions. */
-  private static final Pattern LINE_NUMBER = Pattern.compile(":-?\\d+");
-
   public WhitelistWarningsGuard() {
     this(ImmutableSet.<String>of());
   }
@@ -99,9 +96,8 @@ public class WhitelistWarningsGuard extends WarningsGuard {
   @Override
   public CheckLevel level(JSError error) {
     if (containWarning(getFirstLine(formatWarning(error, true)))) {
-      // If the message matches the guard we use WARNING, so that it
-      // - Shows up on stderr, and
-      // - Gets caught by the WhitelistBuilder downstream in the pipeline
+      // If the message matches the guard we use OFF, so that it error is completely 
+      // suppressed.
       return CheckLevel.OFF;
     }
 
