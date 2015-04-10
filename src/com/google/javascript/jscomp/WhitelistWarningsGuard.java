@@ -91,18 +91,18 @@ public class WhitelistWarningsGuard extends WarningsGuard {
       }
 
       // Strip line number for matching.
-      result.add(LINE_NUMBER.matcher(trimmed).replaceFirst(":"));
+      result.add(trimmed);
     }
     return ImmutableSet.copyOf(result);
   }
 
   @Override
   public CheckLevel level(JSError error) {
-    if (containWarning(formatWarning(error))) {
+    if (containWarning(getFirstLine(formatWarning(error, true)))) {
       // If the message matches the guard we use WARNING, so that it
       // - Shows up on stderr, and
       // - Gets caught by the WhitelistBuilder downstream in the pipeline
-      return CheckLevel.WARNING;
+      return CheckLevel.OFF;
     }
 
     return null;
