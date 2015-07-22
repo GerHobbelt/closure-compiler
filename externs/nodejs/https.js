@@ -15,12 +15,14 @@
  */
 
 /**
- * @fileoverview Definitions for node's https module. Depends on the tls module.
+ * @fileoverview Definitions for node's https module. Depends on the http and tls module.
  * @see http://nodejs.org/api/https.html
  * @see https://github.com/joyent/node/blob/master/lib/https.js
  */
 
+/** @suppress {duplicate} */
 var http = require('http');
+/** @suppress {duplicate} */
 var tls = require('tls');
 
 /** @const */

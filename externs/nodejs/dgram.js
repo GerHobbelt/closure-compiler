@@ -20,7 +20,7 @@
  * @see https://github.com/joyent/node/blob/master/lib/dgram.js
  */
 
-var events = require('events');
+//var events = require('events');
 
 /**
  * @const

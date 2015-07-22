@@ -20,7 +20,9 @@
  * @see https://github.com/joyent/node/blob/master/lib/child_process.js
  */
 
+/** @suppress {duplicate} */
 var events = require('events');
+/** @suppress {duplicate} */
 var stream = require('stream');
 
 /**

@@ -20,6 +20,7 @@
  * @see https://github.com/joyent/node/blob/master/lib/tty.js
  */
 
+/** @suppress {duplicate} */
 var net = require('net');
 
 /**

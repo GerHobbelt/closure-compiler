@@ -20,6 +20,7 @@
  * @see https://github.com/joyent/node/blob/master/lib/zlib.js
  */
 
+/** @suppress {duplicate} */
 var stream = require('stream');
 
 /**

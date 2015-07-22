@@ -20,8 +20,11 @@
  * @see https://github.com/joyent/node/blob/master/lib/http.js
  */
 
+/** @suppress {duplicate} */
 var events = require('events');
+/** @suppress {duplicate} */
 var net = require('net');
+/** @suppress {duplicate} */
 var stream = require('stream');
 
 /** @const */

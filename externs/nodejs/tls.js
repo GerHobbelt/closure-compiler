@@ -20,9 +20,13 @@
  * @see https://github.com/joyent/node/blob/master/lib/tls.js
  */
 
-var crypto = require('crypto');
+/** @suppress {duplicate} */
+var crypto = require('crypto')
+/** @suppress {duplicate} */;
 var events = require('events');
+/** @suppress {duplicate} */
 var net = require('net');
+/** @suppress {duplicate} */
 var stream = require('stream');
 
 /**

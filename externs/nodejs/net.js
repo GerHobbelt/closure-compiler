@@ -20,6 +20,7 @@
  * @see https://github.com/joyent/node/blob/master/lib/net.js
  */
 
+/** @suppress {duplicate} */
 var events = require('events');
 
 /**

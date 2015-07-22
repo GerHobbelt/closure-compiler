@@ -20,7 +20,9 @@
  * @see https://github.com/joyent/node/blob/master/lib/cluster.js
  */
 
+/** @suppress {duplicate} */
 var child_process = require('child_process');
+/** @suppress {duplicate} */
 var events = require('events');
 
 /**

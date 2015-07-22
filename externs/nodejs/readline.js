@@ -19,7 +19,9 @@
  * @see http://nodejs.org/api/readline.html
  */
 
+/** @suppress {duplicate} */
 var events = require('events');
+/** @suppress {duplicate} */
 var stream = require('stream');
 
 /**
