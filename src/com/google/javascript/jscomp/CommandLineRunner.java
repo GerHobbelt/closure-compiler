@@ -585,7 +585,7 @@ public class CommandLineRunner extends
     @Option(name = "--env",
         hidden = true,
         usage = "Determines the set of builtin externs to load. "
-            + "Options: LEGACY, NODEJS, CUSTOM. Defaults to LEGACY.")
+            + "Options: LEGACY, CUSTOM. Defaults to LEGACY.")
     private CompilerOptions.Environment environment =
         CompilerOptions.Environment.LEGACY;
 
@@ -1241,6 +1241,13 @@ public class CommandLineRunner extends
     return builder.build();
   }
 
+  // The core language externs expected in externs.zip, in sorted order.
+  private static final List<String> BUILTIN_LANG_EXTERNS = ImmutableList.of(
+      "es3.js",
+      "es5.js",
+      "es6.js",
+      "es6_collections.js");
+
   // Externs expected in externs.zip, in sorted order.
   // Externs not included in this list will be added last
   private static final List<String> BUILTIN_EXTERN_DEP_ORDER = ImmutableList.of(
@@ -1303,41 +1310,11 @@ public class CommandLineRunner extends
 
     List<SourceFile> externs = new ArrayList<>();
 
-    // Add the esX.js externs. Use the highest language level
-    // specified to determine which externs to include.
-    int maxLanguageLevel = CompilerOptions.LanguageMode.maxLevel(
-        options.getLanguageIn(), options.getLanguageOut());
-
-    Preconditions.checkState(
-        externsMap.containsKey("es3.js"),
-        "Externs zip must contain es3.js.");
-    externs.add(externsMap.remove("es3.js"));
-
-    if (maxLanguageLevel >= 5) {
+    for (String key : BUILTIN_LANG_EXTERNS) {
       Preconditions.checkState(
-          externsMap.containsKey("es5.js"),
-          "Externs zip must contain es5.js.");
-      externs.add(externsMap.remove("es5.js"));
-    } else if (externsMap.containsKey("es5.js")) {
-      externsMap.remove("es5.js");
-    }
-
-    if (maxLanguageLevel >= 6) {
-      Preconditions.checkState(
-          externsMap.containsKey("es6.js"),
-          "Externs zip must contain es6.js.");
-      Preconditions.checkState(
-          externsMap.containsKey("es6_collections.js"),
-          "Externs zip must contain es6_collections.js.");
-      externs.add(externsMap.remove("es6.js"));
-      externs.add(externsMap.remove("es6_collections.js"));
-    } else {
-      if (externsMap.containsKey("es6.js")) {
-        externsMap.remove("es6.js");
-      }
-      if (externsMap.containsKey("es6_collections.js")) {
-        externsMap.remove("es6_collections.js");
-      }
+          externsMap.containsKey(key),
+          "Externs zip must contain " + key + ".");
+      externs.add(externsMap.remove(key));
     }
 
     // Order matters, so extern resources which have dependencies must be added
@@ -1351,8 +1328,7 @@ public class CommandLineRunner extends
           externsMap.containsKey(key),
           "Externs zip must contain " + key + " when environment is " +
               options.getEnvironment().toString());
-      externs.add(externsMap.get(key));
-      externsMap.remove(key);
+      externs.add(externsMap.remove(key));
     }
 
     externs.addAll(externsMap.values());
