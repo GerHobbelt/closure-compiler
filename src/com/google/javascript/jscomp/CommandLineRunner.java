@@ -585,9 +585,9 @@ public class CommandLineRunner extends
     @Option(name = "--env",
         hidden = true,
         usage = "Determines the set of builtin externs to load. "
-            + "Options: LEGACY, CUSTOM. Defaults to LEGACY.")
+            + "Options: BROWSER, CUSTOM. Defaults to BROWSER.")
     private CompilerOptions.Environment environment =
-        CompilerOptions.Environment.LEGACY;
+        CompilerOptions.Environment.BROWSER;
 
     @Argument
     private List<String> arguments = new ArrayList<>();
@@ -1251,24 +1251,24 @@ public class CommandLineRunner extends
   // Externs expected in externs.zip, in sorted order.
   // Externs not included in this list will be added last
   private static final List<String> BUILTIN_EXTERN_DEP_ORDER = ImmutableList.of(
-    //-- Legacy externs --
-    "legacy/intl.js",
-    "legacy/w3c_event.js",
-    "legacy/w3c_event3.js",
-    "legacy/gecko_event.js",
-    "legacy/ie_event.js",
-    "legacy/webkit_event.js",
-    "legacy/w3c_device_sensor_event.js",
-    "legacy/w3c_dom1.js",
-    "legacy/w3c_dom2.js",
-    "legacy/w3c_dom3.js",
-    "legacy/gecko_dom.js",
-    "legacy/ie_dom.js",
-    "legacy/webkit_dom.js",
-    "legacy/w3c_css.js",
-    "legacy/gecko_css.js",
-    "legacy/ie_css.js",
-    "legacy/webkit_css.js"
+    //-- browser externs --
+    "browser/intl.js",
+    "browser/w3c_event.js",
+    "browser/w3c_event3.js",
+    "browser/gecko_event.js",
+    "browser/ie_event.js",
+    "browser/webkit_event.js",
+    "browser/w3c_device_sensor_event.js",
+    "browser/w3c_dom1.js",
+    "browser/w3c_dom2.js",
+    "browser/w3c_dom3.js",
+    "browser/gecko_dom.js",
+    "browser/ie_dom.js",
+    "browser/webkit_dom.js",
+    "browser/w3c_css.js",
+    "browser/gecko_css.js",
+    "browser/ie_css.js",
+    "browser/webkit_css.js"
   );
 
   /**
@@ -1310,6 +1310,7 @@ public class CommandLineRunner extends
 
     List<SourceFile> externs = new ArrayList<>();
 
+    // The externs for core JS objects are loaded in all environments.
     for (String key : BUILTIN_LANG_EXTERNS) {
       Preconditions.checkState(
           externsMap.containsKey(key),

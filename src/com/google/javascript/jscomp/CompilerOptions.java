@@ -967,7 +967,7 @@ public class CompilerOptions implements Serializable {
     languageOut = LanguageMode.NO_TRANSPILE;
 
     // Which environment to use
-    environment = Environment.LEGACY;
+    environment = Environment.BROWSER;
 
     // Language variation
     acceptTypeSyntax = false;
@@ -2388,13 +2388,20 @@ public class CompilerOptions implements Serializable {
     /** Whether this is ECMAScript 5 or higher. */
     public boolean isEs5OrHigher() {
       Preconditions.checkState(this != NO_TRANSPILE);
-      return this.toInteger() >= 5;
+      return this != LanguageMode.ECMASCRIPT3;
     }
 
     /** Whether this is ECMAScript 6 or higher. */
     public boolean isEs6OrHigher() {
       Preconditions.checkState(this != NO_TRANSPILE);
-      return this.toInteger() >= 6;
+      switch (this) {
+        case ECMASCRIPT6:
+        case ECMASCRIPT6_STRICT:
+        case ECMASCRIPT6_TYPED:
+          return true;
+        default:
+          return false;
+      }
     }
 
     public static LanguageMode fromString(String value) {
@@ -2422,34 +2429,6 @@ public class CompilerOptions implements Serializable {
           return LanguageMode.ECMASCRIPT6_TYPED;
       }
       return null;
-    }
-
-    public int toInteger() {
-      Preconditions.checkState(this != NO_TRANSPILE);
-      switch (this) {
-        case ECMASCRIPT6:
-        case ECMASCRIPT6_STRICT:
-        case ECMASCRIPT6_TYPED:
-          return 6;
-
-        case ECMASCRIPT5:
-        case ECMASCRIPT5_STRICT:
-          return 5;
-
-        case ECMASCRIPT3:
-        default:
-          return 3;
-      }
-    }
-
-    public static int maxLevel(LanguageMode... modes) {
-      int max = 3;
-      for (LanguageMode mode : modes) {
-        if (mode != NO_TRANSPILE && mode.toInteger() > max) {
-          max = mode.toInteger();
-        }
-      }
-      return max;
     }
   }
 
@@ -2600,7 +2579,7 @@ public class CompilerOptions implements Serializable {
     /**
      * Hand crafted externs that have traditionally been the default externs.
      */
-    LEGACY,
+    BROWSER,
 
     /**
      * Only language externs are loaded.

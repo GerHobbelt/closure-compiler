@@ -104,7 +104,7 @@ public final class CompileTask
     this.warningLevel = WarningLevel.DEFAULT;
     this.debugOptions = false;
     this.compilationLevel = CompilationLevel.SIMPLE_OPTIMIZATIONS;
-    this.environment = CompilerOptions.Environment.LEGACY;
+    this.environment = CompilerOptions.Environment.BROWSER;
     this.manageDependencies = false;
     this.prettyPrint = false;
     this.printInputDelimiter = false;
@@ -180,7 +180,7 @@ public final class CompileTask
   public void setEnvironment(String value) {
     switch (value) {
       case "LEGACY":
-        this.environment = CompilerOptions.Environment.LEGACY;
+        this.environment = CompilerOptions.Environment.BROWSER;
         break;
       case "CUSTOM":
         this.environment = CompilerOptions.Environment.CUSTOM;

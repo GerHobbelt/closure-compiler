@@ -71,7 +71,7 @@ final class RefasterJs {
   @Option(name = "--env",
       usage = "Which set of externs to include. Defaults to LEGACY.")
   private CompilerOptions.Environment environment =
-      CompilerOptions.Environment.LEGACY;
+      CompilerOptions.Environment.BROWSER;
 
   @Option(name = "--dry_run",
       usage = "Use this to display what changes would be made without applying the changes.")
