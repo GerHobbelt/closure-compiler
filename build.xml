@@ -13,7 +13,7 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 -->
-<project name="compiler" basedir="." default="jar">
+<project name="compiler" basedir="." default="dist">
 
   <!--
     Use -Dtest.class to change what tests are run on the command-line.
@@ -63,6 +63,8 @@
   <property name="refasterjs.dir" value="${basedir}/src/com/google/javascript/refactoring" />
   <property name="refasterjs-classes.dir" value = "${build.dir}/refasterjs-classes" />
   <property name="refasterjs-jarfile" value="${build.dir}/refasterjs.jar" />
+
+  <property name="dist.dir" value="${basedir}/bin" />
 
   <!-- The following server is used to deploy releases to maven central via Sonatypes
        publishing service which runs on oss.sonatype.org.
@@ -192,6 +194,18 @@
                    value="com.google.javascript.jscomp.CommandLineRunner" />
       </manifest>
     </jar>
+  </target>
+
+  <target name="dist"
+          description="compile the source code and copy the binaries to the bin/ directory"
+          depends="jar">
+    <mkdir dir="dist.dir" />
+
+    <copy file="${build.dir}/compiler.jar"
+          todir="${dist.dir}/" />
+
+    <copy file="${build.dir}/externs.zip"
+          todir="${dist.dir}/" />
   </target>
 
   <target name="compile-tests"
