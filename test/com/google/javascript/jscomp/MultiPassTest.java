@@ -44,7 +44,7 @@ public class MultiPassTest extends CompilerTestCase {
         new PassFactory("sanityCheck", false) {
           @Override
           protected CompilerPass create(AbstractCompiler compiler) {
-            return new SanityCheck(compiler, false);
+            return new SanityCheck(compiler);
           }
         });
     compiler.setPhaseOptimizer(phaseopt);
@@ -157,7 +157,8 @@ public class MultiPassTest extends CompilerTestCase {
           protected CompilerPass create(AbstractCompiler compiler) {
             return new InlineFunctions(
                 compiler, compiler.getUniqueNameIdSupplier(),
-                true, true, true, true, true);
+                true, true, true, true, true,
+                CompilerOptions.UNLIMITED_FUN_SIZE_AFTER_INLINING);
           }
         });
   }

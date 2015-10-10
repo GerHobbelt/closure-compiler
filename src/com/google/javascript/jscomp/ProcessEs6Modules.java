@@ -17,6 +17,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.ProcessCommonJSModules.FindGoogProvideOrGoogModule;
 import com.google.javascript.jscomp.Scope.Var;
@@ -45,11 +46,10 @@ import java.util.regex.Pattern;
  */
 public class ProcessEs6Modules extends AbstractPostOrderCallback {
   private static final String MODULE_SLASH = ES6ModuleLoader.MODULE_SLASH;
-  public static final String DEFAULT_FILENAME_PREFIX =
-      "." + ES6ModuleLoader.MODULE_SLASH;
 
   private static final String MODULE_NAME_SEPARATOR = "\\$";
   private static final String MODULE_NAME_PREFIX = "module$";
+  private static final String DEFAULT_EXPORT_NAME = "$jscompDefaultExport";
 
   private final ES6ModuleLoader loader;
 
@@ -132,8 +132,8 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
         continue;
       } else if (child.isName()) { // import a from "mod"
         importMap.put(child.getString(),
-            new ModuleOriginalNamePair(moduleName, child.getString()));
-        namesToRequire.add(child.getString());
+            new ModuleOriginalNamePair(moduleName, "default"));
+        namesToRequire.add("default");
       } else if (child.getType() == Token.IMPORT_SPECS) {
         for (Node grandChild : child.children()) {
           String origName = grandChild.getFirstChild().getString();
@@ -188,14 +188,29 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
 
   private void visitExport(NodeTraversal t, Node n, Node parent) {
     if (n.getBooleanProp(Node.EXPORT_DEFAULT)) {
-      compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
-          "Default export"));
+      Node var = IR.var(IR.name(DEFAULT_EXPORT_NAME), n.removeFirstChild());
+      n.getParent().replaceChild(n, var);
+      exportMap.put("default", DEFAULT_EXPORT_NAME);
     } else if (n.getBooleanProp(Node.EXPORT_ALL_FROM)) {
       compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
           "Wildcard export"));
     } else if (n.getChildCount() == 2) {
-      compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
-          "Export with FromClause"));
+      //   export {x, y as z} from 'moduleIdentifier';
+      Node moduleIdentifier = n.getLastChild();
+      Node importNode = new Node(Token.IMPORT, moduleIdentifier.cloneNode());
+      importNode.copyInformationFrom(n);
+      parent.addChildBefore(importNode, n);
+      visit(t, importNode, parent);
+
+      String loadAddress = loader.locate(moduleIdentifier.getString(), t.getInput());
+      String moduleName = toModuleName(loadAddress);
+
+      for (Node exportSpec : n.getFirstChild().children()) {
+        String nameFromOtherModule = exportSpec.getFirstChild().getString();
+        String exportedName = exportSpec.getLastChild().getString();
+        exportMap.put(exportedName, moduleName + "." + nameFromOtherModule);
+      }
+      parent.removeChild(n);
     } else {
       if (n.getFirstChild().getType() == Token.EXPORT_SPECS) {
         for (Node exportSpec : n.getFirstChild().children()) {
@@ -248,24 +263,19 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
 
     String moduleName = toModuleName(loader.getLoadAddress(t.getInput()));
 
-    // Rename vars to not conflict in global scope.
-    NodeTraversal.traverse(compiler, script, new RenameGlobalVars(moduleName));
-
-    if (exportMap.isEmpty()) {
-      return;
+    if (!exportMap.isEmpty()) {
+      // Creates an export object for this module.
+      // var moduleName = {};
+      Node objectlit = IR.objectlit();
+      Node varNode = IR.var(IR.name(moduleName), objectlit)
+          .useSourceInfoIfMissingFromForTree(script);
+      script.addChildToBack(varNode);
     }
 
-    // Creates an export object for this module.
-    // var moduleName = {};
-    Node objectlit = IR.objectlit();
-    Node varNode = IR.var(IR.name(moduleName), objectlit)
-        .useSourceInfoIfMissingFromForTree(script);
-    script.addChildToBack(varNode);
-
-    // moduleName.foo = moduleName$$foo;
+    // moduleName.foo = foo;
     for (Map.Entry<String, String> entry : exportMap.entrySet()) {
       String exportedName = entry.getKey();
-      String withSuffix = entry.getValue() + "$$" + moduleName;
+      String withSuffix = entry.getValue();
       Node getProp = IR.getprop(IR.name(moduleName), IR.string(exportedName));
       Node exprResult = IR.exprResult(IR.assign(
           getProp,
@@ -275,7 +285,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
     }
 
     // Add @typedefs for the the type checker.
-    // /** @typedef {moduleName$$foo} */ moduleName.foo;
+    // /** @typedef {foo$$moduleName} */ moduleName.foo;
     for (String name : typedefs) {
       Node typedef = IR.getprop(IR.name(moduleName), IR.string(name));
       JSDocInfoBuilder builder = new JSDocInfoBuilder(true);
@@ -285,28 +295,43 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
       JSDocInfo info = builder.build(typedef);
       typedef.setJSDocInfo(info);
       script.addChildToBack(IR.exprResult(typedef)
-          .useSourceInfoIfMissingFromForTree(varNode));
+          .useSourceInfoIfMissingFromForTree(script));
     }
 
-    // Add goog.provide call.
-    Node googProvide = IR.exprResult(
-        IR.call(NodeUtil.newQName(compiler, "goog.provide"),
-            IR.string(moduleName)));
-    script.addChildToFront(googProvide.copyInformationFromForTree(script));
-    if (reportDependencies) {
-      t.getInput().addProvide(moduleName);
-    }
+    // Rename vars to not conflict in global scope.
+    NodeTraversal.traverse(compiler, script, new RenameGlobalVars(moduleName));
 
-    for (String name : exportMap.keySet()) {
-      String qualifiedName = moduleName + "." + name;
-      script.addChildAfter(IR.exprResult(
+    if (!exportMap.isEmpty()) {
+      // Add goog.provide call.
+      Node googProvide = IR.exprResult(
           IR.call(NodeUtil.newQName(compiler, "goog.provide"),
-              IR.string(qualifiedName)))
-              .copyInformationFromForTree(script), googProvide);
+              IR.string(moduleName)));
+      script.addChildToFront(googProvide.copyInformationFromForTree(script));
       if (reportDependencies) {
-        t.getInput().addProvide(qualifiedName);
+        t.getInput().addProvide(moduleName);
+      }
+
+      for (String name : exportMap.keySet()) {
+        String qualifiedName = moduleName + "." + name;
+        Node newGoogProvide = IR.exprResult(
+            IR.call(NodeUtil.newQName(compiler, "goog.provide"),
+                IR.string(qualifiedName)));
+        newGoogProvide.copyInformationFromForTree(script);
+        if (name.equals("default")) {
+          JSDocInfoBuilder jsDocInfo = script.getJSDocInfo() == null
+              ? new JSDocInfoBuilder(false)
+              : JSDocInfoBuilder.copyFrom(script.getJSDocInfo());
+          jsDocInfo.recordSuppressions(ImmutableSet.of("invalidProvide"));
+          script.setJSDocInfo(jsDocInfo.build(script));
+        }
+
+        script.addChildAfter(newGoogProvide, googProvide);
+        if (reportDependencies) {
+          t.getInput().addProvide(qualifiedName);
+        }
       }
     }
+
     exportMap.clear();
     compiler.reportCodeChange();
   }

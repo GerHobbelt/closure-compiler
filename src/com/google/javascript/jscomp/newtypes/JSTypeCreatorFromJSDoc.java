@@ -21,11 +21,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CodingConvention;
+import com.google.javascript.jscomp.DiagnosticType;
+import com.google.javascript.jscomp.JSError;
 import com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.Token;
 
 import java.util.HashMap;
@@ -41,14 +42,22 @@ import java.util.Set;
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public class JSTypeCreatorFromJSDoc {
+  public static final DiagnosticType INVALID_GENERICS_INSTANTIATION =
+      DiagnosticType.warning(
+        "JSC_INVALID_GENERICS_INSTANTIATION",
+        "Invalid generics instantiation for {0}.\n"
+        + "Expected {1} type argument(s), but found {2}.");
+
+  public static final DiagnosticType BAD_JSDOC_ANNOTATION =
+      DiagnosticType.warning(
+        "JSC_BAD_JSDOC_ANNOTATION",
+        "Bad JSDoc annotation. {0}");
 
   private final CodingConvention convention;
 
   // Used to communicate state between methods when resolving enum types
   private int howmanyTypeVars = 0;
 
-  private static final JSType UNKNOWN_FUNCTION_OR_NULL =
-      JSType.join(JSType.qmarkFunction(), JSType.NULL);
   private static final JSType OBJECT_OR_NULL =
       JSType.join(JSType.TOP_OBJECT, JSType.NULL);
 
@@ -59,12 +68,22 @@ public class JSTypeCreatorFromJSDoc {
     }
   }
 
-  private SimpleErrorReporter reporter = new SimpleErrorReporter();
+  private Set<JSError> warnings = new HashSet<>();
   // Unknown type names indexed by JSDoc AST node at which they were found.
   private Map<Node, String> unknownTypeNames = new HashMap<>();
 
   public JSTypeCreatorFromJSDoc(CodingConvention convention) {
     this.convention = convention;
+  }
+
+  private JSType qmarkFunctionOrNull = null;
+
+  private JSType getQmarkFunctionOrNull(JSTypes commonTypes) {
+    if (qmarkFunctionOrNull == null) {
+      qmarkFunctionOrNull =
+          JSType.join(commonTypes.qmarkFunction(), JSType.NULL);
+    }
+    return qmarkFunctionOrNull;
   }
 
   public JSType getNodeTypeDeclaration(JSDocInfo jsdoc,
@@ -82,11 +101,7 @@ public class JSTypeCreatorFromJSDoc {
         jsdoc.getType(), ownerType, registry, typeParameters);
   }
 
-  public Set<String> getWarnings() {
-    Set<String> warnings = new HashSet<>();
-    if (reporter.warnings() != null) {
-      warnings.addAll(reporter.warnings());
-    }
+  public Set<JSError> getWarnings() {
     return warnings;
   }
 
@@ -100,8 +115,8 @@ public class JSTypeCreatorFromJSDoc {
     if (expr == null) {
       return null;
     }
-    JSType result = getTypeFromNode(expr.getRootNode(), ownerType, registry,
-        typeParameters);
+    JSType result =
+        getTypeFromNode(expr.getRoot(), ownerType, registry, typeParameters);
     return result;
   }
 
@@ -230,7 +245,7 @@ public class JSTypeCreatorFromJSDoc {
       case "void":
         return JSType.UNDEFINED;
       case "Function":
-        return UNKNOWN_FUNCTION_OR_NULL;
+        return getQmarkFunctionOrNull(registry.getCommonTypes());
       case "Object":
         return OBJECT_OR_NULL;
       default: {
@@ -280,7 +295,7 @@ public class JSTypeCreatorFromJSDoc {
     JSType tdType;
     if (texp == null) {
       warn("Circular type definitions are not allowed.",
-          td.getTypeExprForErrorReporting().getRootNode());
+          td.getTypeExprForErrorReporting().getRoot());
       tdType = JSType.UNKNOWN;
     } else {
       tdType = getTypeFromJSTypeExpression(texp, null, registry, null);
@@ -303,22 +318,22 @@ public class JSTypeCreatorFromJSDoc {
     JSType enumeratedType;
     if (texp == null) {
       warn("Circular type definitions are not allowed.",
-          e.getTypeExprForErrorReporting().getRootNode());
+          e.getTypeExprForErrorReporting().getRoot());
       enumeratedType = JSType.UNKNOWN;
     } else {
       int numTypeVars = howmanyTypeVars;
       enumeratedType = getTypeFromJSTypeExpression(texp, null, registry, null);
       if (howmanyTypeVars > numTypeVars) {
-        warn("An enum type cannot include type variables.", texp.getRootNode());
+        warn("An enum type cannot include type variables.", texp.getRoot());
         enumeratedType = JSType.UNKNOWN;
         howmanyTypeVars = numTypeVars;
       } else if (enumeratedType.isTop()) {
         warn("An enum type cannot be *. " +
             "Use ? if you do not want the elements checked.",
-            texp.getRootNode());
+            texp.getRoot());
         enumeratedType = JSType.UNKNOWN;
       } else if (enumeratedType.isUnion()) {
-        warn("An enum type cannot be a union type.", texp.getRootNode());
+        warn("An enum type cannot be a union type.", texp.getRoot());
         enumeratedType = JSType.UNKNOWN;
       }
     }
@@ -352,11 +367,9 @@ public class JSTypeCreatorFromJSDoc {
       String nominalTypeName = uninstantiated.getName();
       if (!nominalTypeName.equals("Object")) {
         // TODO(dimvar): remove this once we handle parameterized Object
-        warn("Invalid generics instantiation for " + nominalTypeName + ".\n"
-            + "Expected " + typeParamsSize
-            + " type argument(s), but found "
-            + typeArgsSize,
-            n);
+        warnings.add(JSError.make(
+            n, INVALID_GENERICS_INSTANTIATION,
+            nominalTypeName, String.valueOf(typeParamsSize), String.valueOf(typeArgsSize)));
       }
       return JSType.join(JSType.NULL,
           JSType.fromObjectType(ObjectType.fromNominalType(
@@ -387,8 +400,10 @@ public class JSTypeCreatorFromJSDoc {
       DeclaredTypeRegistry registry,
       ImmutableList<String> typeParameters)
       throws UnknownTypeException {
-    return getFunTypeBuilder(jsdocNode, ownerType, registry, typeParameters)
-        .buildType();
+    FunctionType funType =
+        getFunTypeBuilder(jsdocNode, ownerType, registry, typeParameters)
+        .buildFunction();
+    return registry.getCommonTypes().fromFunctionType(funType);
   }
 
   private FunctionTypeBuilder getFunTypeBuilder(
@@ -482,7 +497,7 @@ public class JSTypeCreatorFromJSDoc {
     for (JSTypeExpression texp : (implementedIntfs ?
           jsdoc.getImplementedInterfaces() :
           jsdoc.getExtendedInterfaces())) {
-      Node expRoot = texp.getRootNode();
+      Node expRoot = texp.getRoot();
       if (hasKnownType(expRoot, ownerType, registry, typeParameters)) {
         NominalType nt =
             getNominalType(expRoot, ownerType, registry, typeParameters);
@@ -517,7 +532,7 @@ public class JSTypeCreatorFromJSDoc {
       DeclaredTypeRegistry registry) {
     try {
       if (jsdoc != null && jsdoc.getType() != null) {
-        Node jsdocNode = jsdoc.getType().getRootNode();
+        Node jsdocNode = jsdoc.getType().getRoot();
         int tokenType = jsdocNode.getType();
         if (tokenType == Token.FUNCTION) {
           if (declNode.isFunction()) {
@@ -552,7 +567,7 @@ public class JSTypeCreatorFromJSDoc {
       DeclaredTypeRegistry registry) {
     Preconditions.checkArgument(funNode.isFunction());
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
-    Node childJsdoc = jsdoc.getType().getRootNode().getFirstChild();
+    Node childJsdoc = jsdoc.getType().getRoot().getFirstChild();
     Node param = funNode.getFirstChild().getNext().getFirstChild();
     Node paramType;
     boolean warnedForMissingTypes = false;
@@ -721,7 +736,7 @@ public class JSTypeCreatorFromJSDoc {
       boolean isRequired = true, isRestFormals = false;
       JSTypeExpression texp = jsdoc == null ?
           null : jsdoc.getParameterType(pname);
-      Node jsdocNode = texp == null ? null : texp.getRootNode();
+      Node jsdocNode = texp == null ? null : texp.getRoot();
       if (param != null) {
         if (convention.isOptionalParameter(param)) {
           isRequired = false;
@@ -793,13 +808,13 @@ public class JSTypeCreatorFromJSDoc {
       return false;
     }
     JSTypeExpression texp = funJsdoc.getParameterType(formalParamName);
-    Node jsdocNode = texp == null ? null : texp.getRootNode();
+    Node jsdocNode = texp == null ? null : texp.getRoot();
     return jsdocNode != null && jsdocNode.getType() == Token.ELLIPSIS;
   }
 
+  // TODO(blickly): Add more DiagnosticTypes and remove this method
   void warn(String msg, Node faultyNode) {
-    reporter.warning(msg, faultyNode.getSourceFileName(),
-        faultyNode.getLineno(), faultyNode.getCharno());
+    warnings.add(JSError.make(faultyNode, BAD_JSDOC_ANNOTATION, msg));
   }
 
 }

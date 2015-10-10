@@ -120,6 +120,38 @@ public class IntegrationTest extends IntegrationTestCase {
          "goog.inherits(G, F); goog.exportSymbol('G', G);");
   }
 
+  public void testBug18078936() {
+    CompilerOptions options = createCompilerOptions();
+    options.closurePass = true;
+
+    WarningLevel.VERBOSE.setOptionsForWarningLevel(options);
+
+    test(options,
+        "var goog = {};" +
+        "goog.inherits = function(a,b) {};" +
+        "goog.defineClass = function(a,b) {};" +
+
+         "/** @template T */\n" +
+         "var ClassA = goog.defineClass(null, {\n" +
+         "  constructor: function() {},\n" +
+         "" +
+         "  /** @param {T} x */\n" +
+         "  fn: function(x) {}\n" +
+         "});\n" +
+         "" +
+         "/** @extends {ClassA.<string>} */\n" +
+         "var ClassB = goog.defineClass(ClassA, {\n" +
+         "  constructor: function() {},\n" +
+         "" +
+         "  /** @override */\n" +
+         "  fn: function(x) {}\n" +
+         "});\n" +
+         "" +
+         "(new ClassB).fn(3);\n" +
+         "",
+         TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
   public void testIssue90() {
     CompilerOptions options = createCompilerOptions();
     options.foldConstants = true;
@@ -2340,6 +2372,19 @@ public class IntegrationTest extends IntegrationTestCase {
         "a.b.c.myFunc = function(x) {};");
   }
 
+  public void testSuppressBadGoogRequire() throws Exception {
+    CompilerOptions options = createCompilerOptions();
+    options.closurePass = true;
+    options.checkTypes = true;
+    test(
+        options,
+        "/** @suppress {closureDepMethodUsageChecks} */\n" +
+        "function f() { goog.require('foo'); }\n" +
+        "f();",
+        "function f() { goog.require('foo'); }\n" +
+        "f();");
+  }
+
   public void testIssue1204() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS
@@ -3039,6 +3084,16 @@ public class IntegrationTest extends IntegrationTestCase {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
     } catch (CompilerOptionsPreprocessor.InvalidOptionsException e) {}
+  }
+
+  public void testMaxFunSizeAfterInliningUsage() {
+    CompilerOptions options = new CompilerOptions();
+    options.inlineFunctions = false;
+    options.setMaxFunctionSizeAfterInlining(1);
+    try {
+      test(options, "", "");
+      fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
+    } catch (CompilerOptionsPreprocessor.InvalidOptionsException expected) {}
   }
 
   public void testManyAdds() {

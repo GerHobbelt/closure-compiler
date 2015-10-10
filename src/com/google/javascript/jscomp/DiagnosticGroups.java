@@ -22,6 +22,8 @@ import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.lint.CheckEnums;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
+import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
+import com.google.javascript.jscomp.newtypes.JSTypeCreatorFromJSDoc;
 
 import java.util.Map;
 
@@ -213,6 +215,11 @@ public class DiagnosticGroups {
           GlobalTypeInfo.ALL_DIAGNOSTICS,
           NewTypeInference.ALL_DIAGNOSTICS);
 
+  public static final DiagnosticGroup NEW_WARNINGS_OVERLOAD =
+      DiagnosticGroups.registerGroup("newCheckTypesWarningsOverload",
+          JSTypeCreatorFromJSDoc.INVALID_GENERICS_INSTANTIATION,
+          NewTypeInference.NULLABLE_DEREFERENCE);
+
   public static final DiagnosticGroup CHECK_EVENTFUL_OBJECT_DISPOSAL =
       DiagnosticGroups.registerGroup("checkEventfulObjectDisposal",
           CheckEventfulObjectDisposal.EVENTFUL_OBJECT_NOT_DISPOSED,
@@ -337,11 +344,16 @@ public class DiagnosticGroups {
           CheckInterfaces.INTERFACE_FUNCTION_NOT_EMPTY,
           CheckInterfaces.INTERFACE_SHOULD_NOT_TAKE_ARGS,
           CheckNullableReturn.NULLABLE_RETURN,
-          CheckNullableReturn.NULLABLE_RETURN_WITH_NAME);
+          CheckNullableReturn.NULLABLE_RETURN_WITH_NAME,
+          CheckPrototypeProperties.ILLEGAL_PROTOTYPE_MEMBER);
 
   public static final DiagnosticGroup USE_OF_GOOG_BASE =
       DiagnosticGroups.registerGroup("useOfGoogBase",
           ProcessClosurePrimitives.USE_OF_GOOG_BASE);
+
+  public static final DiagnosticGroup CLOSURE_DEP_METHOD_USAGE_CHECKS =
+      DiagnosticGroups.registerGroup("closureDepMethodUsageChecks",
+          ProcessClosurePrimitives.INVALID_CLOSURE_CALL_ERROR);
 
   // This group exists so that generated code can suppress these
   // warnings. Not for general use. These diagnostics will most likely
@@ -358,6 +370,12 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("conformanceViolations",
           CheckConformance.CONFORMANCE_VIOLATION,
           CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+
+  static {
+    // For internal use only, so there is no constant for it.
+    DiagnosticGroups.registerGroup("invalidProvide",
+        ProcessClosurePrimitives.INVALID_PROVIDE_ERROR);
+  }
 
   /**
    * Adds warning levels by name.

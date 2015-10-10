@@ -16,10 +16,12 @@
 
 /**
  * @fileoverview Externs for the $q service in Angular 1.2
+ * NOTE: Due to a JS compiler bug, any use of a templated class must occur after
+ * the class is defined. Please be careful with the ordering of the classes and
+ * functions.
  * @see https://docs.angularjs.org/api/ng/service/$q
  * @externs
  */
-
 
 /******************************************************************************
  * $q Service
@@ -29,6 +31,54 @@
  * @constructor
  */
 angular.$q;
+
+/**
+ * @constructor
+ * @template T
+ * @extends {IThenable.<T>}
+ */
+angular.$q.Promise;
+
+/**
+ * @param {?(function(T):
+ *             (RESULT|IThenable.<RESULT>|Thenable))=} opt_onFulfilled
+ * @param {?(function(*): *)=} opt_onRejected
+ * @param {?(function(*): *)=} opt_notifyCallback
+ * @return {!angular.$q.Promise.<RESULT>}
+ * @template RESULT
+ */
+angular.$q.Promise.prototype.then =
+    function(opt_onFulfilled, opt_onRejected, opt_notifyCallback) {};
+
+/**
+ * @param {?function(?)} callback
+ * @return {!angular.$q.Promise.<T>}
+ */
+angular.$q.Promise.prototype.catch = function(callback) {};
+
+/**
+ * @param {?function(?)} callback
+ * @return {!angular.$q.Promise.<T>}
+ */
+angular.$q.Promise.prototype.finally = function(callback) {};
+
+/**
+ * @constructor
+ * @template T
+ */
+angular.$q.Deferred;
+
+/** @param {T=} opt_value */
+angular.$q.Deferred.prototype.resolve = function(opt_value) {};
+
+/** @param {*=} opt_reason */
+angular.$q.Deferred.prototype.reject = function(opt_reason) {};
+
+/** @param {*=} opt_value */
+angular.$q.Deferred.prototype.notify = function(opt_value) {};
+
+/** @type {!angular.$q.Promise.<T>} */
+angular.$q.Deferred.prototype.promise;
 
 /**
  * @param {!Object.<!angular.$q.Promise>|!Array.<!angular.$q.Promise>} promises
@@ -53,50 +103,3 @@ angular.$q.prototype.reject = function(reason) {};
  * @template RESULT
  */
 angular.$q.prototype.when = function(value) {};
-
-/**
- * @constructor
- * @template T
- */
-angular.$q.Deferred;
-
-/** @param {T=} opt_value */
-angular.$q.Deferred.prototype.resolve = function(opt_value) {};
-
-/** @param {*=} opt_reason */
-angular.$q.Deferred.prototype.reject = function(opt_reason) {};
-
-/** @param {*=} opt_value */
-angular.$q.Deferred.prototype.notify = function(opt_value) {};
-
-/** @type {!angular.$q.Promise.<T>} */
-angular.$q.Deferred.prototype.promise;
-
-/**
- * @constructor
- * @template T
- */
-angular.$q.Promise;
-
-/**
- * @param {?function(T): RESULT} successCallback
- * @param {?function(?)=} opt_errorCallback
- * @param {?function(?)=} opt_notifyCallback
- * @return {!angular.$q.Promise.<RESULT>}
- * @template RESULT
- */
-angular.$q.Promise.prototype.then =
-    function(successCallback, opt_errorCallback, opt_notifyCallback) {};
-
-/**
- * @param {?function(?)} callback
- * @return {!angular.$q.Promise.<T>}
- */
-angular.$q.Promise.prototype.catch = function(callback) {};
-
-/**
- * @param {?function(?)} callback
- * @return {!angular.$q.Promise.<T>}
- */
-angular.$q.Promise.prototype.finally = function(callback) {};
-

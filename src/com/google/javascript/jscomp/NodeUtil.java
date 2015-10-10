@@ -21,7 +21,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
@@ -37,6 +37,8 @@ import com.google.javascript.rhino.jstype.TernaryValue;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -682,6 +684,8 @@ public final class NodeUtil {
         return true;
 
       // Binary operators are only valid if both children are valid.
+      case Token.AND:
+      case Token.OR:
       case Token.ADD:
       case Token.BITAND:
       case Token.BITNOT:
@@ -955,8 +959,9 @@ public final class NodeUtil {
       case Token.EMPTY:
         break;
 
-      // Throws are by definition side effects
+      // Throws are by definition side effects, and yields are similar.
       case Token.THROW:
+      case Token.YIELD:
         return true;
 
       case Token.OBJECTLIT:
@@ -1238,6 +1243,7 @@ public final class NodeUtil {
       case Token.DELPROP:
       case Token.DEC:
       case Token.INC:
+      case Token.YIELD:
       case Token.THROW:
         return true;
       case Token.CALL:
@@ -1282,6 +1288,7 @@ public final class NodeUtil {
   static boolean canBeSideEffected(
       Node n, Set<String> knownConstants, Scope scope) {
     switch (n.getType()) {
+      case Token.YIELD:
       case Token.CALL:
       case Token.NEW:
         // Function calls or constructor can reference changed values.
@@ -1763,6 +1770,10 @@ public final class NodeUtil {
    */
   static Node getEnclosingFunction(Node n) {
     return getEnclosingType(n, Token.FUNCTION);
+  }
+
+  static boolean isInFunction(Node n) {
+    return getEnclosingFunction(n) != null;
   }
 
   static Node getEnclosingStatement(Node n) {
@@ -2821,33 +2832,48 @@ public final class NodeUtil {
         isLatin(name);
   }
 
+  @Deprecated
+  public static boolean isValidQualifiedName(String name) {
+    return isValidQualifiedName(LanguageMode.ECMASCRIPT3, name);
+  }
+
+
   /**
    * Determines whether the given name is a valid qualified name.
    */
-  // TODO(nicksantos): This should be moved into a "Language" API,
-  // so that the results are different for es5 and es3.
-  public static boolean isValidQualifiedName(String name) {
+  public static boolean isValidQualifiedName(LanguageMode mode, String name) {
     if (name.endsWith(".") || name.startsWith(".")) {
       return false;
     }
-    for (String part : Splitter.on('.').split(name)) {
-      if (!isValidSimpleName(part)) {
+
+    List<String> parts = Splitter.on('.').splitToList(name);
+    for (String part : parts) {
+      if (!isValidPropertyName(mode, part)) {
         return false;
       }
     }
-    return true;
+    return isValidSimpleName(parts.get(0));
   }
 
-  /**
-   * Determines whether the given name can appear on the right side of
-   * the dot operator. Many properties (like reserved words) cannot.
-   */
+  @Deprecated
   static boolean isValidPropertyName(String name) {
     return isValidSimpleName(name);
   }
 
+  /**
+   * Determines whether the given name can appear on the right side of
+   * the dot operator. Many properties (like reserved words) cannot, in ES3.
+   */
+  static boolean isValidPropertyName(LanguageMode mode, String name) {
+    if (isValidSimpleName(name)) {
+      return true;
+    } else {
+      return mode.isEs5OrHigher() && TokenStream.isKeyword(name);
+    }
+  }
+
   private static class VarCollector implements Visitor {
-    final Map<String, Node> vars = Maps.newLinkedHashMap();
+    final Map<String, Node> vars = new LinkedHashMap<>();
 
     @Override
     public void visit(Node n) {
@@ -2879,7 +2905,7 @@ public final class NodeUtil {
    * @return {@code true} if the node an assignment to a prototype property of
    *     some constructor.
    */
-  static boolean isPrototypePropertyDeclaration(Node n) {
+  public static boolean isPrototypePropertyDeclaration(Node n) {
     return isExprAssign(n) &&
         isPrototypeProperty(n.getFirstChild().getFirstChild());
   }
@@ -3793,6 +3819,26 @@ public final class NodeUtil {
           }
         },
         Predicates.<Node>alwaysTrue());
+  }
+
+  static int countAstSizeUpToLimit(Node n, final int limit) {
+    // Java doesn't allow accessing mutable local variables from another class.
+    final int[] wrappedSize = {0};
+    visitPreOrder(
+        n,
+        new Visitor() {
+          @Override
+          public void visit(Node n) {
+            wrappedSize[0]++;
+          }
+        },
+        new Predicate<Node>() {
+          @Override
+            public boolean apply(Node n) {
+            return wrappedSize[0] < limit;
+          }
+        });
+    return wrappedSize[0];
   }
 
   /**

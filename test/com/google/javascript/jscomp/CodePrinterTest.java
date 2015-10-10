@@ -979,12 +979,12 @@ public class CodePrinterTest extends TestCase {
     // typedefs but currently they are resolved into the basic types in the
     // type registry.
     assertTypeAnnotations(
-        "/** @typedef {Array.<number>} */ goog.java.Long;\n"
+        "/** @typedef {Array<number>} */ goog.java.Long;\n"
         + "/** @param {!goog.java.Long} a*/\n"
         + "function f(a){};\n",
         "goog.java.Long;\n"
         + "/**\n"
-        + " * @param {(Array.<number>|null)} a\n"
+        + " * @param {(Array<number>|null)} a\n"
         + " * @return {undefined}\n"
         + " */\n"
         + "function f(a) {\n}\n");
@@ -1084,49 +1084,6 @@ public class CodePrinterTest extends TestCase {
         + " * @implements {a.I}\n"
         + " * @implements {a.I2}\n * @constructor\n */\n"
         + "a.Bar = function() {\n};\n");
-  }
-
-  public void testTypeAnnotationsDispatcher1() {
-    assertTypeAnnotations(
-        "var a = {};\n" +
-        "/** \n" +
-        " * @constructor \n" +
-        " * @javadispatch \n" +
-        " */\n" +
-        "a.Foo = function(){}",
-        "var a = {};\n" +
-        "/**\n" +
-        " * @constructor\n" +
-        " * @javadispatch\n" +
-        " */\n" +
-        "a.Foo = function() {\n" +
-        "};\n");
-  }
-
-  public void testTypeAnnotationsDispatcher2() {
-    assertTypeAnnotations(
-        "var a = {};\n" +
-        "/** \n" +
-        " * @constructor \n" +
-        " */\n" +
-        "a.Foo = function(){}\n" +
-        "/**\n" +
-        " * @javadispatch\n" +
-        " */\n" +
-        "a.Foo.prototype.foo = function() {};",
-
-        "var a = {};\n" +
-        "/**\n" +
-        " * @constructor\n" +
-        " */\n" +
-        "a.Foo = function() {\n" +
-        "};\n" +
-        "/**\n" +
-        " * @return {undefined}\n" +
-        " * @javadispatch\n" +
-        " */\n" +
-        "a.Foo.prototype.foo = function() {\n" +
-        "};\n");
   }
 
   public void testU2UFunctionTypeAnnotation1() {
@@ -1353,7 +1310,7 @@ public class CodePrinterTest extends TestCase {
         "\n" + explanation, explanation);
   }
 
-  public void testDoLoopIECompatiblity() {
+  public void testDoLoopIECompatibility() {
     // Do loops within IFs cause syntax errors in IE6 and IE7.
     assertPrint("function f(){if(e1){do foo();while(e2)}else foo()}",
         "function f(){if(e1){do foo();while(e2)}else foo()}");
@@ -1380,7 +1337,7 @@ public class CodePrinterTest extends TestCase {
         "var i=0;a:do{b:do{i++;break b}while(0)}while(0)");
   }
 
-  public void testFunctionSafariCompatiblity() {
+  public void testFunctionSafariCompatibility() {
     // Functions within IFs cause syntax errors on Safari.
     assertPrint("function f(){if(e1){function goo(){return true}}else foo()}",
         "function f(){if(e1){function goo(){return true}}else foo()}");
@@ -1417,11 +1374,28 @@ public class CodePrinterTest extends TestCase {
     assertPrintNumber("1E-6", 0.000001);
     assertPrintNumber("-0x38d7ea4c68001", -0x38d7ea4c68001L);
     assertPrintNumber("0x38d7ea4c68001", 0x38d7ea4c68001L);
+    assertPrintNumber("0x7fffffffffffffff", 0x7fffffffffffffffL);
 
     assertPrintNumber("-1.01", -1.01);
     assertPrintNumber("-.01", -0.01);
     assertPrintNumber(".01", 0.01);
     assertPrintNumber("1.01", 1.01);
+  }
+
+  public void testBiggerThanMaxLongNumericLiterals() {
+    // Since ECMAScript implements IEEE 754 "round to nearest, ties to even",
+    // any literal in the range [0x7ffffffffffffe00,0x8000000000000400] will
+    // round to the same value, namely 2^63. The fact that we print this as
+    // 2^63-1 doesn't matter, since it must be rounded back to 2^63 at runtime.
+    // See:
+    //   http://www.ecma-international.org/ecma-262/5.1/#sec-8.5
+    assertPrint("9223372036854775808", "0x7fffffffffffffff");
+    assertPrint("0x8000000000000000", "0x7fffffffffffffff");
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrint(
+        "0b1000000000000000000000000000000000000000000000000000000000000000",
+        "0x7fffffffffffffff");
+    assertPrint("0o1000000000000000000000", "0x7fffffffffffffff");
   }
 
   // Make sure to test as both a String and a Node, because

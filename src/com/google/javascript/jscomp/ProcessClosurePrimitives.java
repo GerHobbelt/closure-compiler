@@ -17,7 +17,6 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -26,6 +25,7 @@ import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -75,6 +75,12 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       "JSC_DUPLICATE_NAMESPACE_ERROR",
       "namespace \"{0}\" cannot be provided twice");
 
+  static final DiagnosticType WEAK_NAMESPACE_TYPE = DiagnosticType.warning(
+      "JSC_WEAK_NAMESPACE_TYPE",
+      "Provided symbol declared with type Object. This is rarely useful. "
+      + "For more information see "
+      + "https://github.com/google/closure-compiler/wiki/A-word-about-the-type-Object");
+
   static final DiagnosticType FUNCTION_NAMESPACE_ERROR = DiagnosticType.error(
       "JSC_FUNCTION_NAMESPACE_ERROR",
       "\"{0}\" cannot be both provided and declared as a function");
@@ -89,7 +95,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
   static final DiagnosticType INVALID_PROVIDE_ERROR = DiagnosticType.error(
       "JSC_INVALID_PROVIDE_ERROR",
-      "\"{0}\" is not a valid JS identifier name");
+      "\"{0}\" is not a valid {1} qualified name");
 
   static final DiagnosticType INVALID_DEFINE_NAME_ERROR = DiagnosticType.error(
       "JSC_INVALID_DEFINE_NAME_ERROR",
@@ -103,6 +109,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       "JSC_XMODULE_REQUIRE_ERROR",
       "namespace \"{0}\" provided in module {1} " +
       "but required in module {2}");
+
+  static final DiagnosticType INVALID_CLOSURE_CALL_ERROR = DiagnosticType.error(
+      "JSC_INVALID_CLOSURE_CALL_ERROR",
+      "Closure dependency methods(goog.provide, goog.require, etc) must be called at file scope.");
 
   static final DiagnosticType NON_STRING_PASSED_TO_SET_CSS_NAME_MAPPING_ERROR =
       DiagnosticType.error(
@@ -228,7 +238,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
       case Token.CALL:
-        boolean isExpr = parent.isExprResult();
         Node left = n.getFirstChild();
         if (left.isGetProp()) {
           Node name = left.getFirstChild();
@@ -240,18 +249,23 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
             String methodName = name.getNext().getString();
             if ("base".equals(methodName)) {
               processBaseClassCall(t, n);
-            } else if (!isExpr) {
-              // All other methods must be called in an EXPR.
-              break;
             } else if ("define".equals(methodName)) {
-              processDefineCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processDefineCall(t, n, parent);
+              }
             } else if ("require".equals(methodName)) {
-              processRequireCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processRequireCall(t, n, parent);
+              }
             } else if ("provide".equals(methodName)) {
-              processProvideCall(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processProvideCall(t, n, parent);
+              }
             } else if ("inherits".equals(methodName)) {
+              // Note: inherits is allowed in local scope
               processInheritsCall(t, n);
             } else if ("exportSymbol".equals(methodName)) {
+              // Note: exportSymbol is allowed in local scope
               Node arg = left.getNext();
               if (arg.isString()) {
                 int dot = arg.getString().indexOf('.');
@@ -262,9 +276,13 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
                 }
               }
             } else if ("forwardDeclare".equals(methodName)){
-              processForwardDeclare(t, n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processForwardDeclare(t, n, parent);
+              }
             } else if ("addDependency".equals(methodName)) {
-              processAddDependency(n, parent);
+              if (validPrimitiveCall(t, n)) {
+                processAddDependency(n, parent);
+              }
             } else if ("setCssNameMapping".equals(methodName)) {
               processSetCssNameMapping(t, n, parent);
             }
@@ -314,9 +332,14 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
   }
 
-  /**
-   * @param n
-   */
+  private boolean validPrimitiveCall(NodeTraversal t, Node n) {
+    if (!n.getParent().isExprResult() || !t.inGlobalScope()) {
+      compiler.report(t.makeError(n, INVALID_CLOSURE_CALL_ERROR));
+      return false;
+    }
+    return true;
+  }
+
   private void handleClosureDefinesValues(NodeTraversal t, Node n) {
     // var CLOSURE_DEFINES = {};
     if (n.getParent().isVar() && n.hasOneChild() && n.getFirstChild().isObjectLit()) {
@@ -357,8 +380,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       String ns = arg.getString();
       ProvidedName provided = providedNames.get(ns);
       if (provided == null || !provided.isExplicitlyProvided()) {
-        unrecognizedRequires.add(
-            new UnrecognizedRequire(n, ns, t.getSourceName()));
+        unrecognizedRequires.add(new UnrecognizedRequire(n, ns));
       } else {
         JSModule providedModule = provided.explicitModule;
 
@@ -419,7 +441,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
   }
 
-    /**
+  /**
    * Handles a goog.define call.
    */
   private void processDefineCall(NodeTraversal t, Node n, Node parent) {
@@ -427,8 +449,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     Node args = left.getNext();
     if (verifyDefine(t, parent, left, args)) {
       Node nameNode = args;
-      String name = args.getString();
-      Node value = args.getNext();
 
       maybeAddToSymbolTable(left);
       maybeAddStringNodeToSymbolTable(nameNode);
@@ -965,11 +985,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       return false;
     }
 
-    for (String part : Splitter.on('.').split(arg.getString())) {
-      if (!NodeUtil.isValidPropertyName(part)) {
-        compiler.report(t.makeError(arg, INVALID_PROVIDE_ERROR, part));
-        return false;
-      }
+    if (!NodeUtil.isValidQualifiedName(compiler.getLanguageMode(), arg.getString())) {
+      compiler.report(t.makeError(arg, INVALID_PROVIDE_ERROR,
+          arg.getString(), compiler.getLanguageMode().toString()));
     }
     return true;
   }
@@ -1000,11 +1018,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     String name = args.getString();
-    for (String part : name.split("\\.")) {
-      if (!NodeUtil.isValidQualifiedName(part)) {
-        compiler.report(t.makeError(args, INVALID_DEFINE_NAME_ERROR, name));
-        return false;
-      }
+    if (!NodeUtil.isValidQualifiedName(name)) {
+      compiler.report(t.makeError(args, INVALID_DEFINE_NAME_ERROR, name));
+      return false;
     }
 
     JSDocInfo info = expr.getFirstChild().getJSDocInfo();
@@ -1280,6 +1296,30 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
         explicitNode.detachFromParent();
         compiler.reportCodeChange();
 
+        JSDocInfo info;
+        if (candidateDefinition.isExprResult()) {
+          info = candidateDefinition.getFirstChild().getJSDocInfo();
+        } else {
+          info = candidateDefinition.getJSDocInfo();
+        }
+
+        // Validate that the namespace is not declared as a generic object type.
+        if (info != null) {
+          JSTypeExpression expr = info.getType();
+          if (expr != null) {
+            Node n = expr.getRoot();
+            if (n.getType() == Token.BANG) {
+              n = n.getFirstChild();
+            }
+            if (n.getType() == Token.STRING
+                && !n.hasChildren()  // templated object types are ok.
+                && n.getString().equals("Object")) {
+              compiler.report(
+                  JSError.make(candidateDefinition, WEAK_NAMESPACE_TYPE));
+            }
+          }
+        }
+
         // Does this need a VAR keyword?
         replacementNode = candidateDefinition;
         if (candidateDefinition.isExprResult() &&
@@ -1522,12 +1562,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   private static class UnrecognizedRequire {
     final Node requireNode;
     final String namespace;
-    final String inputName;
 
-    UnrecognizedRequire(Node requireNode, String namespace, String inputName) {
+    UnrecognizedRequire(Node requireNode, String namespace) {
       this.requireNode = requireNode;
       this.namespace = namespace;
-      this.inputName = inputName;
     }
   }
 }

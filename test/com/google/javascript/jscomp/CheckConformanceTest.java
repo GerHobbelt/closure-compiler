@@ -214,6 +214,73 @@ public class CheckConformanceTest extends CompilerTestCase {
         "eval()");
   }
 
+  public void testFileOnOnlyApplyToIsChecked() {
+    configuration =
+        "requirement: {\n" +
+        "  type: BANNED_NAME\n" +
+        "  value: 'eval'\n" +
+        "  error_message: 'eval is not allowed'\n" +
+        "  only_apply_to: 'foo.js'\n " +
+        "}";
+    ImmutableList<SourceFile> input = ImmutableList.of(
+            SourceFile.fromCode("foo.js", "eval()"));
+    test(input, input, null, CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: eval is not allowed");
+  }
+
+  public void testFileNotOnOnlyApplyToIsNotChecked() {
+    configuration =
+        "requirement: {\n" +
+        "  type: BANNED_NAME\n" +
+        "  value: 'eval'\n" +
+        "  error_message: 'eval is not allowed'\n" +
+        "  only_apply_to: 'foo.js'\n " +
+        "}";
+    testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
+  }
+
+  public void testFileOnOnlyApplyToRegexpIsChecked() {
+    configuration =
+        "requirement: {\n" +
+        "  type: BANNED_NAME\n" +
+        "  value: 'eval'\n" +
+        "  error_message: 'eval is not allowed'\n" +
+        "  only_apply_to_regexp: 'test.js$'\n " +
+        "}";
+    ImmutableList<SourceFile> input = ImmutableList.of(
+            SourceFile.fromCode("foo_test.js", "eval()"));
+    test(input, input, null, CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: eval is not allowed");
+  }
+
+  public void testFileNotOnOnlyApplyToRegexpIsNotChecked() {
+    configuration =
+        "requirement: {\n" +
+        "  type: BANNED_NAME\n" +
+        "  value: 'eval'\n" +
+        "  error_message: 'eval is not allowed'\n" +
+        "  only_apply_to_regexp: 'test.js$'\n " +
+        "}";
+    testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
+  }
+
+  public void testSpecifyingWhitelistAndOnlyApplyToIsRuntimeError() {
+    configuration =
+        "requirement: {\n" +
+        "  type: BANNED_NAME\n" +
+        "  value: 'eval'\n" +
+        "  error_message: 'eval is not allowed'\n" +
+        "  whitelist: 'blah'\n" +
+        "  only_apply_to_regexp: 'test.js$'\n " +
+        "}";
+    try {
+      testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
+      fail("expected IllegalArgumentException");
+    } catch (Exception e) {
+      assertTrue(e instanceof IllegalArgumentException);
+    }
+  }
+
   public void testBannedCodePattern1() {
     configuration =
         "requirement: {\n" +
@@ -863,5 +930,122 @@ public class CheckConformanceTest extends CompilerTestCase {
         "goog.provide('x'); var x;",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: BanGlobalVars Message");
+  }
+
+  public void testRequireFileoverviewVisibility() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$" +
+                       "RequireFileoverviewVisibility'\n" +
+        "  error_message: 'RequireFileoverviewVisibility Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "var foo = function() {};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: RequireFileoverviewVisibility Message");
+
+    testSame(
+        EXTERNS,
+        "/**\n" +
+        "  * @fileoverview\n" +
+        "  */\n" +
+        "var foo = function() {};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: RequireFileoverviewVisibility Message");
+
+    testSame(
+        EXTERNS,
+        "/**\n" +
+        "  * @package\n" +
+        "  */\n" +
+        "var foo = function() {};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: RequireFileoverviewVisibility Message");
+
+    testSame(
+        "/**\n" +
+        "  * @fileoverview\n" +
+        "  * @package\n" +
+        "  */\n" +
+        "var foo = function() {};");
+  }
+
+  public void testNoImplicitlyPublicDecls() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$" +
+                       "NoImplicitlyPublicDecls'\n" +
+        "  error_message: 'NoImplicitlyPublicDecls Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "goog.provide('foo.bar');\n" +
+        "/** @constructor */foo.bar.Baz = function(){};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: NoImplicitlyPublicDecls Message");
+    testSame(
+        "/** @package\n@fileoverview */\n" +
+        "goog.provide('foo.bar');\n" +
+        "/** @constructor */foo.bar.Baz = function(){};");
+    testSame(
+        "goog.provide('foo.bar');\n" +
+        "/** @package @constructor */foo.bar.Baz = function(){};");
+
+    testSame(
+        EXTERNS,
+        "goog.provide('foo.bar');\n" +
+        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
+        "/** @type {number} */foo.bar.Baz.prototype.quux = 42;",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: NoImplicitlyPublicDecls Message");
+    testSame(
+        "/** @fileoverview\n@package*/\n" +
+        "goog.provide('foo.bar');\n" +
+        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
+        "/** @type {number} */foo.bar.Baz.prototype.quux = 42;");
+    testSame(
+        "goog.provide('foo.bar');\n" +
+        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
+        "/** @package {number} */foo.bar.Baz.prototype.quux = 42;");
+
+    testSame(
+        EXTERNS,
+        "goog.provide('foo');\n" +
+        "/** @public @constructor */\n" +
+        "foo.Bar = function() {\n" +
+        "  /** @type {number} */ this.baz = 52;\n" +
+        "};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: NoImplicitlyPublicDecls Message");
+    testSame(
+        "goog.provide('foo');\n" +
+        "/** @public @constructor */\n" +
+        "foo.Bar = function() {\n" +
+        "  /** @package {number} */ this.baz = 52;\n" +
+        "};");
+    testSame(
+        "/** @fileoverview\n@package */\n" +
+        "goog.provide('foo');\n" +
+        "/** @constructor */\n" +
+        "foo.Bar = function() {\n" +
+        "  /** @type {number} */ this.baz = 52;\n" +
+        "};");
+
+    testSame("goog.provide('foo.bar');");
+
+    // These kinds of declarations aren't currently caught by
+    // NoImplicitlyPublicDecls, but they could be.
+    testSame("var foo");
+    testSame("var foo = 42;");
+    testSame("goog.provide('foo');\n" +
+        "/** @constructor @public */foo.Bar = function() {};\n" +
+        "foo.Bar.prototype = {\n" +
+        "  baz: function(){}\n" +
+        "};");
   }
 }

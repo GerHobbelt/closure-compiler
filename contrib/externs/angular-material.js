@@ -62,13 +62,13 @@ md.$dialog.prototype.show = function(options) {};
 
 
 /**
- * @type {function(*)}
+ * @type {function(*=)}
  */
 md.$dialog.prototype.hide = function() {};
 
 
 /**
- * @type {function(*)}
+ * @type {function(*=)}
  */
 md.$dialog.prototype.cancel = function() {};
 
@@ -105,12 +105,12 @@ md.$toast.prototype.show = function(options) {};
 
 
 /**
- * @type {function(*)}
+ * @type {function(*=)}
  */
 md.$toast.prototype.hide = function() {};
 
 
 /**
- * @type {function(*)}
+ * @type {function(*=)}
  */
 md.$toast.prototype.cancel = function() {};

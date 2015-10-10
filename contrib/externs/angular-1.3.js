@@ -267,7 +267,7 @@ angular.Animation.removeClass = function(element, done) {};
  * @typedef {{
  *   $attr: Object.<string,string>,
  *   $normalize: function(string): string,
- *   $observe: function(string, function(*)): function(*),
+ *   $observe: function(string, function(*)): function(),
  *   $set: function(string, ?(string|boolean), boolean=, string=)
  *   }}
  */
@@ -303,7 +303,7 @@ angular.Attributes.$normalize = function(name) {};
 /**
  * @param {string} key
  * @param {function(*)} fn
- * @return {function(*)}
+ * @return {function()}
  */
 angular.Attributes.$observe = function(key, fn) {};
 
@@ -355,7 +355,7 @@ angular.LinkingFunctions.post = function(scope, iElement, iAttrs, controller) {
  *   bindToController: (boolean|undefined),
  *   compile: (function(
  *       !angular.JQLite=, !angular.Attributes=, Function=)|undefined),
- *   controller: (Function|string|undefined),
+ *   controller: (Function|Array.<string|Function>|string|undefined),
  *   controllerAs: (string|undefined),
  *   link: (function(
  *       !angular.Scope=, !angular.JQLite=, !angular.Attributes=,
@@ -469,6 +469,7 @@ angular.Directive.transclude;
  *   controller: function(string=): Object,
  *   css: function((string|!Object), string=): (!angular.JQLite|string),
  *   data: function(string=, *=): *,
+ *   detach: function(): !angular.JQLite,
  *   empty: function(): !angular.JQLite,
  *   eq: function(number): !angular.JQLite,
  *   find: function(string): !angular.JQLite,
@@ -1378,70 +1379,6 @@ angular.$http.defaults;
 angular.$http.pendingRequests;
 
 /**
- * @typedef {function((string|Object), number,
- *     function(string=): (string|Object|null), angular.$http.Config)}
- */
-angular.HttpCallback;
-
-/**
- * @typedef {{
- *   then: function(
- *       ?function(!angular.$http.Response),
- *       ?function(!angular.$http.Response)=,
- *       ?function(!angular.$http.Response)=): !angular.$http.HttpPromise,
- *   catch: function(
- *       ?function(!angular.$http.Response)): !angular.$http.HttpPromise,
- *   finally: function(
- *       ?function(!angular.$http.Response)): !angular.$http.HttpPromise,
- *   success: function(!angular.HttpCallback): !angular.$http.HttpPromise,
- *   error: function(!angular.HttpCallback): !angular.$http.HttpPromise
- * }}
- */
-angular.$http.HttpPromise;
-
-/**
- * @param {?function(!angular.$http.Response)} successCallback
- * @param {?function(!angular.$http.Response)=} opt_errorCallback
- * @return {!angular.$http.HttpPromise}
- */
-angular.$http.HttpPromise.then = function(
-    successCallback, opt_errorCallback) {};
-
-/**
- * @param {?function(!angular.$http.Response)} callback
- * @return {!angular.$http.HttpPromise}
- */
-angular.$http.HttpPromise.catch = function(callback) {};
-
-/**
- * @param {?function(!angular.$http.Response)} callback
- * @return {!angular.$http.HttpPromise}
- */
-angular.$http.HttpPromise.finally = function(callback) {};
-
-/**
- * @param {angular.HttpCallback} callback
- * @return {!angular.$http.HttpPromise} Promise for chaining.
- */
-angular.$http.HttpPromise.success = function(callback) {};
-
-/**
- * @param {angular.HttpCallback} callback
- * @return {!angular.$http.HttpPromise} Promise for chaining.
- */
-angular.$http.HttpPromise.error = function(callback) {};
-
-/**
- * @typedef {{
- *   data: (string|Object),
- *   status: number,
- *   headers: function(string=): (string|Object),
- *   config: !angular.$http.Config
- *   }}
- */
-angular.$http.Response;
-
-/**
  * @typedef {{
  *   request: (undefined|(function(!angular.$http.Config):
  *       !angular.$http.Config|!angular.$q.Promise.<!angular.$http.Config>)),
@@ -1456,7 +1393,8 @@ angular.$http.Interceptor;
 /**
  * @typedef {{
  *   defaults: !angular.$http.Config,
- *   interceptors: !Array.<string|function(...[*]): !angular.$http.Interceptor>
+ *   interceptors: !Array.<string|function(...[*]): !angular.$http.Interceptor>,
+ *   useApplyAsync: function(boolean=):(boolean|!angular.$HttpProvider)
  * }}
  */
 angular.$HttpProvider;
@@ -1465,6 +1403,12 @@ angular.$HttpProvider;
  * @type {angular.$http.Config}
  */
 angular.$HttpProvider.defaults;
+
+/**
+ * @param {boolean=} opt_value
+ * @return {boolean|!angular.$HttpProvider}
+ */
+angular.$HttpProvider.useApplyAsync = function(opt_value) {};
 
 /******************************************************************************
  * $injector Service
@@ -1539,7 +1483,7 @@ angular.$interpolateProvider.endSymbol;
 
 /**
  * @typedef {
- *  function(function(), number=, number=, boolean=):angular.$q.Promise
+ *  function(function(), number=, number=, boolean=):!angular.$q.Promise
  * }
  */
 angular.$interval;

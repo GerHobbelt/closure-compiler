@@ -33,6 +33,7 @@ import com.google.javascript.jscomp.Result;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.SourceMap;
 import com.google.javascript.jscomp.SourceMap.Format;
+import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.jscomp.WarningLevel;
 
 import org.apache.tools.ant.BuildException;
@@ -41,6 +42,9 @@ import org.apache.tools.ant.Task;
 import org.apache.tools.ant.types.FileList;
 import org.apache.tools.ant.types.Parameter;
 import org.apache.tools.ant.types.Path;
+import org.apache.tools.ant.types.Resource;
+import org.apache.tools.ant.types.ResourceCollection;
+import org.apache.tools.ant.types.resources.FileResource;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -48,7 +52,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -88,6 +95,7 @@ public final class CompileTask
   private final List<Warning> warnings;
   private String sourceMapFormat;
   private File sourceMapOutputFile;
+  private String sourceMapLocationMapping;
 
   public CompileTask() {
     this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT3;
@@ -429,6 +437,12 @@ public final class CompileTask
       options.sourceMapFormat = Format.valueOf(sourceMapFormat);
     }
 
+    if (!Strings.isNullOrEmpty(sourceMapLocationMapping)) {
+      String tokens[] = sourceMapLocationMapping.split("\\|", -1);
+      LocationMapping lm = new LocationMapping(tokens[0], tokens[1]);
+      options.sourceMapLocationMappings = Arrays.asList(lm);
+    }
+
     if (sourceMapOutputFile != null) {
       File parentFile = sourceMapOutputFile.getParentFile();
       if (parentFile.mkdirs()) {
@@ -592,33 +606,21 @@ public final class CompileTask
   }
 
   /**
-   * Translates an Ant file list into the file format that the compiler
-   * expects.
+   * Translates an Ant resource collection into the file list format that
+   * the compiler expects.
    */
-  private List<SourceFile> findJavaScriptFiles(FileList fileList) {
+  private List<SourceFile> findJavaScriptFiles(ResourceCollection rc) {
     List<SourceFile> files = Lists.newLinkedList();
-    File baseDir = fileList.getDir(getProject());
-
-    for (String included : fileList.getFiles(getProject())) {
-      files.add(SourceFile.fromFile(new File(baseDir, included),
-          Charset.forName(encoding)));
+    Iterator<Resource> iter = rc.iterator();
+    while (iter.hasNext()) {
+      FileResource fr = (FileResource) iter.next().as(FileResource.class);
+      // Construct path to file, relative to current working directory.
+      File file = Paths.get("")
+          .toAbsolutePath()
+          .relativize(fr.getFile().toPath())
+          .toFile();
+      files.add(SourceFile.fromFile(file, Charset.forName(encoding)));
     }
-
-    return files;
-  }
-
-  /**
-   * Translates an Ant Path into the file list format that the compiler
-   * expects.
-   */
-  private List<SourceFile> findJavaScriptFiles(Path path) {
-    List<SourceFile> files = Lists.newArrayList();
-
-    for (String included : path.list()) {
-      files.add(SourceFile.fromFile(new File(included),
-          Charset.forName(encoding)));
-    }
-
     return files;
   }
 
@@ -723,5 +725,9 @@ public final class CompileTask
 
   public void setSourceMapOutputFile(File sourceMapOutputFile) {
     this.sourceMapOutputFile = sourceMapOutputFile;
+  }
+
+  public void setSourceMapLocationMapping(String mapping) {
+    this.sourceMapLocationMapping = mapping;
   }
 }

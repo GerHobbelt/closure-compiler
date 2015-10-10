@@ -303,6 +303,13 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Inlines global functions */
   public boolean inlineFunctions;
 
+  /**
+   * For projects that want to avoid the creation of giant functions after
+   * inlining.
+   */
+  int maxFunctionSizeAfterInlining;
+  static final int UNLIMITED_FUN_SIZE_AFTER_INLINING = -1;
+
   /** Inlines functions defined in local scopes */
   public boolean inlineLocalFunctions;
 
@@ -602,9 +609,6 @@ public class CompilerOptions implements Serializable, Cloneable {
   public void setSpecializeInitialModule(boolean enabled) {
     specializeInitialModule = enabled;
   }
-
-  /** Whether to gather property names from types in externs. */
-  boolean gatherExternsFromTypes;
 
   /** Whether to declare globals declared in externs as properties on window */
   boolean declaredGlobalExternsOnWindow;
@@ -989,6 +993,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     deadAssignmentElimination = false;
     inlineConstantVars = false;
     inlineFunctions = false;
+    maxFunctionSizeAfterInlining = UNLIMITED_FUN_SIZE_AFTER_INLINING;
     inlineLocalFunctions = false;
     assumeStrictThis = false;
     assumeClosuresOnlyCaptureReferences = false;
@@ -1041,7 +1046,6 @@ public class CompilerOptions implements Serializable, Cloneable {
     ambiguateProperties = false;
     anonymousFunctionNaming = AnonymousFunctionNamingPolicy.OFF;
     exportTestFunctions = false;
-    gatherExternsFromTypes = true;
     declaredGlobalExternsOnWindow = true;
 
     // Alterations
@@ -1391,6 +1395,11 @@ public class CompilerOptions implements Serializable, Cloneable {
       default:
         throw new IllegalStateException("unexpected");
     }
+  }
+
+  public void setMaxFunctionSizeAfterInlining(int funAstSize) {
+    Preconditions.checkArgument(funAstSize > 0);
+    this.maxFunctionSizeAfterInlining = funAstSize;
   }
 
   /**
@@ -2343,6 +2352,12 @@ public class CompilerOptions implements Serializable, Cloneable {
         default:
           return false;
       }
+    }
+
+    /** Whether this is ECMAScript 5 or higher. */
+    public boolean isEs5OrHigher() {
+      Preconditions.checkState(this != NO_TRANSPILE);
+      return this != LanguageMode.ECMASCRIPT3;
     }
 
     /** Whether this is ECMAScript 6 or higher. */

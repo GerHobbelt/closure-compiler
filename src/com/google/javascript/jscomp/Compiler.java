@@ -23,6 +23,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -56,6 +57,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.nio.file.FileSystems;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -345,11 +347,10 @@ public class Compiler extends AbstractCompiler {
     reconcileOptionsWithGuards();
 
     // Initialize the warnings guard.
-    List<WarningsGuard> guards = Lists.newArrayList();
-    guards.add(
+    List<WarningsGuard> guards = ImmutableList.of(
         new SuppressDocWarningsGuard(
-            getDiagnosticGroups().getRegisteredGroups()));
-    guards.add(options.getWarningsGuard());
+            getDiagnosticGroups().getRegisteredGroups()),
+        options.getWarningsGuard());
 
     this.warningsGuard = new ComposeWarningsGuard(guards);
   }
@@ -465,7 +466,7 @@ public class Compiler extends AbstractCompiler {
 
   private <T extends SourceFile> List<CompilerInput> makeCompilerInput(
       List<T> files, boolean isExtern) {
-    List<CompilerInput> inputs = Lists.newArrayList();
+    List<CompilerInput> inputs = new ArrayList<>(files.size());
     for (T file : files) {
       inputs.add(new CompilerInput(file, isExtern));
     }
@@ -531,7 +532,7 @@ public class Compiler extends AbstractCompiler {
    */
   private static List<CompilerInput> getAllInputsFromModules(
       List<JSModule> modules) {
-    List<CompilerInput> inputs = Lists.newArrayList();
+    List<CompilerInput> inputs = new ArrayList<>();
     Map<String, JSModule> inputMap = Maps.newHashMap();
     for (JSModule module : modules) {
       for (CompilerInput input : module.getInputs()) {
@@ -603,7 +604,7 @@ public class Compiler extends AbstractCompiler {
 
   public Result compile(
       SourceFile extern, SourceFile input, CompilerOptions options) {
-     return compile(Lists.newArrayList(extern), Lists.newArrayList(input), options);
+    return compile(Lists.newArrayList(extern), Lists.newArrayList(input), options);
   }
 
   /**
@@ -890,7 +891,7 @@ public class Compiler extends AbstractCompiler {
       new PassFactory("sanityCheck", false) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      return new SanityCheck(compiler, options.gatherExternsFromTypes);
+      return new SanityCheck(compiler);
     }
   };
 
@@ -1117,13 +1118,6 @@ public class Compiler extends AbstractCompiler {
     return inputsById.put(id, input);
   }
 
-  /** Add a source input dynamically. Intended for incremental compilation. */
-  void addIncrementalSourceAst(JsAst ast) {
-    InputId id = ast.getInputId();
-    Preconditions.checkState(getInput(id) == null, "Duplicate input %s", id.getIdName());
-    putCompilerInput(id, new CompilerInput(ast));
-  }
-
   /**
    * Replace a source input dynamically. Intended for incremental
    * re-compilation.
@@ -1222,10 +1216,6 @@ public class Compiler extends AbstractCompiler {
       typeRegistry = new JSTypeRegistry(oldErrorReporter);
     }
     return typeRegistry;
-  }
-
-  final void setTypeRegistry(JSTypeRegistry typeRegistry) {
-    this.typeRegistry = typeRegistry;
   }
 
   @Override
@@ -1574,7 +1564,7 @@ public class Compiler extends AbstractCompiler {
     }
 
     if (options.processCommonJSModules) {
-      List<JSModule> modules = Lists.newArrayList(modulesByProvide.values());
+      List<JSModule> modules = new ArrayList<>(modulesByProvide.values());
       if (!modules.isEmpty()) {
         this.modules = modules;
         this.moduleGraph = new JSModuleGraph(this.modules);
@@ -1603,14 +1593,14 @@ public class Compiler extends AbstractCompiler {
       List<JSModule> inputModules,
       Map<CompilerInput, JSModule> modulesByInput)
       throws CircularDependencyException, MissingProvideException, MissingModuleException {
-    List<CompilerInput> inputs = Lists.newArrayList();
+    List<CompilerInput> inputs = new ArrayList<>();
     for (JSModule module : inputModules) {
       for (CompilerInput input : module.getInputs()) {
         inputs.add(input);
       }
     }
 
-    modules = Lists.newArrayList();
+    modules = new ArrayList<>();
 
     DependencyOptions depOptions = options.dependencyOptions;
     for (CompilerInput input :
@@ -1963,6 +1953,11 @@ public class Compiler extends AbstractCompiler {
   //------------------------------------------------------------------------
 
   public void optimize() {
+    List<PassFactory> optimizations = getPassConfig().getOptimizations();
+    if (optimizations.isEmpty()) {
+      return;
+    }
+
     // Ideally, this pass should be the first pass run, however:
     // 1) VariableReferenceCheck reports unexpected warnings if Normalize
     // is done first.
@@ -1983,7 +1978,7 @@ public class Compiler extends AbstractCompiler {
     if (options.getCheckDeterminism()) {
       phaseOptimizer.setPrintAstHashcodes(true);
     }
-    phaseOptimizer.consume(getPassConfig().getOptimizations());
+    phaseOptimizer.consume(optimizations);
     phaseOptimizer.process(externsRoot, jsRoot);
     phaseOptimizer = null;
   }
@@ -2008,12 +2003,6 @@ public class Compiler extends AbstractCompiler {
   public void processDefines() {
     (new DefaultPassConfig(options)).processDefines.create(this)
         .process(externsRoot, jsRoot);
-  }
-
-  boolean isInliningForbidden() {
-    return options.propertyRenaming == PropertyRenamingPolicy.HEURISTIC ||
-        options.propertyRenaming ==
-            PropertyRenamingPolicy.AGGRESSIVE_HEURISTIC;
   }
 
   /** Control Flow Analysis. */
@@ -2051,8 +2040,7 @@ public class Compiler extends AbstractCompiler {
   }
 
   protected final RecentChange recentChange = new RecentChange();
-  private final List<CodeChangeHandler> codeChangeHandlers =
-      Lists.newArrayList();
+  private final List<CodeChangeHandler> codeChangeHandlers = new ArrayList<>();
 
   /** Name of the synthetic input that holds synthesized externs. */
   static final String SYNTHETIC_EXTERNS = "{SyntheticVarsDeclar}";
@@ -2405,6 +2393,7 @@ public class Compiler extends AbstractCompiler {
     return getPassConfig().getIntermediateState().propertyMap;
   }
 
+  @Override
   CompilerOptions getOptions() {
     return options;
   }

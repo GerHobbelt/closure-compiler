@@ -207,7 +207,7 @@ public class FunctionType {
   public JSType getReturnType() {
     Preconditions.checkArgument(!isTopFunction());
     if (isConstructor()) {
-      return getTypeOfThis();
+      return getThisType();
     } else {
       return returnType;
     }
@@ -232,9 +232,21 @@ public class FunctionType {
     }
   }
 
-  public JSType getTypeOfThis() {
-    Preconditions.checkNotNull(nominalType);
-    return JSType.fromObjectType(ObjectType.fromNominalType(nominalType));
+  public JSType getInstanceTypeOfCtor() {
+    if (!isGeneric()) {
+      return getThisType();
+    }
+    ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+    for (String typeVar : getTypeParameters()) {
+      builder.put(typeVar, JSType.UNKNOWN);
+    }
+    return instantiateGenerics(builder.build()).getThisType();
+  }
+
+
+  public JSType getThisType() {
+    Preconditions.checkNotNull(nominalType, this);
+    return nominalType.getInstanceAsJSType();
   }
 
   public JSType createConstructorObject() {

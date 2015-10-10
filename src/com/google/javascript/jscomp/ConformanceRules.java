@@ -29,12 +29,15 @@ import com.google.javascript.jscomp.CheckConformance.Rule;
 import com.google.javascript.jscomp.Requirement.Type;
 import com.google.javascript.jscomp.parsing.JsDocInfoParser;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.jstype.Property;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
+import com.google.javascript.rhino.jstype.ObjectType;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -43,6 +46,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+
+import javax.annotation.Nullable;
 
 /**
  * Standard conformance rules. See
@@ -72,7 +77,9 @@ public final class ConformanceRules {
     final AbstractCompiler compiler;
     final String message;
     final ImmutableList<String> whitelist;
-    final Pattern whitelistRegexp;
+    final ImmutableList<String> onlyApplyTo;
+    @Nullable final Pattern whitelistRegexp;
+    @Nullable final Pattern onlyApplyToRegexp;
 
     public AbstractRule(AbstractCompiler compiler, Requirement requirement)
         throws InvalidRequirementSpec {
@@ -80,14 +87,26 @@ public final class ConformanceRules {
         throw new InvalidRequirementSpec("missing message");
       }
       this.compiler = compiler;
-      this.whitelist = ImmutableList.copyOf(requirement.getWhitelistList());
-
-      this.whitelistRegexp = buildPattern(
+      message = requirement.getErrorMessage();
+      whitelist = ImmutableList.copyOf(requirement.getWhitelistList());
+      whitelistRegexp = buildPattern(
           requirement.getWhitelistRegexpList());
+      onlyApplyTo = ImmutableList.copyOf(requirement.getOnlyApplyToList());
+      onlyApplyToRegexp = buildPattern(
+          requirement.getOnlyApplyToRegexpList());
 
-      this.message = requirement.getErrorMessage();
+      boolean hasWhitelist = !whitelist.isEmpty()
+          || whitelistRegexp != null;
+      boolean hasOnlyApplyTo = !onlyApplyTo.isEmpty()
+          || onlyApplyToRegexp != null;
+
+      if (hasWhitelist && hasOnlyApplyTo) {
+        throw new IllegalArgumentException(
+            "It is an error to specify both whitelist and only_apply_to");
+      }
     }
 
+    @Nullable
     private static Pattern buildPattern(List<String> reqPatterns)
         throws InvalidRequirementSpec {
       if (reqPatterns == null || reqPatterns.isEmpty()) {
@@ -121,24 +140,36 @@ public final class ConformanceRules {
         NodeTraversal t, Node n);
 
     /**
-     * @return Whether the specified Node originated from a source file
-     * that has been whitelisted for this rule.
+     * @return Whether the specified Node should be checked for conformance,
+     *     according to this rule's whitelist configuration.
      */
-    private boolean isWhitelisted(Node n) {
+    private boolean shouldCheckConformance(Node n) {
       String srcfile = NodeUtil.getSourceName(n);
-      for (int i = 0; i < whitelist.size(); i++) {
-        String entry = whitelist.get(i);
+      if (srcfile == null) {
+        return true;
+      } else if (!onlyApplyTo.isEmpty() || onlyApplyToRegexp != null) {
+        return pathIsInListOrRegexp(srcfile, onlyApplyTo, onlyApplyToRegexp);
+      } else {
+        return !pathIsInListOrRegexp(srcfile, whitelist, whitelistRegexp);
+      }
+    }
+
+    private static boolean pathIsInListOrRegexp(
+        String srcfile, ImmutableList<String> list, @Nullable Pattern regexp) {
+      for (int i = 0; i < list.size(); i++) {
+        String entry = list.get(i);
         if (!entry.isEmpty() && srcfile.startsWith(entry)) {
           return true;
         }
       }
-      return whitelistRegexp != null && whitelistRegexp.matcher(srcfile).find();
+      return regexp != null && regexp.matcher(srcfile).find();
     }
 
     @Override
     public final void check(NodeTraversal t, Node n) {
       ConformanceResult confidence = checkConformance(t, n);
-      if (confidence != ConformanceResult.CONFORMANCE && !isWhitelisted(n)) {
+      if (confidence != ConformanceResult.CONFORMANCE
+          && shouldCheckConformance(n)) {
         report(t, n, confidence);
       }
     }
@@ -940,6 +971,144 @@ public final class ConformanceRules {
 
     private boolean isWhitelisted(Node n) {
       return n.isVar() && n.getFirstChild().getString().equals("$jscomp");
+    }
+  }
+
+  /**
+   * Requires source files to contain a top-level {@code @fileoverview} block
+   * with an explicit visibility annotation.
+   */
+  public static final class RequireFileoverviewVisibility extends AbstractRule {
+    public RequireFileoverviewVisibility(
+        AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      if (!n.isScript()) {
+        return ConformanceResult.CONFORMANCE;
+      }
+      JSDocInfo docInfo = n.getJSDocInfo();
+      if (docInfo == null || !docInfo.hasFileOverview()) {
+        return ConformanceResult.VIOLATION;
+      }
+      Visibility v = docInfo.getVisibility();
+      if (v == null || v == Visibility.INHERITED) {
+        return ConformanceResult.VIOLATION;
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+  }
+
+  /**
+   * Requires top-level Closure-style "declarations"
+   * (example: {@code foo.bar.Baz = ...;}) to have explicit visibility
+   * annotations, either at the declaration site or in the {@code @fileoverview}
+   * block.
+   */
+  public static final class NoImplicitlyPublicDecls extends AbstractRule {
+    public NoImplicitlyPublicDecls(
+        AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      if (!t.inGlobalScope()
+          || !n.isExprResult()
+          || !n.getFirstChild().isAssign()
+          || n.getFirstChild().getLastChild() == null
+          || n.getFirstChild().getLastChild().isObjectLit()
+          || isWizDeclaration(n)) {
+        return ConformanceResult.CONFORMANCE;
+      }
+      JSDocInfo ownJsDoc = n.getFirstChild().getJSDocInfo();
+      if (ownJsDoc != null && ownJsDoc.isConstructor()) {
+        FunctionType functionType = n.getFirstChild()
+            .getJSType()
+            .toMaybeFunctionType();
+        if (functionType == null) {
+          return ConformanceResult.CONFORMANCE;
+        }
+        ObjectType instanceType = functionType.getInstanceType();
+        if (instanceType == null) {
+          return ConformanceResult.CONFORMANCE;
+        }
+        ConformanceResult result = checkCtorProperties(instanceType);
+        if (result != ConformanceResult.CONFORMANCE) {
+          return result;
+        }
+      }
+
+      return visibilityAtDeclarationOrFileoverview(ownJsDoc, getScriptNode(n));
+    }
+
+    /**
+     * Do not check Wiz-style declarations for implicit public visibility.
+     * Example:
+     * <code>
+     * foo.Bar = wiz.service(...);
+     * </code>
+     * {@link WizPass} rewrites portions of the AST, and I believe it
+     * does not propagate the constructor JsDoc properly. Until I have time
+     * to investigate, this seems like a reasonable workaround.
+     * TODO(brndn): get to the bottom of this. See b/18436759.
+     */
+    private static boolean isWizDeclaration(Node n) {
+      Node lastChild = n.getFirstChild().getLastChild();
+      if (!lastChild.isCall()) {
+        return false;
+      }
+      Node getprop = lastChild.getFirstChild();
+      if (getprop == null || !getprop.isGetProp()) {
+        return false;
+      }
+      Node name = getprop.getFirstChild();
+      if (name == null || !name.isName()) {
+        return false;
+      }
+      return "wiz".equals(name.getString());
+    }
+
+    private static ConformanceResult checkCtorProperties(ObjectType type) {
+      for (String propertyName : type.getOwnPropertyNames()) {
+        Property prop = type.getOwnSlot(propertyName);
+        JSDocInfo docInfo = prop.getJSDocInfo();
+        Node scriptNode = getScriptNode(prop.getNode());
+        ConformanceResult result = visibilityAtDeclarationOrFileoverview(
+            docInfo, scriptNode);
+        if (result != ConformanceResult.CONFORMANCE) {
+          return result;
+        }
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+
+    @Nullable private static Node getScriptNode(Node start) {
+      for (Node up : start.getAncestors()) {
+        if (up.isScript()) {
+          return up;
+        }
+      }
+      return null;
+    }
+
+    private static ConformanceResult visibilityAtDeclarationOrFileoverview(
+        @Nullable JSDocInfo declaredJsDoc, @Nullable Node scriptNode) {
+      if (declaredJsDoc != null
+          && declaredJsDoc.getVisibility() != Visibility.INHERITED) {
+        return ConformanceResult.CONFORMANCE;
+      } else if (scriptNode != null
+          && scriptNode.getJSDocInfo() != null
+          && scriptNode.getJSDocInfo().getVisibility() !=
+          Visibility.INHERITED) {
+        return ConformanceResult.CONFORMANCE;
+      } else {
+        return ConformanceResult.VIOLATION;
+      }
     }
   }
 }

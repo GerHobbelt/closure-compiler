@@ -385,12 +385,12 @@ public class JSDocInfo implements Serializable {
   private static final int MASK_DEPRECATED    = 0x00000100; // @deprecated
   private static final int MASK_INTERFACE     = 0x00000200; // @interface
   private static final int MASK_EXPORT        = 0x00000400; // @export
-  private static final int MASK_NOSHADOW      = 0x00000800; // @noshadow
   private static final int MASK_FILEOVERVIEW  = 0x00001000; // @fileoverview
   private static final int MASK_IMPLICITCAST  = 0x00002000; // @implicitCast
   private static final int MASK_NOSIDEEFFECTS = 0x00004000; // @nosideeffects
   private static final int MASK_EXTERNS       = 0x00008000; // @externs
-  private static final int MASK_JAVADISPATCH  = 0x00010000; // @javadispatch
+  @SuppressWarnings("unused")
+  private static final int MASK_UNUSED_1      = 0x00010000; //
   private static final int MASK_NOCOMPILE     = 0x00020000; // @nocompile
   private static final int MASK_CONSISTIDGEN  = 0x00040000; // @consistentIdGenerator
   private static final int MASK_IDGEN         = 0x00080000; // @idGenerator
@@ -423,7 +423,7 @@ public class JSDocInfo implements Serializable {
   @Override
   public JSDocInfo clone() {
     JSDocInfo other = new JSDocInfo();
-    other.info = this.info;
+    other.info = this.info;  // this should be cloned as it isn't immutable
     other.documentation = this.documentation;
     other.visibility = this.visibility;
     other.bitset = this.bitset;
@@ -556,10 +556,6 @@ public class JSDocInfo implements Serializable {
     setFlag(value, MASK_EXPOSE);
   }
 
-  void setNoShadow(boolean value) {
-    setFlag(value, MASK_NOSHADOW);
-  }
-
   void setIdGenerator(boolean value) {
     setFlag(value, MASK_IDGEN);
   }
@@ -574,10 +570,6 @@ public class JSDocInfo implements Serializable {
 
   void setExterns(boolean value) {
     setFlag(value, MASK_EXTERNS);
-  }
-
-  void setJavaDispatch(boolean value) {
-    setFlag(value, MASK_JAVADISPATCH);
   }
 
   void setNoCompile(boolean value) {
@@ -736,14 +728,6 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
-   * Returns whether the {@code @noshadow} annotation is present on this
-   * {@link JSDocInfo}.
-   */
-  public boolean isNoShadow() {
-    return getFlag(MASK_NOSHADOW);
-  }
-
-  /**
    * @return whether the {@code @idGenerator} is present on
    * this {@link JSDocInfo}
    */
@@ -776,14 +760,6 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
-   * Returns whether the {@code @javadispatch} annotation is present on this
-   * {@link JSDocInfo}.
-   */
-  public boolean isJavaDispatch() {
-    return getFlag(MASK_JAVADISPATCH);
-  }
-
-  /**
    * Returns whether the {@code @nocompile} annotation is present on this
    * {@link JSDocInfo}.
    */
@@ -808,7 +784,6 @@ public class JSDocInfo implements Serializable {
             | MASK_NOALIAS
             | MASK_DEPRECATED
             | MASK_INTERFACE
-            | MASK_NOSHADOW
             | MASK_IMPLICITCAST
             | MASK_NOSIDEEFFECTS));
   }
@@ -821,9 +796,7 @@ public class JSDocInfo implements Serializable {
         || hasReturnType()
         || hasThisType()
         || getParameterCount() > 0
-        || getFlag(MASK_CONSTRUCTOR
-            | MASK_OVERRIDE
-            | MASK_NOSIDEEFFECTS));
+        || getFlag(MASK_CONSTRUCTOR | MASK_NOSIDEEFFECTS));
   }
 
   private boolean getFlag(int mask) {

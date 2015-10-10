@@ -149,8 +149,12 @@ class NewIRFactory {
   static final String INVALID_NUMBER_LITERAL =
       "Invalid number literal.";
 
-  static final String STRING_CONTINUATION_WARNING =
+  static final String STRING_CONTINUATION_ERROR =
       "String continuations are not supported in this language mode.";
+
+  static final String STRING_CONTINUATION_WARNING =
+      "String continuations are not recommended. See"
+      + " https://google-styleguide.googlecode.com/svn/trunk/javascriptguide.xml#Multiline_string_literals";
 
   static final String BINARY_NUMBER_LITERAL_WARNING =
       "Binary integer literals are not supported in this language mode.";
@@ -1825,7 +1829,7 @@ class NewIRFactory {
 
     @Override
     Node processUnaryExpression(UnaryExpressionTree exprNode) {
-      int type = transformUniaryTokenType(exprNode.operator.type);
+      int type = transformUnaryTokenType(exprNode.operator.type);
       Node operand = transform(exprNode.operand);
       if (type == Token.NEG && operand.isNumber()) {
         operand.setDouble(-operand.getDouble());
@@ -2055,6 +2059,7 @@ class NewIRFactory {
       if (decls == null) {
         decls = newNode(Token.EMPTY);
       }
+      setSourceInfo(decls, tree);
       Node export = newNode(Token.EXPORT, decls);
       if (tree.from != null) {
         Node from = processString(tree.from);
@@ -2068,12 +2073,12 @@ class NewIRFactory {
 
     @Override
     Node processExportSpec(ExportSpecifierTree tree) {
-      Node importSpec = newNode(Token.EXPORT_SPEC,
+      Node exportSpec = newNode(Token.EXPORT_SPEC,
           processName(tree.importedName));
       if (tree.destinationName != null) {
-        importSpec.addChildToBack(processName(tree.destinationName));
+        exportSpec.addChildToBack(processName(tree.destinationName));
       }
-      return importSpec;
+      return exportSpec;
     }
 
     @Override
@@ -2196,8 +2201,12 @@ class NewIRFactory {
           result.append('\u000B');
           break;
         case '\n':
-          if (!isEs5OrBetterMode()) {
+          if (isEs5OrBetterMode()) {
             errorReporter.warning(STRING_CONTINUATION_WARNING,
+                sourceName,
+                lineno(token.location.start), charno(token.location.start));
+          } else {
+            errorReporter.error(STRING_CONTINUATION_ERROR,
                 sourceName,
                 lineno(token.location.start), charno(token.location.start));
           }
@@ -2311,12 +2320,12 @@ class NewIRFactory {
                 sourceName,
                 lineno(token.location.start), charno(token.location.start));
           }
-          long v = 0;
+          double v = 0;
           int c = 1;
           while (++c < length) {
             v = (v * 2) + binarydigit(value.charAt(c));
           }
-          return Double.valueOf(v);
+          return v;
         }
         case 'o':
         case 'O': {
@@ -2325,33 +2334,33 @@ class NewIRFactory {
                 sourceName,
                 lineno(token.location.start), charno(token.location.start));
           }
-          long v = 0;
+          double v = 0;
           int c = 1;
           while (++c < length) {
             v = (v * 8) + octaldigit(value.charAt(c));
           }
-          return Double.valueOf(v);
+          return v;
         }
         case 'x':
         case 'X': {
-          long v = 0;
+          double v = 0;
           int c = 1;
           while (++c < length) {
             v = (v * 0x10) + hexdigit(value.charAt(c));
           }
-          return Double.valueOf(v);
+          return v;
         }
         case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7':
           errorReporter.warning(INVALID_ES5_STRICT_OCTAL, sourceName,
               lineno(location.start), charno(location.start));
           if (!inStrictContext()) {
-            long v = 0;
+            double v = 0;
             int c = 0;
             while (++c < length) {
               v = (v * 8) + octaldigit(value.charAt(c));
             }
-            return Double.valueOf(v);
+            return v;
           } else {
             return Double.valueOf(value);
           }
@@ -2429,7 +2438,7 @@ class NewIRFactory {
     }
   }
 
-  private static int transformUniaryTokenType(TokenType token) {
+  private static int transformUnaryTokenType(TokenType token) {
     switch (token) {
       case BANG:
         return Token.NOT;

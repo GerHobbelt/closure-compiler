@@ -35,6 +35,7 @@ import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.lint.CheckEnums;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
+import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
 import com.google.javascript.jscomp.parsing.ParserRunner;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -222,6 +223,7 @@ public class DefaultPassConfig extends PassConfig {
     if (options.needsConversion()) {
       checks.add(es6RenameVariablesInParamLists);
       checks.add(es6SplitVariableDeclarations);
+      checks.add(es6ConvertSuper);
       checks.add(convertEs6ToEs3);
       checks.add(rewriteLetConst);
       checks.add(rewriteGenerators);
@@ -374,6 +376,10 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(checkStrictMode);
     }
 
+    if (!options.getConformanceConfigs().isEmpty()) {
+      checks.add(checkConformance);
+    }
+
     // Replace 'goog.getCssName' before processing defines but after the
     // other checks have been done.
     if (options.closurePass) {
@@ -410,10 +416,6 @@ public class DefaultPassConfig extends PassConfig {
     if (options.nameReferenceReportPath != null &&
         !options.nameReferenceReportPath.isEmpty()) {
       checks.add(printNameReferenceReport);
-    }
-
-    if (!options.getConformanceConfigs().isEmpty()) {
-      checks.add(checkConformance);
     }
 
     checks.add(createEmptyPass("afterStandardChecks"));
@@ -1025,7 +1027,6 @@ public class DefaultPassConfig extends PassConfig {
   };
 
   /** Closure pre-processing pass. */
-  @SuppressWarnings("deprecation")
   final HotSwapPassFactory closurePrimitives =
       new HotSwapPassFactory("closurePrimitives", true) {
     @Override
@@ -1134,6 +1135,14 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
       return new Es6SplitVariableDeclarations(compiler);
+    }
+  };
+
+  final HotSwapPassFactory es6ConvertSuper =
+      new HotSwapPassFactory("es6ConvertSuper", true) {
+    @Override
+    protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
+      return new Es6ConvertSuper(compiler);
     }
   };
 
@@ -1512,7 +1521,8 @@ public class DefaultPassConfig extends PassConfig {
       return combineChecks(compiler, ImmutableList.<Callback>of(
           new CheckEnums(compiler),
           new CheckInterfaces(compiler),
-          new CheckNullableReturn(compiler)));
+          new CheckNullableReturn(compiler),
+          new CheckPrototypeProperties(compiler)));
     }
   };
 
@@ -2050,7 +2060,8 @@ public class DefaultPassConfig extends PassConfig {
           enableBlockInlining,
           options.assumeStrictThis()
               || options.getLanguageIn() == LanguageMode.ECMASCRIPT5_STRICT,
-          options.assumeClosuresOnlyCaptureReferences);
+          options.assumeClosuresOnlyCaptureReferences,
+          options.maxFunctionSizeAfterInlining);
     }
   };
 
@@ -2526,8 +2537,7 @@ public class DefaultPassConfig extends PassConfig {
       new PassFactory("gatherExternProperties", true) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          return new GatherExternProperties(
-              compiler, options.gatherExternsFromTypes);
+          return new GatherExternProperties(compiler);
         }
       };
 
