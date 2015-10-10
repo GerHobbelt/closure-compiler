@@ -1220,14 +1220,18 @@ public abstract class CompilerTestCase extends TestCase {
           } else {
             explanation = expectedRoot.checkTreeEquals(mainRoot);
           }
-          assertNull(
-              "\nExpected: "
-                  + compiler.toSource(expectedRoot)
+          if (explanation != null) {
+            String expectedAsSource = compiler.toSource(expectedRoot);
+            String mainAsSource = compiler.toSource(mainRoot);
+            if (expectedAsSource.equals(mainAsSource)) {
+              fail("In: " + expectedAsSource + "\n" + explanation);
+            } else {
+              fail("\nExpected: "
+                  + expectedAsSource
                   + "\nResult:   "
-                  + compiler.toSource(mainRoot)
-                  + "\n"
-                  + explanation,
-              explanation);
+                  + mainAsSource);
+            }
+          }
         } else if (expected != null) {
           String[] expectedSources = new String[expected.size()];
           for (int i = 0; i < expected.size(); ++i) {
@@ -1353,6 +1357,16 @@ public abstract class CompilerTestCase extends TestCase {
   }
 
   protected void testExternChanges(String extern, String input, String expectedExtern) {
+    testExternChanges(extern, input, expectedExtern, (DiagnosticType[]) null);
+  }
+
+  protected void testExternChanges(String input, String expectedExtern,
+      DiagnosticType... warnings) {
+    testExternChanges("", input, expectedExtern, warnings);
+  }
+
+  protected void testExternChanges(String extern, String input, String expectedExtern,
+      DiagnosticType... warnings) {
     Compiler compiler = createCompiler();
     CompilerOptions options = getOptions();
     compiler.init(
@@ -1398,6 +1412,19 @@ public abstract class CompilerTestCase extends TestCase {
       String externsCode = compiler.toSource(externs);
       String expectedCode = compiler.toSource(expected);
       assertThat(externsCode).isEqualTo(expectedCode);
+    }
+
+    if (warnings != null) {
+      String warningMessage = "";
+      for (JSError actualWarning : compiler.getWarnings()) {
+        warningMessage += actualWarning.description + "\n";
+      }
+      assertEquals("There should be " + warnings.length + " warnings. " + warningMessage,
+          warnings.length, compiler.getWarningCount());
+      for (int i = 0; i < warnings.length; i++) {
+        DiagnosticType warning = warnings[i];
+        assertEquals(warningMessage, warning, compiler.getWarnings()[i].getType());
+      }
     }
   }
 

@@ -390,6 +390,7 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup EXTRA_REQUIRE =
       DiagnosticGroups.registerGroup("extraRequire",
+          CheckRequiresForConstructors.DUPLICATE_REQUIRE_WARNING,
           CheckRequiresForConstructors.EXTRA_REQUIRE_WARNING);
 
   @GwtIncompatible("java.util.regex")
@@ -448,6 +449,7 @@ public class DiagnosticGroups {
           CheckRequiresAndProvidesSorted.PROVIDES_AFTER_REQUIRES,
           CheckRequiresAndProvidesSorted.MULTIPLE_MODULES_IN_FILE,
           CheckRequiresAndProvidesSorted.MODULE_AND_PROVIDES,
+          CheckUnusedPrivateProperties.UNUSED_PRIVATE_PROPERTY,
           ImplicitNullabilityCheck.IMPLICITLY_NULLABLE_JSDOC,
           RhinoErrorReporter.JSDOC_MISSING_BRACES_WARNING,
           RhinoErrorReporter.JSDOC_MISSING_TYPE_WARNING,

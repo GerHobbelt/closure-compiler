@@ -1149,6 +1149,42 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
     testSets(externs, js, js, "{}");
   }
 
+  public void testAliasedTypeIsNotDisambiguated() {
+    String js = LINE_JOINER.join(
+        "/** @return {SecondAlias} */",
+        "function f() {}",
+        "function g() { f().blah; }",
+        "",
+        "/** @constructor */",
+        "function Second() {",
+        " /** @type {number} */",
+        " this.blah = 5;",
+        "};",
+        "var /** @const */ SecondAlias = Second;");
+
+        testSets(js, js, "{blah=[[Second]]}");
+  }
+
+  public void testConstructorsWithTypeErrorsAreNotDisambiguated() {
+    String js = LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo(){}",
+        "Foo.prototype.alias = function() {};",
+        "",
+        "/** @constructor */",
+        "function Bar(){};",
+        "/** @return {void} */",
+        "Bar.prototype.alias;",
+        "",
+        "Bar = Foo;",
+        "",
+        "(new Bar()).alias();");
+
+    testSets("", js, js, "{}", TypeValidator.TYPE_MISMATCH_WARNING, "assignment\n"
+            + "found   : function (new:Foo): undefined\n"
+            + "required: function (new:Bar): undefined");
+  }
+
   public void testStructuralTypingWithDisambiguatePropertyRenaming1() {
     String js = LINE_JOINER.join(
         "/** @record */",

@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.Es6ToEs3Converter.ClassDeclarationMetadata;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
@@ -27,8 +28,11 @@ import com.google.javascript.rhino.Node.TypeDeclarationNode;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeDeclarationsIR;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -42,7 +46,7 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
       "Can only convert class member variables (fields) in declarations or the right hand side of "
           + "a simple assignment.");
 
-  static final DiagnosticType CANNOT_CONVERT_BOUNDED_GENERICS = DiagnosticType.error(
+  static final DiagnosticType CANNOT_CONVERT_BOUNDED_GENERICS = DiagnosticType.warning(
       "JSC_CANNOT_CONVERT_BOUNDED_GENERICS",
       "Bounded generics are not yet implemented.");
 
@@ -50,7 +54,7 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
       "JSC_TYPE_ALIAS_ALREADY_DECLARED",
       "Type alias already declared as a variable: {0}");
 
-  static final DiagnosticType TYPE_QUERY_NOT_SUPPORTED = DiagnosticType.error(
+  static final DiagnosticType TYPE_QUERY_NOT_SUPPORTED = DiagnosticType.warning(
       "JSC_TYPE_QUERY_NOT_SUPPORTED",
       "Type query is currently not supported.");
 
@@ -59,23 +63,40 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
       "Currently only member variables are supported in record types, please consider "
           + "using interfaces instead.");
 
-  static final DiagnosticType COMPUTED_PROP_ACCESS_MODIFIER = DiagnosticType.error(
-      "JSC_UNSUPPORTED_ACCESS_MODIFIER",
+  static final DiagnosticType COMPUTED_PROP_ACCESS_MODIFIER = DiagnosticType.warning(
+      "JSC_COMPUTED_PROP_ACCESS_MODIFIER",
       "Accessibility is not checked on computed properties");
 
   static final DiagnosticType NON_AMBIENT_NAMESPACE_NOT_SUPPORTED = DiagnosticType.error(
       "JSC_NON_AMBIENT_NAMESPACE_NOT_SUPPORTED",
       "Non-ambient namespaces are not supported");
 
+  static final DiagnosticType CALL_SIGNATURE_NOT_SUPPORTED = DiagnosticType.error(
+      "JSC_CALL_SIGNATURE_NOT_SUPPORTED",
+      "Call signature and construct signatures are not supported yet");
+
+  static final DiagnosticType OVERLOAD_NOT_SUPPORTED = DiagnosticType.warning(
+      "JSC_OVERLOAD_NOT_SUPPORTED",
+      "Function and method overloads are not supported and type information might be lost");
+
+  static final DiagnosticType SPECIALIZED_SIGNATURE_NOT_SUPPORTED = DiagnosticType.warning(
+      "JSC_SPECIALIZED_SIGNATURE_NOT_SUPPORTED",
+      "Specialized signatures are not supported and type information might be lost");
+
   private final AbstractCompiler compiler;
   private final Map<Node, Namespace> nodeNamespaceMap;
   private final Set<String> convertedNamespaces;
   private Namespace currNamespace;
 
+  private final Deque<Map<String, Node>> overloadStack;
+  private final Set<Node> processedOverloads;
+
   Es6TypedToEs6Converter(AbstractCompiler compiler) {
     this.compiler = compiler;
     this.nodeNamespaceMap = new HashMap<>();
     this.convertedNamespaces = new HashSet<>();
+    this.overloadStack = new ArrayDeque<>();
+    this.processedOverloads = new HashSet<>();
   }
 
   @Override
@@ -96,14 +117,23 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
 
   @Override
   public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
-    if (n.getType() == Token.NAMESPACE) {
-      if (currNamespace == null && parent.getType() != Token.DECLARE) {
-        compiler.report(JSError.make(n, NON_AMBIENT_NAMESPACE_NOT_SUPPORTED));
-        return false;
-      }
-      currNamespace = nodeNamespaceMap.get(n);
+    switch (n.getType()) {
+      case Token.NAMESPACE:
+        if (currNamespace == null && parent.getType() != Token.DECLARE) {
+          compiler.report(JSError.make(n, NON_AMBIENT_NAMESPACE_NOT_SUPPORTED));
+          return false;
+        }
+        currNamespace = nodeNamespaceMap.get(n);
+        pushOverloads();
+        return true;
+      case Token.SCRIPT:
+      case Token.INTERFACE:
+      case Token.CLASS:
+        pushOverloads();
+        return true;
+      default:
+        return true;
     }
-    return true;
   }
 
   @Override
@@ -111,9 +141,11 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     switch (n.getType()) {
       case Token.CLASS:
         visitClass(n, parent);
+        popOverloads();
         break;
       case Token.INTERFACE:
         visitInterface(n, parent);
+        popOverloads();
         break;
       case Token.ENUM:
         visitEnum(n, parent);
@@ -136,11 +168,15 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
         break;
       case Token.NAMESPACE:
         visitNamespaceDeclaration(n, parent);
+        popOverloads();
         break;
       case Token.VAR:
       case Token.LET:
       case Token.CONST:
         visitVarInsideNamespace(n, parent);
+        break;
+      case Token.SCRIPT:
+        popOverloads();
         break;
       default:
     }
@@ -174,7 +210,7 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
         doc.recordTemplateTypeName(typeName.getString());
         if (typeName.hasChildren()) {
           compiler.report(JSError.make(name, CANNOT_CONVERT_BOUNDED_GENERICS));
-          return;
+          typeName.removeChildren();
         }
       }
       name.removeProp(Node.GENERIC_TYPE_LIST);
@@ -204,6 +240,11 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     ClassDeclarationMetadata metadata = ClassDeclarationMetadata.create(n, parent);
 
     for (Node member : classMembers.children()) {
+      if (member.isCallSignature()) {
+        compiler.report(JSError.make(n, CALL_SIGNATURE_NOT_SUPPORTED));
+        continue;
+      }
+
       if (member.isIndexSignature()) {
         doc.recordImplementedInterface(createIObject(member));
         continue;
@@ -244,13 +285,25 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     Node insertionPoint = n;
     Node members = n.getLastChild();
     for (Node member : members.children()) {
-      // Synthesize a block for method signatures.
+      if (member.isCallSignature()) {
+        compiler.report(JSError.make(n, CALL_SIGNATURE_NOT_SUPPORTED));
+      }
+
+      if (member.isIndexSignature()) {
+        doc.recordExtendedInterface(createIObject(member));
+      }
+
+      // Synthesize a block for method signatures, or convert it to a member variable if optional.
       if (member.isMemberFunctionDef()) {
         Node function = member.getFirstChild();
-        function.getLastChild().setType(Token.BLOCK);
-      } else if (member.isIndexSignature()) {
-        doc.recordExtendedInterface(createIObject(member));
-      } else {
+        if (function.isOptionalEs6Typed()) {
+          member = convertMemberFunctionToMemberVariable(member);
+        } else {
+          function.getLastChild().setType(Token.BLOCK);
+        }
+      }
+
+      if (member.isMemberVariableDef()) {
         Node newNode = createPropertyDefinition(member, name.getString());
         insertionPoint.getParent().addChildAfter(newNode, insertionPoint);
         insertionPoint = newNode;
@@ -335,15 +388,49 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
   private void visitFunction(Node n, Node parent) {
     // For member functions (eg. class Foo<T> { f() {} }), the JSDocInfo
     // needs to go on the synthetic MEMBER_FUNCTION_DEF node.
-    Node jsDocNode = parent.getType() == Token.MEMBER_FUNCTION_DEF
-        ? parent
-        : n;
+    boolean isMemberFunctionDef = parent.isMemberFunctionDef();
+
+    // Currently, we remove the overloading signature and drop the type information on the original
+    // signature.
+    String name = isMemberFunctionDef ? parent.getString() : n.getFirstChild().getString();
+    if (!name.isEmpty() && overloadStack.peek().containsKey(name)) {
+      compiler.report(JSError.make(n, OVERLOAD_NOT_SUPPORTED));
+      if (isMemberFunctionDef) {
+        parent.detachFromParent();
+      } else {
+        n.detachFromParent();
+      }
+      if (!processedOverloads.contains(overloadStack)) {
+        Node original = overloadStack.peek().get(name);
+        processedOverloads.add(original);
+        Node paramList = original.getChildAtIndex(1);
+        paramList.removeChildren();
+        Node originalParent = original.getParent();
+        Node originalJsDocNode = originalParent.isMemberFunctionDef() || originalParent.isAssign()
+            ? originalParent : original;
+        JSDocInfoBuilder builder = new JSDocInfoBuilder(false);
+        builder.recordType(new JSTypeExpression(
+            convertWithLocation(TypeDeclarationsIR.namedType("Function")), n.getSourceFileName()));
+        originalJsDocNode.setJSDocInfo(builder.build());
+      }
+      compiler.reportCodeChange();
+      return;
+    }
+    overloadStack.peek().put(name, n);
+
+    Node jsDocNode = isMemberFunctionDef ? parent : n;
     maybeAddGenerics(n, jsDocNode);
-    maybeVisitColonType(n, jsDocNode); // Return types are colon types on the function node
+    // Return types are colon types on the function node. Optional member functions are handled
+    // separately.
+    if (!(isMemberFunctionDef && n.isOptionalEs6Typed())) {
+      maybeVisitColonType(n, jsDocNode);
+    }
     if (n.getLastChild().isEmpty()) {
       n.replaceChild(n.getLastChild(), IR.block().useSourceInfoFrom(n));
     }
-    maybeCreateQualifiedDeclaration(n, parent);
+    if (!isMemberFunctionDef) {
+      maybeCreateQualifiedDeclaration(n, parent);
+    }
   }
 
   private void maybeAddVisibility(Node n) {
@@ -364,6 +451,10 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     boolean hasColonType = type != null;
     if (n.isRest() && hasColonType) {
       type = new Node(Token.ELLIPSIS, convertWithLocation(type.removeFirstChild()));
+    } else if (n.isMemberVariableDef()) {
+      if (type != null) {
+        type = maybeProcessOptionalProperty(n, type);
+      }
     } else {
       type = maybeProcessOptionalParameter(n, type);
     }
@@ -501,13 +592,27 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
   }
 
   private Node maybeProcessOptionalParameter(Node n, Node type) {
-    if (n.getBooleanProp(Node.OPT_ES6_TYPED)) {
+    if (n.isOptionalEs6Typed()) {
       n.putBooleanProp(Node.OPT_ES6_TYPED, false);
       type = maybeCreateAnyType(n, type);
       return new Node(Token.EQUALS, convertWithLocation(type));
     } else {
       return type == null ? null : convertWithLocation(type);
     }
+  }
+
+  private Node maybeProcessOptionalProperty(Node n, Node type) {
+    if (n.isOptionalEs6Typed()) {
+      n.putBooleanProp(Node.OPT_ES6_TYPED, false);
+      TypeDeclarationNode baseType = (TypeDeclarationNode) maybeCreateAnyType(n, type);
+      type = TypeDeclarationsIR.unionType(
+          ImmutableList.of(baseType, TypeDeclarationsIR.undefinedType()));
+      type.useSourceInfoIfMissingFromForTree(baseType);
+    } else {
+      type = maybeCreateAnyType(n, type);
+    }
+
+    return convertWithLocation(type);
   }
 
   private Node convertWithLocation(Node type) {
@@ -526,6 +631,8 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
         return IR.string("number");
       case Token.VOID_TYPE:
         return IR.string("void");
+      case Token.UNDEFINED_TYPE:
+        return IR.string("undefined");
       case Token.ANY_TYPE:
         return new Node(Token.QMARK);
         // Named types.
@@ -551,7 +658,7 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
         return result;
       }
       // Composite types.
-      case Token.FUNCTION_TYPE:
+      case Token.FUNCTION_TYPE: {
         Node returnType = type.getFirstChild();
         Node paramList = new Node(Token.PARAM_LIST);
         for (Node param = returnType.getNext(); param != null; param = param.getNext()) {
@@ -570,35 +677,45 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
           paramList.addChildToBack(paramType);
         }
         Node function = new Node(Token.FUNCTION);
-        function.addChildToBack(paramList);
+        // TODO(moz): We should always add a PARAM_LIST in JsDocInfoParser
+        if (paramList.hasChildren()) {
+          function.addChildToBack(paramList);
+        }
         function.addChildToBack(convertWithLocation(returnType));
         return function;
+      }
       case Token.UNION_TYPE:
         Node pipe = new Node(Token.PIPE);
         for (Node child : type.children()) {
           pipe.addChildToBack(convertWithLocation(child));
         }
         return pipe;
-      case Token.RECORD_TYPE:
+      case Token.RECORD_TYPE: {
         Node lb = new Node(Token.LB);
-        for (Node memberVar : type.children()) {
-          if (!memberVar.isMemberVariableDef()) {
+        for (Node member : type.children()) {
+          if (member.isMemberFunctionDef()) {
+            member = convertMemberFunctionToMemberVariable(member);
+          } else if (!member.isMemberVariableDef()) {
             compiler.report(JSError.make(type, UNSUPPORTED_RECORD_TYPE));
             continue;
           }
           Node colon = new Node(Token.COLON);
-          memberVar.setType(Token.STRING_KEY);
-          Node memberType = convertWithLocation(
-              maybeCreateAnyType(memberVar, memberVar.getDeclaredTypeExpression()));
-          memberVar.setDeclaredTypeExpression(null);
-          colon.addChildToBack(memberVar.detachFromParent());
+          member.setType(Token.STRING_KEY);
+          Node memberType =
+              maybeProcessOptionalProperty(member, member.getDeclaredTypeExpression());
+          member.setDeclaredTypeExpression(null);
+          colon.addChildToBack(member.detachFromParent());
           colon.addChildToBack(memberType);
           lb.addChildrenToBack(colon);
         }
         return new Node(Token.LC, lb);
+      }
       case Token.TYPEOF:
         // Currently, TypeQuery is not supported in Closure's type system.
         compiler.report(JSError.make(type, TYPE_QUERY_NOT_SUPPORTED));
+        return new Node(Token.QMARK);
+      case Token.STRING:
+        compiler.report(JSError.make(type, SPECIALIZED_SIGNATURE_NOT_SUPPORTED));
         return new Node(Token.QMARK);
       default:
         // TODO(moz): Implement.
@@ -647,6 +764,42 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     }
   }
 
+  private Node convertMemberFunctionToMemberVariable(Node member) {
+    Node function = member.getFirstChild();
+    Node memberVariable = Node.newString(Token.MEMBER_VARIABLE_DEF, member.getString());
+    memberVariable.useSourceInfoFrom(member);
+    if (!processedOverloads.contains(function)) {
+      Node returnType = maybeCreateAnyType(function, function.getDeclaredTypeExpression());
+      LinkedHashMap<String, TypeDeclarationNode> required = new LinkedHashMap<>();
+      LinkedHashMap<String, TypeDeclarationNode> optional = new LinkedHashMap<>();
+      String restName = null;
+      TypeDeclarationNode restType = null;
+
+      for (Node param : function.getFirstChild().getNext().children()) {
+        if (param.isName()) {
+          if (param.isOptionalEs6Typed()) {
+            optional.put(param.getString(), param.getDeclaredTypeExpression());
+          } else {
+            required.put(param.getString(), param.getDeclaredTypeExpression());
+          }
+        } else if (param.isRest()) {
+          restName = param.getString();
+          restType = param.getDeclaredTypeExpression();
+        }
+      }
+
+      TypeDeclarationNode type =
+          TypeDeclarationsIR.functionType(returnType, required, optional, restName, restType);
+      memberVariable.setDeclaredTypeExpression(type);
+    } else {
+      memberVariable.setDeclaredTypeExpression(TypeDeclarationsIR.namedType("Function"));
+    }
+
+    memberVariable.putBooleanProp(Node.OPT_ES6_TYPED, function.isOptionalEs6Typed());
+    member.getParent().replaceChild(member, memberVariable);
+    return memberVariable;
+  }
+
   private Node maybeGetQualifiedNameNode(Node oldNameNode) {
     if (oldNameNode.isName()) {
       String oldName = oldNameNode.getString();
@@ -659,6 +812,14 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
       }
     }
     return oldNameNode;
+  }
+
+  private void pushOverloads() {
+    overloadStack.push(new HashMap<String, Node>());
+  }
+
+  private void popOverloads() {
+    overloadStack.pop();
   }
 
   private String maybePrependCurrNamespace(String oldName) {

@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import static com.google.javascript.jscomp.CheckJSDoc.ANNOTATION_DEPRECATED;
 import static com.google.javascript.jscomp.CheckJSDoc.ARROW_FUNCTION_AS_CONSTRUCTOR;
+import static com.google.javascript.jscomp.CheckJSDoc.DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL;
 import static com.google.javascript.jscomp.CheckJSDoc.DISALLOWED_MEMBER_JSDOC;
 import static com.google.javascript.jscomp.CheckJSDoc.MISPLACED_ANNOTATION;
 import static com.google.javascript.jscomp.CheckJSDoc.MISPLACED_MSG_ANNOTATION;
@@ -63,6 +64,22 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         DISALLOWED_MEMBER_JSDOC);
   }
 
+  public void testFunctionJSDocOnMethods() {
+    testSameEs6("class Foo { /** @return {?} */ bar() {} }");
+    testSameEs6("class Foo { /** @return {?} */ get bar() {} }");
+    testSameEs6("class Foo { /** @param {?} x */ set bar(x) {} }");
+
+    testSameEs6("class Foo { /** @return {?} */ [bar]() {} }");
+    testSameEs6("class Foo { /** @return {?} */ get [bar]() {} }");
+    testSameEs6("class Foo { /** @return {?} x */ set [bar](x) {} }");
+  }
+
+  public void testMethodsOnObjectLiterals() {
+    testSameEs6("var x = { /** @return {?} */ foo() {} };");
+    testSameEs6("var x = { /** @return {?} */ [foo]() {} };");
+    testSameEs6("var x = { /** @return {?} */ foo: someFn };");
+    testSameEs6("var x = { /** @return {?} */ [foo]: someFn };");
+  }
 
   public void testExposeDeprecated() {
     testWarning("/** @expose */ var x = 0;", ANNOTATION_DEPRECATED);
@@ -177,5 +194,50 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         ARROW_FUNCTION_AS_CONSTRUCTOR);
     testErrorEs6("var a; /** @constructor */ a = ()=>{}; var b = a();",
         ARROW_FUNCTION_AS_CONSTRUCTOR);
+  }
+
+  public void testDefaultParam() {
+    testErrorEs6("function f(/** number */ x=0) {}", DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL);
+    testSameEs6("function f(/** number= */ x=0) {}");
+  }
+
+  private void testBadTemplate(String code) {
+    testWarning(code, MISPLACED_ANNOTATION);
+  }
+
+  public void testGoodTemplate1() {
+    testSameEs6("/** @template T */ class C {}");
+    testSameEs6("class C { /** @template T \n @param {T} a\n @param {T} b \n */ "
+        + "constructor(a,b){} }");
+    testSameEs6("class C {/** @template T \n @param {T} a\n @param {T} b \n */ method(a,b){} }");
+    testSame("/** @template T \n @param {T} a\n @param {T} b\n */ var x = function(a, b){};");
+    testSame("/** @constructor @template T */ var x = function(){};");
+    testSame("/** @interface @template T */ var x = function(){};");
+  }
+
+  public void testGoodTemplate2() {
+    testSame("/** @template T */ x.y.z = goog.defineClass(null, {constructor: function() {}});");
+  }
+
+  public void testGoodTemplate3() {
+    testSame("var /** @template T */ x = goog.defineClass(null, {constructor: function() {}});");
+  }
+
+  public void testGoodTemplate4() {
+    testSame("x.y.z = goog.defineClass(null, {/** @return T @template T */ m: function() {}});");
+  }
+  public void testBadTemplate1() {
+    testBadTemplate("/** @type {!Function} @template T */ var x = function(){};");
+  }
+
+  public void testBadTemplate2() {
+    testBadTemplate("/** @template T */ foo();");
+  }
+
+  public void testBadTemplate3() {
+    testBadTemplate(LINE_JOINER.join(
+        "x.y.z = goog.defineClass(null, {",
+        "  /** @template T */ constructor: function() {}",
+        "});"));
   }
 }

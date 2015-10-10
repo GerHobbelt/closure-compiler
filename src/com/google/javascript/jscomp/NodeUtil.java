@@ -818,30 +818,6 @@ public final class NodeUtil {
     return false;
   }
 
-  static boolean isAliasedNominalTypeDecl(Node n) {
-    if (n.isName()) {
-      n = n.getParent();
-    }
-    if (n.isVar() && n.getChildCount() == 1) {
-      Node name = n.getFirstChild();
-      Node init = name.getFirstChild();
-      JSDocInfo jsdoc = getBestJSDocInfo(n);
-      return jsdoc != null
-          && jsdoc.isConstructorOrInterface()
-          && init != null
-          && init.isQualifiedName();
-    }
-    Node parent = n.getParent();
-    if (n.isGetProp() && n.isQualifiedName()
-        && parent.isAssign() && parent.getParent().isExprResult()) {
-      JSDocInfo jsdoc = getBestJSDocInfo(n);
-      return jsdoc != null
-          && jsdoc.isConstructorOrInterface()
-          && parent.getLastChild().isQualifiedName();
-    }
-    return false;
-  }
-
   /**
    * Returns true iff this node defines a namespace, such as goog or goog.math.
    */
@@ -940,10 +916,11 @@ public final class NodeUtil {
         if (checkForNewObjects) {
           return true;
         }
-        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
-          if (checkForStateChangeHelper(
-                  c.getFirstChild(), checkForNewObjects, compiler)) {
-            return true;
+        for (Node key = n.getFirstChild(); key != null; key = key.getNext()) {
+          for (Node c = key.getFirstChild(); c != null; c = c.getNext()) {
+            if (checkForStateChangeHelper(c, checkForNewObjects, compiler)) {
+              return true;
+            }
           }
         }
         return false;
@@ -1169,12 +1146,44 @@ public final class NodeUtil {
         return false;
       }
 
-      // Math.floor has no side-effects.
+      // Many common Math functions have no side-effects.
       // TODO(nicksantos): This is a terrible terrible hack, until
       // I create a definitionProvider that understands namespacing.
-      if (nameNode.getFirstChild().isName()) {
-        if ("Math.floor".equals(nameNode.getQualifiedName())) {
-          return false;
+      if (nameNode.getFirstChild().isName() && nameNode.isQualifiedName()
+          && nameNode.getFirstChild().getString().equals("Math")) {
+        switch(nameNode.getLastChild().getString()) {
+          case "abs":
+          case "acos":
+          case "acosh":
+          case "asin":
+          case "asinh":
+          case "atan":
+          case "atanh":
+          case "atan2":
+          case "cbrt":
+          case "ceil":
+          case "cos":
+          case "cosh":
+          case "exp":
+          case "expm1":
+          case "floor":
+          case "hypot":
+          case "log":
+          case "log10":
+          case "log1p":
+          case "log2":
+          case "max":
+          case "min":
+          case "pow":
+          case "round":
+          case "sign":
+          case "sin":
+          case "sinh":
+          case "sqrt":
+          case "tan":
+          case "tanh":
+          case "trunc":
+            return false;
         }
       }
 
@@ -1817,6 +1826,20 @@ public final class NodeUtil {
   }
 
   /**
+   * @return The first computed property in the objlit whose key matches {@code key}.
+   */
+  @Nullable
+  static Node getFirstComputedPropMatchingKey(Node objlit, Node key) {
+    Preconditions.checkState(objlit.isObjectLit());
+    for (Node child : objlit.children()) {
+      if (child.isComputedProp() && child.getFirstChild().isEquivalentTo(key)) {
+        return child.getLastChild();
+      }
+    }
+    return null;
+  }
+
+  /**
    * Returns true if the shallow scope contains references to 'this' keyword
    */
   static boolean referencesThis(Node n) {
@@ -1946,6 +1969,10 @@ public final class NodeUtil {
   static boolean isExprCall(Node n) {
     return n.isExprResult()
         && n.getFirstChild().isCall();
+  }
+
+  static boolean isVanillaFunction(Node n) {
+    return n.isFunction() && !n.isArrowFunction();
   }
 
   static boolean isVanillaFor(Node n) {
@@ -2106,12 +2133,12 @@ public final class NodeUtil {
   static boolean createsBlockScope(Node n) {
     switch (n.getType()) {
       case Token.BLOCK:
-        Node parent = n.getParent();
-        if (parent == null || parent.isCatch()) {
+        // Don't create block scope for top-level synthetic block or the one contained in a CATCH.
+        if (n.getParent() == null || n.getParent().getParent() == null
+            || n.getParent().isCatch()) {
           return false;
         }
-        Node child = n.getFirstChild();
-        return child != null && !child.isScript();
+        return true;
       case Token.FOR:
       case Token.FOR_OF:
         return true;
@@ -2126,8 +2153,7 @@ public final class NodeUtil {
         return true;
       case Token.BLOCK:
         // Only valid for top level synthetic block
-        if (n.getParent() == null
-            || n.getFirstChild() != null && n.getFirstChild().isScript()) {
+        if (n.getParent() == null || n.getParent().getParent() == null) {
           return true;
         }
       default:
@@ -3018,11 +3044,6 @@ public final class NodeUtil {
     return isValidSimpleName(parts.get(0));
   }
 
-  @Deprecated
-  static boolean isValidPropertyName(String name) {
-    return isValidSimpleName(name);
-  }
-
   /**
    * Determines whether the given name can appear on the right side of
    * the dot operator. Many properties (like reserved words) cannot, in ES3.
@@ -3273,7 +3294,7 @@ public final class NodeUtil {
   static final Predicate<Node> MATCH_NOT_THIS_BINDING = new Predicate<Node>() {
     @Override
     public boolean apply(Node n) {
-      return !n.isFunction() || n.isArrowFunction();
+      return !NodeUtil.isVanillaFunction(n);
     }
   };
 

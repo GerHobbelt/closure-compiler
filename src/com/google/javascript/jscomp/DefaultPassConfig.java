@@ -157,21 +157,6 @@ public final class DefaultPassConfig extends PassConfig {
         anonymousFunctionNameMap, stringMap, functionNames, idGeneratorMap);
   }
 
-  @Override
-  protected void setIntermediateState(State state) {
-    this.cssNames = state.cssNames == null ? null :
-         new HashMap<>(state.cssNames);
-    this.exportedNames = state.exportedNames == null ? null :
-         new HashSet<>(state.exportedNames);
-    this.crossModuleIdGenerator = state.crossModuleIdGenerator;
-    this.variableMap = state.variableMap;
-    this.propertyMap = state.propertyMap;
-    this.anonymousFunctionNameMap = state.anonymousFunctionNameMap;
-    this.stringMap = state.stringMap;
-    this.functionNames = state.functionNames;
-    this.idGeneratorMap = state.idGeneratorMap;
-  }
-
   GlobalNamespace getGlobalNamespace() {
     return namespaceForChecks;
   }
@@ -1589,6 +1574,7 @@ public final class DefaultPassConfig extends PassConfig {
           .add(new CheckNullableReturn(compiler))
           .add(new CheckForInOverArray(compiler))
           .add(new CheckPrototypeProperties(compiler))
+          .add(new CheckUnusedPrivateProperties(compiler))
           .add(new ImplicitNullabilityCheck(compiler));
       return combineChecks(compiler, callbacks.build());
     }
@@ -1663,8 +1649,7 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory("checkStrictMode", true) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      return new StrictModeCheck(compiler,
-          !options.checkSymbols);  // don't check variables twice
+      return new StrictModeCheck(compiler);
     }
   };
 

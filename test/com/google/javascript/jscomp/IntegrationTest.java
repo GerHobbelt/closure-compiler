@@ -2030,17 +2030,6 @@ public final class IntegrationTest extends IntegrationTestCase {
         StrictModeCheck.DELETE_VARIABLE);
   }
 
-  public void testEs6LanguageMode() {
-    CompilerOptions options = createCompilerOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
-
-    test(options, "var a = function() { return foo(bar); };", "var a = ()=>foo(bar);");
-    test(options,
-        "var o = { x:5, getX:function() { return this.x; } }",
-        "var o = { x:5, getX() { return this.x; } }");
-  }
-
-
 
   public void testIssue598() {
     CompilerOptions options = createCompilerOptions();
@@ -2615,7 +2604,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilationLevel.SIMPLE_OPTIMIZATIONS.setOptionsForCompilationLevel(
         options);
     options.setRenamePrefixNamespace("_");
-    test(options, code, "_.x = null; try { +_.x.FOO; } catch (e) {}");
+    test(options, code, "_.x = null; try { +_.x.FOO; } catch (a) {}");
   }
 
   public void testRenameCollision() {

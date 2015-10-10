@@ -51,8 +51,6 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
   public void setUp() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
     languageOut = LanguageMode.ECMASCRIPT3;
-    enableAstValidation(true);
-    disableTypeCheck();
     runTypeCheckAfterProcessing = true;
   }
 
@@ -314,8 +312,6 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
    * will be very difficult to typecheck.
    */
   public void testClassExpression() {
-    enableAstValidation(false);
-
     testError("var C = new (class {})();",
         Es6ToEs3Converter.CANNOT_CONVERT);
 
@@ -364,6 +360,15 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
             "/** @constructor @struct @extends {ns.D} */",
             "var C = function(var_args) { ns.D.apply(this, arguments); };",
             "$jscomp.inherits(C, ns.D);"));
+
+    // Don't inject $jscomp.inherits() or apply() for externs
+    testExternChanges(
+        "class D {} class C extends D {}", "",
+        LINE_JOINER.join(
+            "/** @constructor @struct */",
+            "var D = function() {};",
+            "/** @constructor @struct @extends {D} */",
+            "var C = function(var_args) {};"));
   }
 
   public void testInvalidExtends() {
@@ -1048,14 +1053,138 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
             "});"));
   }
 
-  /**
-   * Computed property getters and setters in classes are not supported.
-   */
-  public void testClassComputedPropGetterSetter() {
+  public void testInitSymbol() {
+    test(
+        "alert(Symbol.thimble);",
+        "$jscomp.initSymbol(); alert(Symbol.thimble)");
+    test(
+        LINE_JOINER.join(
+            "function f() {",
+            "  var x = 1;",
+            "  var y = Symbol('nimble');",
+            "}"),
+        LINE_JOINER.join(
+            "function f() {",
+            "  var x = 1;",
+            "  $jscomp.initSymbol();",
+            "  var y = Symbol('nimble');",
+            "}"));
+    test(
+        LINE_JOINER.join(
+            "function f() {",
+            "  if (true) {",
+            "     let Symbol = function() {};",
+            "  }",
+            "  alert(Symbol.ism)",
+            "}"),
+        LINE_JOINER.join(
+            "function f() {",
+            "  if (true) {",
+            "     var Symbol$0 = function() {};",
+            "  }",
+            "  $jscomp.initSymbol();",
+            "  alert(Symbol.ism)",
+            "}"));
+
+    // No $jscomp.initSymbol because "Symbol" doesn't refer to the global Symbol function here.
+    test(
+        LINE_JOINER.join(
+            "function f() {",
+            "  if (true) {",
+            "    let Symbol = function() {};",
+            "    alert(Symbol.ism)",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "function f() {",
+            "  if (true) {",
+            "    var Symbol = function() {};",
+            "    alert(Symbol.ism)",
+            "  }",
+            "}"));
+    // No $jscomp.initSymbol in externs
+    testExternChanges(
+        "alert(Symbol.thimble);", "",
+        "alert(Symbol.thimble)");
+  }
+
+  public void testInitSymbolIterator() {
+    test(
+        "var x = {[Symbol.iterator]: function() { return this; }};",
+        LINE_JOINER.join(
+            "$jscomp.initSymbol();",
+            "$jscomp.initSymbolIterator();",
+            "var $jscomp$compprop0 = {};",
+            "var x = ($jscomp$compprop0[Symbol.iterator] = function() {return this;},",
+            "         $jscomp$compprop0)"));
+  }
+
+  public void testClassComputedPropGetter() {
     languageOut = LanguageMode.ECMASCRIPT5;
 
-    testError("class C { get [foo]() {}}", Es6ToEs3Converter.CANNOT_CONVERT_YET);
-    testError("class C { set [foo](val) {}}", Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test(
+        "/** @unrestricted */ class C { get [foo]() { return 4; }}",
+        LINE_JOINER.join(
+            "/** @constructor @unrestricted */",
+            "var C = function() {};",
+            "var $jscomp$compprop0 = {};",
+            "Object.defineProperties(",
+            "  C.prototype,",
+            "  ($jscomp$compprop0[foo] = {",
+            "    configurable:true,",
+            "    enumerable:true,",
+            "    /** @this {C} */",
+            "    get: function() { return 4; }",
+            "  }, $jscomp$compprop0));"));
+
+    testError("class C { get [add + expr]() {} }", Es6ToEs3Converter.CANNOT_CONVERT);
+  }
+
+  public void testClassComputedPropSetter() {
+    languageOut = LanguageMode.ECMASCRIPT5;
+
+    test(
+        "/** @unrestricted */ class C { set [foo](val) {}}",
+        LINE_JOINER.join(
+            "/** @constructor @unrestricted */",
+            "var C = function() {};",
+            "var $jscomp$compprop0={};",
+            "Object.defineProperties(",
+            "  C.prototype,",
+            "  ($jscomp$compprop0[foo] = {",
+            "    configurable:true,",
+            "    enumerable:true,",
+            "    /** @this {C} */",
+            "    set: function(val) {}",
+            "  }, $jscomp$compprop0));"));
+
+    testError("class C { get [sub - expr]() {} }", Es6ToEs3Converter.CANNOT_CONVERT);
+  }
+
+  public void testClassComputedPropGetterAndSetter() {
+    languageOut = LanguageMode.ECMASCRIPT5;
+
+    test(
+        LINE_JOINER.join(
+            "/** @unrestricted */",
+            "class C {",
+            "  get [foo]() {}",
+            "  set [foo](val) {}",
+            "}"),
+        LINE_JOINER.join(
+            "/** @constructor @unrestricted */",
+            "var C = function() {};",
+            "var $jscomp$compprop0={};",
+            "Object.defineProperties(",
+            "  C.prototype,",
+            "  ($jscomp$compprop0[foo] = {",
+            "    configurable:true,",
+            "    enumerable:true,",
+            "    /** @this {C} */",
+            "    get: function() {},",
+            "    /** @this {C} */",
+            "    set: function(val) {},",
+            "  }, $jscomp$compprop0));"));
   }
 
   /**
@@ -1496,28 +1625,28 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
         "tag``",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = [''];",
-            "$jscomp$templatelit$0['raw'] = [''];",
+            "$jscomp$templatelit$0.raw = [''];",
             "tag($jscomp$templatelit$0);"));
 
     test(
         "tag`${hello} world`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['', ' world'];",
-            "$jscomp$templatelit$0['raw'] = ['', ' world'];",
+            "$jscomp$templatelit$0.raw = ['', ' world'];",
             "tag($jscomp$templatelit$0, hello);"));
 
     test(
         "tag`${hello} ${world}`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['', ' ', ''];",
-            "$jscomp$templatelit$0['raw'] = ['', ' ', ''];",
+            "$jscomp$templatelit$0.raw = ['', ' ', ''];",
             "tag($jscomp$templatelit$0, hello, world);"));
 
     test(
         "tag`\"`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['\\\"'];",
-            "$jscomp$templatelit$0['raw'] = ['\\\"'];",
+            "$jscomp$templatelit$0.raw = ['\\\"'];",
             "tag($jscomp$templatelit$0);"));
 
     // The cooked string and the raw string are different.
@@ -1525,21 +1654,21 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
         "tag`a\tb`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['a\tb'];",
-            "$jscomp$templatelit$0['raw'] = ['a\\tb'];",
+            "$jscomp$templatelit$0.raw = ['a\\tb'];",
             "tag($jscomp$templatelit$0);"));
 
     test(
         "tag()`${hello} world`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['', ' world'];",
-            "$jscomp$templatelit$0['raw'] = ['', ' world'];",
+            "$jscomp$templatelit$0.raw = ['', ' world'];",
             "tag()($jscomp$templatelit$0, hello);"));
 
     test(
         "a.b`${hello} world`",
         LINE_JOINER.join(
             "var $jscomp$templatelit$0 = ['', ' world'];",
-            "$jscomp$templatelit$0['raw'] = ['', ' world'];",
+            "$jscomp$templatelit$0.raw = ['', ' world'];",
             "a.b($jscomp$templatelit$0, hello);"));
   }
 

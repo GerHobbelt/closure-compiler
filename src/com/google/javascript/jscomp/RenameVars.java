@@ -215,17 +215,18 @@ final class RenameVars implements CompilerPass {
 
     @Override
     public void enterScope(NodeTraversal t) {
-      if (t.inGlobalScope() ||
+      if (t.inGlobalHoistScope() ||
           !shouldTemporarilyRenameLocalsInScope(t.getScope())) {
         return;
       }
-      Iterator<Var> it = t.getScope().getVars();
+      Scope scope = t.getScope();
+      Iterator<Var> it = scope.getVars();
       while (it.hasNext()) {
         Var current = it.next();
         if (current.isBleedingFunction()) {
           localBleedingFunctions.add(current);
           localBleedingFunctionsPerScope.put(
-              t.getScope().getParent(), current);
+              scope.getParent(), current);
         }
       }
     }
@@ -254,6 +255,12 @@ final class RenameVars implements CompilerPass {
       boolean local = (var != null) && var.isLocal() &&
           (!var.scope.getParent().isGlobal() ||
            !var.isBleedingFunction());
+
+      // Never rename references to the arguments array
+      if (var != null && var.isArguments()) {
+        reservedNames.add(name);
+        return;
+      }
 
       // Are we renaming global variables?
       if (!local && localRenamingOnly) {
@@ -353,8 +360,8 @@ final class RenameVars implements CompilerPass {
     assignmentLog = new StringBuilder();
 
     // Do variable reference counting.
-    NodeTraversal.traverse(compiler, externs, new ProcessVars(true));
-    NodeTraversal.traverse(compiler, root, new ProcessVars(false));
+    NodeTraversal.traverseEs6(compiler, externs, new ProcessVars(true));
+    NodeTraversal.traverseEs6(compiler, root, new ProcessVars(false));
 
     // Make sure that new names don't overlap with extern names.
     reservedNames.addAll(externNames);

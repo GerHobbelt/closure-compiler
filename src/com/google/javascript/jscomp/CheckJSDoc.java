@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -49,6 +50,10 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       "JSC_ARROW_FUNCTION_AS_CONSTRUCTOR",
       "Arrow functions cannot be used as constructors");
 
+  static final DiagnosticType DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL = DiagnosticType.error(
+      "JSC_DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL",
+      "Inline JSDoc on default parameters must be marked as optional");
+
   private final AbstractCompiler compiler;
 
   CheckJSDoc(AbstractCompiler compiler) {
@@ -64,39 +69,73 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     JSDocInfo info = n.getJSDocInfo();
-    validateTypeAnnotations(t, n, info);
-    validateFunctionJsDoc(t, n, info);
-    validateMsgJsDoc(t, n, info);
-    validateDeprecatedJsDoc(t, n, info);
-    validateNoCollapse(t, n, info);
-    validateClassLevelJsDoc(t, n, info);
+    validateTypeAnnotations(n, info);
+    validateFunctionJsDoc(n, info);
+    validateMsgJsDoc(n, info);
+    validateDeprecatedJsDoc(n, info);
+    validateNoCollapse(n, info);
+    validateClassLevelJsDoc(n, info);
     validateArrowFunction(n);
+    validateDefaultValue(n, info);
+    validateTempates(n, info);
+  }
+
+  private void validateTempates(Node n, JSDocInfo info) {
+    if (info != null
+        && !info.getTemplateTypeNames().isEmpty()
+        && !info.isConstructorOrInterface()
+        && !isClassDecl(n)
+        && !(info.containsFunctionDeclaration())) {
+      reportMisplaced(n, "template",
+          "@template is only allowed in class, constructor, interface, function "
+          + "or method declarations");
+    }
+  }
+
+  private boolean isClassDecl(Node n) {
+    return isClass(n)
+        || (n.isAssign() && isClass(n.getLastChild()))
+        || (NodeUtil.isNameDeclaration(n) && isNameIntializeWithClass(n.getFirstChild()))
+        || isNameIntializeWithClass(n);
+  }
+
+  private boolean isNameIntializeWithClass(Node n) {
+    return n != null && n.isName() && n.hasChildren() && isClass(n.getFirstChild());
+  }
+
+
+
+  private boolean isClass(Node n) {
+    return n.isClass()
+        || (n.isCall() && compiler.getCodingConvention().isClassFactoryCall(n));
   }
 
 
   /**
    * Checks that class-level annotations like @interface/@extends are not used on member functions.
    */
-  private void validateClassLevelJsDoc(NodeTraversal t, Node n, JSDocInfo info) {
-    if (info != null && n.isMemberFunctionDef()) {
-      if (info.isConstructorOrInterface()
-          || info.hasBaseType()
-          || info.getImplementedInterfaceCount() != 0
-          || info.getExtendedInterfacesCount() != 0) {
-        t.report(n, DISALLOWED_MEMBER_JSDOC);
-      }
+  private void validateClassLevelJsDoc(Node n, JSDocInfo info) {
+    if (info != null && n.isMemberFunctionDef()
+        && hasClassLevelJsDoc(info)) {
+      report(n, DISALLOWED_MEMBER_JSDOC);
     }
+  }
+
+  private boolean hasClassLevelJsDoc(JSDocInfo info) {
+    return info.isConstructorOrInterface()
+        || info.hasBaseType()
+        || info.getImplementedInterfaceCount() != 0
+        || info.getExtendedInterfacesCount() != 0;
   }
 
   /**
    * Checks that deprecated annotations such as @expose are not present
    */
-  private void validateDeprecatedJsDoc(NodeTraversal t, Node n,
+  private void validateDeprecatedJsDoc(Node n,
       JSDocInfo info) {
     if (info != null && info.isExpose()) {
-      t.getCompiler().report(
-          t.makeError(n, ANNOTATION_DEPRECATED, "@expose",
-              "Use @nocollapse or @export instead."));
+      report(n, ANNOTATION_DEPRECATED, "@expose",
+              "Use @nocollapse or @export instead.");
     }
   }
 
@@ -104,13 +143,12 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
    * Warns when nocollapse annotations are pressent on nodes
    * which are not eligible for property collapsing .
    */
-  private void validateNoCollapse(NodeTraversal t, Node n,
+  private void validateNoCollapse(Node n,
       JSDocInfo info) {
     if (n.isFromExterns()) {
       if (info != null && info.isNoCollapse()) {
         // @nocollapse has no effect in externs
-        t.getCompiler().report(t.makeError(n, MISPLACED_ANNOTATION,
-            "@nocollapse", "This JSDoc has no effect in externs."));
+        reportMisplaced(n, "nocollapse", "This JSDoc has no effect in externs.");
       }
       return;
     }
@@ -119,9 +157,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     }
     JSDocInfo jsdoc = n.getJSDocInfo();
     if (jsdoc != null && jsdoc.isNoCollapse()) {
-      t.getCompiler().report(
-          t.makeError(n, MISPLACED_ANNOTATION, "@nocollapse",
-              "This JSDoc has no effect on prototype properties."));
+      reportMisplaced(n, "nocollapse", "This JSDoc has no effect on prototype properties.");
     }
   }
 
@@ -129,7 +165,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
    * Checks that JSDoc intended for a function is actually attached to a
    * function.
    */
-  private void validateFunctionJsDoc(NodeTraversal t, Node n, JSDocInfo info) {
+  private void validateFunctionJsDoc(Node n, JSDocInfo info) {
     if (info == null) {
       return;
     }
@@ -146,6 +182,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
         case Token.SETTER_DEF:
         case Token.MEMBER_FUNCTION_DEF:
         case Token.STRING_KEY:
+        case Token.COMPUTED_PROP:
         case Token.EXPORT:
           return;
         case Token.GETELEM:
@@ -161,9 +198,9 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
           return;
         }
       }
-      t.getCompiler().report(t.makeError(n, MISPLACED_ANNOTATION,
+      reportMisplaced(n,
           "function", "This JSDoc is not attached to a function node. "
-              + "Are you missing parentheses?"));
+              + "Are you missing parentheses?");
     }
   }
 
@@ -175,7 +212,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
    * extracted for translation. A later pass checks that the right side is
    * a call to goog.getMsg.
    */
-  private void validateMsgJsDoc(NodeTraversal t, Node n,
+  private void validateMsgJsDoc(Node n,
       JSDocInfo info) {
     if (info == null) {
       return;
@@ -203,7 +240,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
           break;
       }
       if (!descOkay) {
-        t.getCompiler().report(t.makeError(n, MISPLACED_MSG_ANNOTATION));
+        report(n, MISPLACED_MSG_ANNOTATION);
       }
     }
   }
@@ -211,7 +248,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
   /**
    * Check that JSDoc with a {@code @type} annotation is in a valid place.
    */
-  private void validateTypeAnnotations(NodeTraversal t, Node n, JSDocInfo info) {
+  private void validateTypeAnnotations(Node n, JSDocInfo info) {
     if (info != null && info.hasType()) {
       boolean valid = false;
       switch (n.getType()) {
@@ -266,11 +303,19 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       }
 
       if (!valid) {
-        t.getCompiler().report(t.makeError(n, MISPLACED_ANNOTATION,
-            "type", "Type annotations are not allowed here. "
-                + "Are you missing parentheses?"));
+        reportMisplaced(n, "type", "Type annotations are not allowed here. "
+            + "Are you missing parentheses?");
       }
     }
+  }
+
+  private void reportMisplaced(Node n, String annotationName, String note) {
+    compiler.report(JSError.make(n, MISPLACED_ANNOTATION,
+        annotationName, note));
+  }
+
+  private void report(Node n, DiagnosticType type, String... arguments) {
+    compiler.report(JSError.make(n, type, arguments));
   }
 
   /**
@@ -280,7 +325,23 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     if (n.isArrowFunction()) {
       JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
       if (info != null && info.isConstructorOrInterface()) {
-        compiler.report(JSError.make(n, ARROW_FUNCTION_AS_CONSTRUCTOR));
+        report(n, ARROW_FUNCTION_AS_CONSTRUCTOR);
+      }
+    }
+  }
+
+  /**
+   * Check that an arrow function is not annotated with {@constructor}.
+   */
+  private void validateDefaultValue(Node n, JSDocInfo info) {
+    if (n.isDefaultValue() && n.getParent().isParamList() && info != null) {
+      JSTypeExpression typeExpr = info.getType();
+      if (typeExpr == null) {
+        return;
+      }
+      Node typeNode = typeExpr.getRoot();
+      if (typeNode.getType() != Token.EQUALS) {
+        report(typeNode, DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL);
       }
     }
   }

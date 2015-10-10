@@ -139,7 +139,7 @@
     <mkdir dir="${classes.dir}" />
     <javac srcdir="${gen.dir}"
            destdir="${classes.dir}"
-           excludes=".svn,.git"
+           excludes=".svn,.git,**/gwt/**"
            debug="${javac.debug}"
            deprecation="on"
            includeantruntime="false"
@@ -149,7 +149,7 @@
     </javac>
     <javac srcdir="${src.dir}"
            destdir="${classes.dir}"
-           excludes=".svn,.git,**/refactoring/**,**/webservice/**,**/testing/**"
+           excludes=".svn,.git,**/refactoring/**,**/webservice/**,**/testing/**,**/gwt/**"
            debug="${javac.debug}"
            deprecation="on"
            includeantruntime="true"
@@ -159,7 +159,6 @@
     </javac>
 
     <!-- Move Messages.properties where ScriptRuntime.java expects it. -->
-    <mkdir dir="${classes.dir}/rhino_ast/java/com/google/javascript/rhino/" />
     <copy file="${src.dir}/com/google/javascript/rhino/Messages.properties"
           todir="${classes.dir}/com/google/javascript/rhino/" />
 
@@ -238,7 +237,7 @@
     <mkdir dir="${testClasses.dir}" />
     <javac srcdir="${src.dir}"
            destdir="${testClasses.dir}"
-           excludes=".svn,.git"
+           excludes=".svn,.git,**/gwt/**"
            debug="on"
            deprecation="on"
            includeantruntime="false"
@@ -248,7 +247,7 @@
     </javac>
     <javac srcdir="${test.dir}"
            destdir="${testClasses.dir}"
-           excludes=".svn,.git"
+           excludes=".svn,.git,**/gwt/**"
            debug="on"
            deprecation="on"
            includeantruntime="false"
