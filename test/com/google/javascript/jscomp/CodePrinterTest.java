@@ -1040,6 +1040,18 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         + "a.Foo.prototype.bar = \"\";\n");
   }
 
+  public void testTypeAnnotationsMemberStub() {
+    // TODO(blickly): Investigate why the method's type isn't preserved.
+    assertTypeAnnotations("/** @interface */ function I(){};"
+        + "/** @return {undefined} @param {number} x */ I.prototype.method;",
+        "/**\n"
+        + " * @interface\n"
+        + " */\n"
+        + "function I() {\n"
+        + "}\n"
+        + "I.prototype.method;\n");
+  }
+
   public void testTypeAnnotationsImplements() {
     assertTypeAnnotations("var a = {};"
         + "/** @constructor */ a.Foo = function(){};\n"
@@ -1904,6 +1916,18 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("class C{static member(){}}");
     assertPrintSame("class C{member(){}get f(){}}");
     assertPrintSame("var x=class C{}");
+  }
+
+  public void testClassComputedProperties() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("class C{[x](){}}");
+    assertPrintSame("class C{get [x](){}}");
+    assertPrintSame("class C{set [x](val){}}");
+
+    assertPrintSame("class C{static [x](){}}");
+    assertPrintSame("class C{static get [x](){}}");
+    assertPrintSame("class C{static set [x](val){}}");
   }
 
   public void testClassPretty() {

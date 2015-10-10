@@ -35,6 +35,9 @@ import java.util.Set;
  * these properties may be indirectly referenced using "for-in" or
  * "Object.keys".
  *
+ * This class is based on RemoveUnusedClassProperties, some effort should
+ * be made to extract the common pieces.
+ *
  * @author johnlenz@google.com (John Lenz)
  */
 class CheckUnusedPrivateProperties
@@ -66,7 +69,7 @@ class CheckUnusedPrivateProperties
     for (Node n : candidates) {
       String propName = getPropName(n);
       if (!used.contains(propName)) {
-        t.report(n, UNUSED_PRIVATE_PROPERTY);
+        t.report(n, UNUSED_PRIVATE_PROPERTY, propName);
       }
     }
   }
@@ -195,7 +198,7 @@ class CheckUnusedPrivateProperties
         // if the property is never otherwise read we can consider it simply
         // a write.
         // However if the assign expression is used as part of a larger
-        // expression, we much consider it a read. For example:
+        // expression, we must consider it a read. For example:
         //    x = (y.a += 1);
         return NodeUtil.isExpressionResultUsed(parent);
       }

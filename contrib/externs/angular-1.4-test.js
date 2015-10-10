@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 The Closure Compiler Authors.
+ * Copyright 2015 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +14,16 @@
  * limitations under the License.
  */
 
-package com.google.javascript.jscomp.parsing.parser.trees;
+/**
+ * @fileoverview Test externs for v1_4.
+ * @externs
+ *
+ * Some AngularJS methods are only available when debug data is enabled,
+ * see https://docs.angularjs.org/guide/production#disabling-debug-data.
+ */
 
-import com.google.common.collect.ImmutableList;
-import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
-
-public class FormalParameterListTree extends ParseTree {
-  public final ImmutableList<ParseTree> parameters;
-
-  public FormalParameterListTree(SourceRange location,
-      ImmutableList<ParseTree> parameters) {
-    super(ParseTreeType.FORMAL_PARAMETER_LIST, location);
-    this.parameters = parameters;
-  }
-
-}
+/**
+ * Allows isolateScope to be used in angular tests.
+ * @return {!angular.Scope|undefined}
+ */
+angular.JQLite.prototype.isolateScope = function() {};

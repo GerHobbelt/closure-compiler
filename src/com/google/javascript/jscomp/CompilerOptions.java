@@ -135,6 +135,7 @@ public class CompilerOptions {
   public boolean ideMode;
 
   private boolean parseJsDocDocumentation = false;
+  private boolean preserveJsDocWhitespace = false;
 
   /**
    * Even if checkTypes is disabled, clients might want to still infer types.
@@ -142,7 +143,6 @@ public class CompilerOptions {
    */
   boolean inferTypes;
 
-  // The new type inference is a work in progress. Don't use.
   boolean useNewTypeInference;
 
   /**
@@ -656,6 +656,9 @@ public class CompilerOptions {
   /** Processes Polymer calls */
   boolean polymerPass;
 
+  /** Processes the output of the Dart Dev Compiler */
+  boolean dartPass;
+
   /** Remove goog.abstractMethod assignments. */
   boolean removeAbstractMethods;
 
@@ -924,6 +927,8 @@ public class CompilerOptions {
    */
   public boolean instrumentForCoverage;
 
+  String instrumentationTemplateFile;
+
   /** List of conformance configs to use in CheckConformance */
   private ImmutableList<ConformanceConfig> conformanceConfigs = ImmutableList.of();
 
@@ -1032,6 +1037,7 @@ public class CompilerOptions {
     jqueryPass = false;
     angularPass = false;
     polymerPass = false;
+    dartPass = false;
     removeAbstractMethods = true;
     removeClosureAsserts = false;
     stripTypes = Collections.emptySet();
@@ -1062,6 +1068,7 @@ public class CompilerOptions {
     // Instrumentation
     instrumentationTemplate = null;  // instrument functions
     instrumentForCoverage = false;  // instrument lines
+    instrumentationTemplateFile = "";
 
     // Output
     preserveTypeAnnotations = false;
@@ -1133,7 +1140,7 @@ public class CompilerOptions {
    */
   private static Map<String, Node> getReplacementsHelper(
       Map<String, Object> source) {
-    Map<String, Node> map = new HashMap<>();
+    ImmutableMap.Builder<String, Node> map = ImmutableMap.builder();
     for (Map.Entry<String, Object> entry : source.entrySet()) {
       String name = entry.getKey();
       Object value = entry.getValue();
@@ -1148,7 +1155,7 @@ public class CompilerOptions {
         map.put(name, IR.string((String) value));
       }
     }
-    return map;
+    return map.build();
   }
 
   /**
@@ -1492,6 +1499,10 @@ public class CompilerOptions {
     this.polymerPass = polymerPass;
   }
 
+  public void setDartPass(boolean dartPass) {
+    this.dartPass = dartPass;
+  }
+
   public void setCodingConvention(CodingConvention codingConvention) {
     this.codingConvention = codingConvention;
   }
@@ -1746,7 +1757,7 @@ public class CompilerOptions {
   public void setPropertyInvalidationErrors(
       Map<String, CheckLevel> propertyInvalidationErrors) {
     this.propertyInvalidationErrors =
-         new HashMap<>(propertyInvalidationErrors);
+         ImmutableMap.copyOf(propertyInvalidationErrors);
   }
 
   public void setIdeMode(boolean ideMode) {
@@ -1771,6 +1782,28 @@ public class CompilerOptions {
    */
   public boolean isParseJsDocDocumentation() {
     return this.ideMode || this.parseJsDocDocumentation;
+  }
+
+  /**
+   * Enables or disables the preservation of all whitespace and formatting within a JSDoc
+   * comment. By default, whitespace is collapsed for all comments except @license and
+   * @preserve blocks,
+   *
+   * <p>Setting this option has no effect if {@link #isParseJsDocDocumentation()}
+   * returns false.
+   *
+   * @param preserveJsDocWhitespace
+   *           True to preserve whitespace in text extracted from JSDoc comments.
+   */
+  public void setPreserveJsDocWhitespace(boolean preserveJsDocWhitespace) {
+    this.preserveJsDocWhitespace = preserveJsDocWhitespace;
+  }
+
+  /**
+   * @return Whether to preserve whitespace in all text extracted from JSDoc comments.
+   */
+  public boolean isPreserveJsDocWhitespace() {
+    return preserveJsDocWhitespace;
   }
 
   /**
@@ -2144,6 +2177,10 @@ public class CompilerOptions {
 
   public void setInstrumentationTemplate(Instrumentation instrumentationTemplate) {
     this.instrumentationTemplate = instrumentationTemplate;
+  }
+
+  public void setInstrumentationTemplateFile(String filename){
+    this.instrumentationTemplateFile = filename;
   }
 
   public void setRecordFunctionInformation(boolean recordFunctionInformation) {

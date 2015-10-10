@@ -439,6 +439,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     options.angularPass = config.angularPass;
     options.tracer = config.tracerMode;
     options.useNewTypeInference = config.useNewTypeInference;
+    options.instrumentationTemplateFile = config.instrumentationTemplateFile;
 
     // tweak the individual options using the options file:
     // THIS IS A DEVELOPMENT FEATURE, USE AT YOUR OWN RISK     
@@ -2275,13 +2276,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     private List<String> moduleRoots = ImmutableList.of(ES6ModuleLoader.DEFAULT_FILENAME_PREFIX);
 
     /**
-     * Sets the CommonJS module path prefix (maps to {@link #setModuleRoots(List)}).
-     */
-    CommandLineConfig setCommonJSModulePathPrefix(String prefix) {
-      return setModuleRoots(ImmutableList.of(prefix));
-    }
-
-    /**
      * Sets the module roots.
      */
     CommandLineConfig setModuleRoots(List<String> jsModuleRoots) {
@@ -2322,6 +2316,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     CommandLineConfig setNewTypeInference(boolean useNewTypeInference) {
       this.useNewTypeInference = useNewTypeInference;
       return this;
+    }
+
+    private String instrumentationTemplateFile = "";
+
+    CommandLineConfig setInstrumentationTemplateFile(String fileName) {
+        this.instrumentationTemplateFile = fileName;
+        return this;
     }
 
     private String customOptionsFile = "";

@@ -44,6 +44,23 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
     return options;
   }
 
+  public void testInlineJsDoc_ES6() {
+    testSame("function f(/** string */ x) {}");
+    testSameEs6("function f(/** number= */ x=3) {}");
+    testSameEs6("function f(/** !Object */ {x}) {}");
+    testSameEs6("function f(/** !Array */ [x]) {}");
+
+    testWarningEs6("function f([/** number */ x]) {}", MISPLACED_ANNOTATION);
+  }
+
+  // TODO(tbreisacher): These should be a MISPLACED_ANNOTATION warning instead of silently failing.
+  public void testInlineJsDocInsideObjectParams() {
+    testSameEs6("function f({ prop: {/** string */ x} }) {}");
+    testSameEs6("function f({ prop: {x: /** string */ y} }) {}");
+    testSameEs6("function f({ /** number */ x }) {}");
+    testSameEs6("function f({ prop: /** number */ x }) {}");
+  }
+
   public void testInvalidClassJsdoc() {
     testSameEs6("class Foo { /** @param {number} x */ constructor(x) {}}");
 
@@ -64,6 +81,16 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         DISALLOWED_MEMBER_JSDOC);
   }
 
+  public void testInlineJSDoc() {
+    testSame("function f(/** string */ x) {}");
+    testSame("function f(/** @type {string} */ x) {}");
+
+    testSame("var /** string */ x = 'x';");
+    testSame("var /** @type {string} */ x = 'x';");
+    testSame("var /** string */ x, /** number */ y;");
+    testSame("var /** @type {string} */ x, /** @type {number} */ y;");
+  }
+
   public void testFunctionJSDocOnMethods() {
     testSameEs6("class Foo { /** @return {?} */ bar() {} }");
     testSameEs6("class Foo { /** @return {?} */ get bar() {} }");
@@ -72,6 +99,11 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
     testSameEs6("class Foo { /** @return {?} */ [bar]() {} }");
     testSameEs6("class Foo { /** @return {?} */ get [bar]() {} }");
     testSameEs6("class Foo { /** @return {?} x */ set [bar](x) {} }");
+  }
+
+  public void testObjectLiterals() {
+    testSame("var o = { /** @type {?} */ x: y };");
+    testWarning("var o = { x: /** @type {?} */ y };", MISPLACED_ANNOTATION);
   }
 
   public void testMethodsOnObjectLiterals() {
@@ -226,18 +258,21 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
   public void testGoodTemplate4() {
     testSame("x.y.z = goog.defineClass(null, {/** @return T @template T */ m: function() {}});");
   }
-  public void testBadTemplate1() {
-    testBadTemplate("/** @type {!Function} @template T */ var x = function(){};");
-  }
 
-  public void testBadTemplate2() {
+  public void testBadTemplate1() {
     testBadTemplate("/** @template T */ foo();");
   }
 
-  public void testBadTemplate3() {
+  public void testBadTemplate2() {
     testBadTemplate(LINE_JOINER.join(
         "x.y.z = goog.defineClass(null, {",
         "  /** @template T */ constructor: function() {}",
         "});"));
+  }
+
+  public void testBadTemplate3() {
+    testBadTemplate("/** @template T */ function f() {}");
+    testBadTemplate("/** @template T */ var f = function() {};");
+    testBadTemplate("/** @template T */ Foo.prototype.f = function() {};");
   }
 }
