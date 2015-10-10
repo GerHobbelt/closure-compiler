@@ -804,8 +804,9 @@ jQuery.prototype.fadeTo = function(duration, opacity, arg3, callback) {};
 jQuery.prototype.fadeToggle = function(duration, easing, callback) {};
 
 /**
- * @param {(jQuerySelector|function(number)|Element|jQuery)} arg1
+ * @param {(jQuerySelector|function(number,Element)|Element|jQuery)} arg1
  * @return {!jQuery}
+ * @see http://api.jquery.com/filter/
  */
 jQuery.prototype.filter = function(arg1) {};
 
@@ -1578,7 +1579,7 @@ jQuery.prototype.position = function() {};
  * @param {string} url
  * @param {(Object.<string,*>|string|
  *     function(string,string,jQuery.jqXHR))=} data
- * @param {(function(string,string,jQuery.jqXHR)|string)=} success
+ * @param {(function(string,string,jQuery.jqXHR)|string|null)=} success
  * @param {string=} dataType
  * @return {jQuery.jqXHR}
  */
@@ -1588,7 +1589,7 @@ jQuery.post = function(url, data, success, dataType) {};
  * @param {string} url
  * @param {(Object.<string,*>|string|
  *     function(string,string,jQuery.jqXHR))=} data
- * @param {(function(string,string,jQuery.jqXHR)|string)=} success
+ * @param {(function(string,string,jQuery.jqXHR)|string|null)=} success
  * @param {string=} dataType
  * @return {jQuery.jqXHR}
  */

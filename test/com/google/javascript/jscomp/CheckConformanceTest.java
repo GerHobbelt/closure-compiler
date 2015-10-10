@@ -24,6 +24,8 @@ import com.google.javascript.jscomp.ConformanceRules.ConformanceResult;
 import com.google.javascript.rhino.Node;
 import com.google.protobuf.TextFormat;
 
+import java.util.List;
+
 /**
  * Tests for {@link CheckConformance}.
  *
@@ -75,7 +77,7 @@ public class CheckConformanceTest extends CompilerTestCase {
     super.getOptions(options);
     options.setWarningLevel(
         DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
-    // options.setConformanceConfig(this.conformanceConfig);
+    options.setCodingConvention(getCodingConvention());
     return options;
   }
 
@@ -899,6 +901,18 @@ public class CheckConformanceTest extends CompilerTestCase {
         "function f() {alert(/** @type {Error} */(this));}");
   }
 
+  public void testCustomBanUnknownThis4() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanUnknownThis'\n" +
+        "  error_message: 'BanUnknownThis Message'\n" +
+        "}";
+
+    testSame(
+        "function f() {goog.asserts.assertInstanceof(this, Error);}");
+  }
+
   public void testCustomBanGlobalVars1() {
     configuration =
         "requirement: {\n" +
@@ -1038,6 +1052,15 @@ public class CheckConformanceTest extends CompilerTestCase {
 
     testSame("goog.provide('foo.bar');");
 
+    testSame(
+        "goog.provide('foo');\n" +
+        "/** @public @constructor */" +
+        "foo.Bar = function() {};\n" +
+        "/** @public */foo.Bar.prototype.baz = function() {};\n" +
+        "/** @public @constructor @extends {foo.Bar} */\n" +
+        "foo.Quux = function() {};\n" +
+        "/** @override */foo.Quux.prototype.baz = function() {};");
+
     // These kinds of declarations aren't currently caught by
     // NoImplicitlyPublicDecls, but they could be.
     testSame("var foo");
@@ -1047,5 +1070,27 @@ public class CheckConformanceTest extends CompilerTestCase {
         "foo.Bar.prototype = {\n" +
         "  baz: function(){}\n" +
         "};");
+  }
+
+  public void testMergeRequirements() {
+    Compiler compiler = createCompiler();
+    ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
+    builder.addRequirementBuilder().setRuleId("a").addWhitelist("x").addWhitelistRegexp("m");
+    builder.addRequirementBuilder().setExtends("a").addWhitelist("y").addWhitelistRegexp("n");
+    List<Requirement> requirements =
+        CheckConformance.mergeRequirements(compiler, ImmutableList.of(builder.build()));
+    assertEquals(1, requirements.size());
+    Requirement requirement = requirements.get(0);
+    assertEquals(2, requirement.getWhitelistCount());
+    assertEquals(2, requirement.getWhitelistRegexpCount());
+  }
+
+  public void testMergeRequirements_findsDuplicates() {
+    Compiler compiler = createCompiler();
+    ErrorManager errorManager = new BlackHoleErrorManager(compiler);
+    ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
+    builder.addRequirementBuilder().addWhitelist("x").addWhitelist("x");
+    CheckConformance.mergeRequirements(compiler, ImmutableList.of(builder.build()));
+    assertEquals(1, errorManager.getErrorCount());
   }
 }

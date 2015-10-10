@@ -30,7 +30,6 @@ import com.google.common.collect.Maps;
 import com.google.common.io.CharStreams;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.CompilerOptions.DevMode;
-import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.JSModuleGraph.MissingModuleException;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.Scope.Var;
@@ -991,13 +990,6 @@ public class Compiler extends AbstractCompiler {
         state.variableMap, state.propertyMap,
         state.anonymousFunctionNameMap, state.stringMap, functionInformationMap,
         sourceMap, externExports, state.cssNames, state.idGeneratorMap);
-  }
-
-  /**
-   * Returns an array constructed from errors + temporary warnings.
-   */
-  public JSError[] getMessages() {
-    return getErrors();
   }
 
   /**
@@ -2136,10 +2128,6 @@ public class Compiler extends AbstractCompiler {
     }
   }
 
-  public LanguageMode languageMode() {
-    return options.getLanguageIn();
-  }
-
   @Override
   public boolean acceptConstKeyword() {
     return options.acceptConstKeyword;
@@ -2218,6 +2206,7 @@ public class Compiler extends AbstractCompiler {
     }
 
     if (level.isOn()) {
+      initCompilerOptionsIfTesting();
       if (getOptions().errorHandler != null) {
         getOptions().errorHandler.report(level, error);
       }

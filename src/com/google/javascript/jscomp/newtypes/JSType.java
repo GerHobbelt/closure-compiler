@@ -110,9 +110,9 @@ public abstract class JSType {
   protected abstract ImmutableSet<EnumType> getEnums();
 
   // Factory method for wrapping a function in a JSType
-  static JSType fromFunctionType(FunctionType fn) {
+  static JSType fromFunctionType(FunctionType fn, NominalType fnNominal) {
     return makeType(NON_SCALAR_MASK,
-        ImmutableSet.of(ObjectType.fromFunction(fn)), null, null);
+        ImmutableSet.of(ObjectType.fromFunction(fn, fnNominal)), null, null);
   }
 
   public static JSType fromObjectType(ObjectType obj) {
@@ -230,6 +230,10 @@ public abstract class JSType {
 
   public boolean hasNonScalar() {
     return getObjs() != null || EnumType.hasNonScalar(getEnums());
+  }
+
+  public boolean isNullable() {
+    return (getMask() & NULL_MASK) != 0;
   }
 
   boolean isTypeVariable() {

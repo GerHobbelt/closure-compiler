@@ -54,7 +54,7 @@ public class NominalType {
     this.rawType = rawType;
   }
 
-  // This should only be called during GlobalTypeInfo
+  // This should only be called during GlobalTypeInfo.
   public RawNominalType getRawNominalType() {
     Preconditions.checkState(typeMap.isEmpty());
     return rawType;
@@ -68,6 +68,18 @@ public class NominalType {
 
   ObjectKind getObjectKind() {
     return rawType.objectKind;
+  }
+
+  boolean isClassy() {
+    return !isFunction() && !isObject();
+  }
+
+  boolean isFunction() {
+    return "Function".equals(rawType.name);
+  }
+
+  private boolean isObject() {
+    return "Object".equals(rawType.name);
   }
 
   public boolean isStruct() {
@@ -189,8 +201,10 @@ public class NominalType {
     return p != null && p.isConstant();
   }
 
-  static JSType createConstructorObject(FunctionType ctorFn) {
-    return ctorFn.nominalType.rawType.createConstructorObject(ctorFn);
+  static JSType createConstructorObject(
+      FunctionType ctorFn, NominalType builtinFunction) {
+    return ctorFn.nominalType.rawType
+        .createConstructorObject(ctorFn, builtinFunction);
   }
 
   boolean isSubclassOf(NominalType other) {
@@ -312,9 +326,14 @@ public class NominalType {
       // Non-generic nominal types don't contribute to the unification.
       return true;
     }
-    // Both nominal types must already be instantiated when unifyWith is called.
+    // Most of the time, both nominal types are already instantiated when
+    // unifyWith is called. Rarely, when we call a polymorphic function from the
+    // body of a method of a polymorphic class, then other.typeMap is empty.
+    // For now, don't do anything fancy in that case.
     Preconditions.checkState(!typeMap.isEmpty());
-    Preconditions.checkState(!other.typeMap.isEmpty());
+    if (other.typeMap.isEmpty()) {
+      return true;
+    }
     boolean hasUnified = true;
     for (String typeParam : rawType.typeParameters) {
       hasUnified = hasUnified && typeMap.get(typeParam).unifyWith(
@@ -376,6 +395,7 @@ public class NominalType {
     private final ImmutableList<String> typeParameters;
     private final ObjectKind objectKind;
     private FunctionType ctorFn;
+    private NominalType builtinFunction;
 
     private RawNominalType(String name, ImmutableList<String> typeParameters,
         boolean isInterface, ObjectKind objectKind) {
@@ -389,8 +409,11 @@ public class NominalType {
       this.objectKind = objectKind;
       this.wrappedAsNominal =
           new NominalType(ImmutableMap.<String, JSType>of(), this);
-      this.wrappedAsJSType = JSType.fromObjectType(
-          ObjectType.fromNominalType(this.wrappedAsNominal));
+      ObjectType objInstance = "Function".equals(name)
+          ? ObjectType.fromFunction(
+              FunctionType.TOP_FUNCTION, this.wrappedAsNominal)
+          : ObjectType.fromNominalType(this.wrappedAsNominal);
+      this.wrappedAsJSType = JSType.fromObjectType(objInstance);
       this.wrappedAsNullableJSType = JSType.join(JSType.NULL,
           this.wrappedAsJSType);
     }
@@ -448,9 +471,11 @@ public class NominalType {
       return typeParameters;
     }
 
-    public void setCtorFunction(FunctionType ctorFn) {
+    public void setCtorFunction(
+        FunctionType ctorFn, NominalType builtinFunction) {
       Preconditions.checkState(!isFinalized);
       this.ctorFn = ctorFn;
+      this.builtinFunction = builtinFunction;
     }
 
     private boolean hasAncestorClass(RawNominalType ancestor) {
@@ -701,13 +726,13 @@ public class NominalType {
       return super.getPropDeclaredType(pname);
     }
 
-
     // Returns the (function) object referred to by the constructor of this
     // class.
-    private JSType createConstructorObject(FunctionType ctorFn) {
-      return withNamedTypes(
-          ObjectType.makeObjectType(null, otherProps, ctorFn,
-              ctorFn.isLoose(), ObjectKind.UNRESTRICTED));
+    private JSType createConstructorObject(
+        FunctionType ctorFn, NominalType builtinFunction) {
+      return withNamedTypes(ObjectType.makeObjectType(
+          builtinFunction, otherProps, ctorFn,
+          ctorFn.isLoose(), ObjectKind.UNRESTRICTED));
     }
 
     private StringBuilder appendGenericSuffixTo(
@@ -758,8 +783,8 @@ public class NominalType {
 
     @Override
     public JSType toJSType() {
-      Preconditions.checkState(ctorFn != null);
-      return createConstructorObject(ctorFn);
+      Preconditions.checkState(this.isFinalized);
+      return createConstructorObject(ctorFn, builtinFunction);
     }
 
     public NominalType getAsNominalType() {

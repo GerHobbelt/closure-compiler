@@ -2188,6 +2188,13 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       this.customOptionsFile = fileName;
       return this;
     }
+
+    private String renamePrefixNamespace = null;
+    
+    CommandLineConfig setRenamePrefixNamespace(String renamePrefixNamespace) {
+      this.renamePrefixNamespace = renamePrefixNamespace;
+      return this;
+    }
   }
 
   /**
