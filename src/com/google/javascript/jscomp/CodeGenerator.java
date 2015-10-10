@@ -188,6 +188,7 @@ class CodeGenerator {
       case Token.THROW:
         Preconditions.checkState(childCount == 1);
         add("throw");
+        cc.maybeInsertSpace();
         add(first);
 
         // Must have a ';' after a throw statement, otherwise safari can't
@@ -198,6 +199,7 @@ class CodeGenerator {
       case Token.RETURN:
         add("return");
         if (childCount == 1) {
+          cc.maybeInsertSpace();
           add(first);
         } else {
           Preconditions.checkState(childCount == 0);
@@ -813,6 +815,7 @@ class CodeGenerator {
       case Token.YIELD:
         Preconditions.checkState(childCount == 1);
         add("yield");
+        cc.maybeInsertSpace();
         if (n.isYieldFor()) {
           add("*");
         }
@@ -1027,6 +1030,46 @@ class CodeGenerator {
         add("`");
         break;
 
+      // Type Declaration ASTs.
+      case Token.STRING_TYPE:
+        add("string");
+        break;
+      case Token.BOOLEAN_TYPE:
+        add("boolean");
+        break;
+      case Token.NUMBER_TYPE:
+        add("number");
+        break;
+      case Token.ANY_TYPE:
+        add("any");
+        break;
+      case Token.NULL_TYPE:
+        add("null");
+        break;
+      case Token.VOID_TYPE:
+        add("void");
+        break;
+      case Token.UNDEFINED_TYPE:
+        // TODO(alexeagle): undefined isn't a legal type expression in TS
+        add("undefined");
+        break;
+      case Token.NAMED_TYPE:
+        // Children are a chain of getprop nodes.
+        add(first);
+        break;
+      case Token.ARRAY_TYPE:
+        add(first);
+        add("[]");
+        break;
+
+      case Token.PARAMETERIZED_TYPE:
+        // First child is the type that's parameterized, later children are the arguments.
+        add(first);
+        add("<");
+        addList(first.getNext());
+        add(">");
+        break;
+
       default:
         throw new RuntimeException(
             "Unknown type " + Token.name(type) + "\n" + n.toStringTree());
@@ -1036,10 +1079,9 @@ class CodeGenerator {
   }
 
   private void maybeAddTypeDecl(Node n) {
-    if (languageMode == LanguageMode.ECMASCRIPT6_TYPED
-        && n.getJSTypeExpression() != null) {
+    if (n.getDeclaredTypeExpression() != null) {
       add(": ");
-      add(n.getJSTypeExpression().getRoot());
+      add(n.getDeclaredTypeExpression());
     }
   }
 

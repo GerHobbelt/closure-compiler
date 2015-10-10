@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp.parsing;
 
-import static com.google.javascript.rhino.Node.TypeDeclarationNode;
 
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -25,6 +24,7 @@ import com.google.common.collect.Iterables;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Node.TypeDeclarationNode;
 import com.google.javascript.rhino.Token;
 
 import java.util.Arrays;
@@ -37,11 +37,13 @@ import javax.annotation.Nullable;
 /**
  * Produces ASTs which represent JavaScript type declarations, both those created from
  * closure-style type declarations in a JSDoc node (via a conversion from the rhino AST
- * produced in {@link com.google.javascript.jscomp.parsing.NewIRFactory}) as well as
+ * produced in {@link com.google.javascript.jscomp.parsing.IRFactory}) as well as
  * those created from TypeScript-style inline type declarations.
  *
  * This is an alternative to the AST found in the root property of JSTypeExpression, which
  * is a crufty AST that reuses language tokens.
+ *
+ * @author alexeagle@google.com (Alex Eagle)
  */
 public class TypeDeclarationsIRFactory {
 
@@ -96,6 +98,17 @@ public class TypeDeclarationsIRFactory {
   }
 
   /**
+   * Splits a '.' separated qualified name into a tree of type segments.
+   *
+   * @param typeName a qualified name such as "goog.ui.Window"
+   * @return a new node representing the type
+   * @see #namedType(Iterable)
+   */
+  public static TypeDeclarationNode namedType(String typeName) {
+    return namedType(Splitter.on('.').split(typeName));
+  }
+
+  /**
    * Produces a tree structure similar to the Rhino AST of a qualified name expression, under
    * a top-level NAMED_TYPE node.
    *
@@ -106,15 +119,12 @@ public class TypeDeclarationsIRFactory {
    *     STRING ui
    *       STRING Window
    * </pre>
-   *
-   * @param typeName a qualified name such as "goog.ui.Window"
-   * @return a new node representing the type
    */
-  public static TypeDeclarationNode namedType(String typeName) {
-    Iterator<String> parts = Splitter.on('.').split(typeName).iterator();
-    Node node = IR.name(parts.next());
-    while (parts.hasNext()) {
-      node = IR.getprop(node, IR.string(parts.next()));
+  public static TypeDeclarationNode namedType(Iterable<String> segments) {
+    Iterator<String> segmentsIt = segments.iterator();
+    Node node = IR.name(segmentsIt.next());
+    while (segmentsIt.hasNext()) {
+      node = IR.getprop(node, IR.string(segmentsIt.next()));
     }
     return new TypeDeclarationNode(Token.NAMED_TYPE, node);
   }
@@ -138,7 +148,7 @@ public class TypeDeclarationsIRFactory {
     TypeDeclarationNode node = new TypeDeclarationNode(Token.RECORD_TYPE);
     for (Map.Entry<String, TypeDeclarationNode> property : properties.entrySet()) {
       if (property.getValue() == null) {
-        node.addChildrenToBack(IR.string(property.getKey()));
+        node.addChildToBack(IR.string(property.getKey()));
       } else {
         Node stringKey = IR.stringKey(property.getKey());
         stringKey.addChildToFront(property.getValue());
@@ -165,7 +175,6 @@ public class TypeDeclarationsIRFactory {
    * </pre>
    * @param returnType the type returned by the function, possibly UNKNOWN_TYPE
    * @param parameters the types of the parameters.
-   * @return
    */
   public static TypeDeclarationNode functionType(
       Node returnType, LinkedHashMap<String, TypeDeclarationNode> parameters) {
@@ -192,7 +201,6 @@ public class TypeDeclarationsIRFactory {
    * </pre>
    * @param baseType
    * @param typeParameters
-   * @return
    */
   public static TypeDeclarationNode parameterizedType(
       TypeDeclarationNode baseType, Iterable<TypeDeclarationNode> typeParameters) {
@@ -201,6 +209,21 @@ public class TypeDeclarationsIRFactory {
       node.addChildToBack(typeParameter);
     }
     return node;
+  }
+
+  /**
+   * Represents an array type. In Closure, this is represented by a
+   * {@link #parameterizedType(TypeDeclarationNode, Iterable) parameterized type} of {@code Array}
+   * with {@code elementType} as the sole type parameter.
+   *
+   * <p>Example
+   * <pre>
+   * ARRAY_TYPE
+   *   elementType
+   * </pre>
+   */
+  public static TypeDeclarationNode arrayType(Node elementType) {
+    return new TypeDeclarationNode(Token.ARRAY_TYPE, elementType);
   }
 
   /**
@@ -292,13 +315,10 @@ public class TypeDeclarationsIRFactory {
     int token = n.getType();
     switch (token) {
       case Token.STAR:
-        return unionType(
-            namedType("Object"), numberType(), stringType(),
-            booleanType(), nullType(), undefinedType());
-      case Token.VOID:
-        return undefinedType();
       case Token.EMPTY: // for function types that don't declare a return type
         return anyType();
+      case Token.VOID:
+        return undefinedType();
       case Token.BANG:
         // TODO(alexeagle): capture nullability constraints once we know how to express them
         return convertTypeNodeAST(n.getFirstChild());
@@ -358,7 +378,7 @@ public class TypeDeclarationsIRFactory {
             // TODO(alexeagle): keep the constructor signatures on the tree, and emit them following
             // the syntax in TypeScript 1.4 spec, section 3.7.8 Constructor Type Literals
           } else if (child2.isThis()) {
-            // Not expressable in TypeScript syntax, so we omit them from the tree.
+            // Not expressible in TypeScript syntax, so we omit them from the tree.
             // They could be added as properties on the result node.
           } else {
             returnType = convertTypeNodeAST(child2);

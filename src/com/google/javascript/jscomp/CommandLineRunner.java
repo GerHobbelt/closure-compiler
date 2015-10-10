@@ -62,6 +62,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -133,7 +134,11 @@ public class CommandLineRunner extends
   // I don't really care about unchecked warnings in this class.
   @SuppressWarnings("unchecked")
   private static class Flags {
-    private static List<GuardLevel> guardLevels = new ArrayList<>();
+    // Some clients run a few copies of the compiler through CommandLineRunner
+    // on parallel threads (thankfully, with the same flags),
+    // so the access to |guardLevels| should be at least synchronized.
+    private static List<GuardLevel> guardLevels =
+        Collections.synchronizedList(new ArrayList<CommandLineRunner.GuardLevel>());
 
     @Option(name = "--help",
         hidden = true,
@@ -512,6 +517,13 @@ public class CommandLineRunner extends
         + "ECMASCRIPT6_TYPED (experimental)")
     private String languageOut = "";
 
+    @Option(name = "--allow_es6_out",
+        hidden = true,
+        usage = "Experimental: Allows ES6 language_out, for compiling "
+        + "ES6 to ES6 as well as transpiling to ES6 from lower versions. "
+        + "Enabling this flag may cause the compiler to crash.")
+    private boolean allowEs6Out = false;
+
     @Option(name = "--version",
         hidden = true,
         handler = BooleanOptionHandler.class,
@@ -577,30 +589,18 @@ public class CommandLineRunner extends
     @Argument
     private List<String> arguments = new ArrayList<>();
 
-    private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP = fillCompilationLevelMap();
-
-    private static Map<String, CompilationLevel> fillCompilationLevelMap() {
-        Map<String, CompilationLevel> table = new HashMap<String, CompilationLevel>(6);
-        table.put(
-            "WHITESPACE_ONLY",
-            CompilationLevel.WHITESPACE_ONLY);
-        table.put(
-            "SIMPLE",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS);
-        table.put(
-            "SIMPLE_OPTIMIZATIONS",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS);
-        table.put(
-            "ADVANCED",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS);
-        table.put(
-            "ADVANCED_OPTIMIZATIONS",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS); // google guave immutable can't do more than 5 entries :-(
-        table.put(
-            "FROM_CONFIG_FILE",
-            CompilationLevel.FROM_CONFIG_FILE);
-        return table;
-    }
+    private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP =
+        ImmutableMap.<String, CompilationLevel>builder()
+            .put("WHITESPACE_ONLY", CompilationLevel.WHITESPACE_ONLY)
+            .put("SIMPLE", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("SIMPLE_OPTIMIZATIONS", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("ADVANCED", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("ADVANCED_OPTIMIZATIONS", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("SHUMWAY_OPTIMIZATIONS", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
+            .put("J2ME_OPTIMIZATIONS", CompilationLevel.J2ME_OPTIMIZATIONS)
+            .put("J2ME_AOT_OPTIMIZATIONS", CompilationLevel.J2ME_AOT_OPTIMIZATIONS)
+            .put("FROM_CONFIG_FILE", CompilationLevel.FROM_CONFIG_FILE)
+            .build();
 
     /**
      * Parse the given args list.
@@ -1075,8 +1075,7 @@ public class CommandLineRunner extends
           .setAngularPass(flags.angularPass)
           .setTracerMode(flags.tracerMode)
           .setCustomOptionsFile(flags.customOptionsFile)
-          .setNewTypeInference(flags.useNewTypeInference)
-          .setRenamePrefixNamespace(flags.renamePrefixNamespace);
+          .setNewTypeInference(flags.useNewTypeInference);
     }
     errorStream = null;
   }
@@ -1096,6 +1095,7 @@ public class CommandLineRunner extends
       options.setCodingConvention(new ClosureCodingConvention());
     }
 
+    options.setAllowEs6Out(flags.allowEs6Out);
     options.setExtraAnnotationNames(flags.extraAnnotationName);
 
     if (!flags.optionsInputFile.equals("")) {
@@ -1264,6 +1264,7 @@ public class CommandLineRunner extends
     "v8.js",
     "webstorage.js",
     "w3c_anim_timing.js",
+    "w3c_encoding.js",
     "w3c_css3d.js",
     "w3c_elementtraversal.js",
     "w3c_geolocation.js",

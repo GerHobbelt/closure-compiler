@@ -152,6 +152,15 @@ public class ProcessEs6ModulesTest extends CompilerTestCase {
             "var f$$module$testcode = function() { return ''; }",
             "var module$testcode = {};",
             "module$testcode.f = f$$module$testcode"));
+
+    test("/** @type {number} */ export var x = 3",
+        Joiner.on('\n').join(
+            "goog.provide('module$testcode');",
+            "goog.provide('module$testcode.x');",
+            "/** @type {number} */",
+            "var x$$module$testcode = 3;",
+            "var module$testcode = {};",
+            "module$testcode.x = x$$module$testcode"));
   }
 
   public void testImportAndExport() {
@@ -188,6 +197,24 @@ public class ProcessEs6ModulesTest extends CompilerTestCase {
         "module$testcode.a = module$other.a;",
         "module$testcode.c = module$other.b;",
         "module$testcode.d = module$other.d;"));
+  }
+
+  public void testExportDefault() {
+    test("/** @fileoverview */ export default 'someString';", Joiner.on('\n').join(
+        "/** @fileoverview\n@suppress {invalidProvide} */",
+        "goog.provide('module$testcode');",
+        "goog.provide('module$testcode.default');",
+        "var $jscompDefaultExport$$module$testcode = 'someString';",
+        "var module$testcode={};",
+        "module$testcode.default = $jscompDefaultExport$$module$testcode;"));
+
+    test("/** @fileoverview */ export default class Foo {}", Joiner.on('\n').join(
+        "/** @fileoverview\n@suppress {invalidProvide} */",
+        "goog.provide('module$testcode');",
+        "goog.provide('module$testcode.default');",
+        "var $jscompDefaultExport$$module$testcode = class Foo{};",
+        "var module$testcode = {};",
+        "module$testcode.default = $jscompDefaultExport$$module$testcode"));
   }
 
   public void testExtendImportedClass() {
