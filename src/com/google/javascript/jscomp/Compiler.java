@@ -25,6 +25,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.CharStreams;
@@ -49,6 +50,7 @@ import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 
 import java.io.IOException;
@@ -752,12 +754,6 @@ public class Compiler extends AbstractCompiler {
       return;
     }
 
-    if (options.nameAnonymousFunctionsOnly) {
-      // TODO(nicksantos): Move this into an instrument() phase maybe?
-      check();
-      return;
-    }
-
     if (!options.skipAllPasses) {
       check();
       if (hasErrors()) {
@@ -812,7 +808,7 @@ public class Compiler extends AbstractCompiler {
     // Important to check for null because if setPassConfig(null) is
     // called before this.passes is set, getPassConfig() will create a
     // new PassConfig object and use that, which is probably not what
-    // the client wanted since he or she probably meant to use their
+    // the client wanted since they probably meant to use their
     // own PassConfig object.
     Preconditions.checkNotNull(passes);
 
@@ -848,11 +844,6 @@ public class Compiler extends AbstractCompiler {
     phaseOptimizer.consume(getPassConfig().getChecks());
     phaseOptimizer.process(externsRoot, jsRoot);
     if (hasErrors()) {
-      return;
-    }
-
-    // TODO(nicksantos): clean this up. The flow here is too hard to follow.
-    if (options.nameAnonymousFunctionsOnly) {
       return;
     }
 
@@ -996,6 +987,9 @@ public class Compiler extends AbstractCompiler {
    * Returns the array of errors (never null).
    */
   public JSError[] getErrors() {
+    if (errorManager == null) {
+      return new JSError[] {};
+    }
     return errorManager.getErrors();
   }
 
@@ -1003,6 +997,9 @@ public class Compiler extends AbstractCompiler {
    * Returns the array of warnings (never null).
    */
   public JSError[] getWarnings() {
+    if (errorManager == null) {
+      return new JSError[] {};
+    }
     return errorManager.getWarnings();
   }
 
@@ -1203,6 +1200,11 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
+  public TypeIRegistry getTypeIRegistry() {
+    return getTypeRegistry();
+  }
+
+  @Override
   public JSTypeRegistry getTypeRegistry() {
     if (typeRegistry == null) {
       typeRegistry = new JSTypeRegistry(oldErrorReporter);
@@ -1271,11 +1273,9 @@ public class Compiler extends AbstractCompiler {
   public ReverseAbstractInterpreter getReverseAbstractInterpreter() {
     if (abstractInterpreter == null) {
       ChainableReverseAbstractInterpreter interpreter =
-          new SemanticReverseAbstractInterpreter(
-              getCodingConvention(), getTypeRegistry());
+          new SemanticReverseAbstractInterpreter(getTypeRegistry());
       if (options.closurePass) {
-        interpreter = new ClosureReverseAbstractInterpreter(
-            getCodingConvention(), getTypeRegistry())
+        interpreter = new ClosureReverseAbstractInterpreter(getTypeRegistry())
             .append(interpreter).getFirst();
       }
       abstractInterpreter = interpreter;
@@ -1587,9 +1587,7 @@ public class Compiler extends AbstractCompiler {
       throws CircularDependencyException, MissingProvideException, MissingModuleException {
     List<CompilerInput> inputs = new ArrayList<>();
     for (JSModule module : inputModules) {
-      for (CompilerInput input : module.getInputs()) {
-        inputs.add(input);
-      }
+      inputs.addAll(module.getInputs());
     }
 
     modules = new ArrayList<>();
@@ -1606,7 +1604,7 @@ public class Compiler extends AbstractCompiler {
 
     // The compiler expects a module tree, so add a dependency of all modules on
     // the first one.
-    JSModule firstModule = modules.size() > 0 ? modules.get(0) : null;
+    JSModule firstModule = Iterables.getFirst(modules, null);
     for (int i = 1; i < modules.size(); i++) {
       if (!modules.get(i).getDependencies().contains(firstModule)) {
         modules.get(i).addDependency(firstModule);
@@ -2157,8 +2155,13 @@ public class Compiler extends AbstractCompiler {
           parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6_STRICT);
           externsParserConfig = parserConfig;
           break;
+        case ECMASCRIPT6_TYPED:
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6_TYPED);
+          externsParserConfig = parserConfig;
+          break;
         default:
-          throw new IllegalStateException("unexpected language mode");
+          throw new IllegalStateException("unexpected language mode: "
+              + options.getLanguageIn());
       }
     }
     switch (context) {
@@ -2364,7 +2367,7 @@ public class Compiler extends AbstractCompiler {
     }
 
     List<CompilerInput> moduleInputs = module.getInputs();
-    if (moduleInputs.size() > 0) {
+    if (!moduleInputs.isEmpty()) {
       return moduleInputs.get(0).getAstRoot(this);
     }
     throw new IllegalStateException("Root module has no inputs");

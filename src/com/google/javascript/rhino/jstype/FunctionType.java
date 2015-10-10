@@ -44,10 +44,10 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.U2U_CONSTRUCTOR_TY
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.javascript.rhino.ErrorReporter;
+import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -63,7 +63,7 @@ import java.util.Set;
  * actual NAME node containing the parsed argument list (annotated with
  * JSDOC_TYPE_PROP's for the compile-time type of each argument.
  */
-public class FunctionType extends PrototypeObjectType {
+public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
   private static final long serialVersionUID = 1L;
 
   private enum Kind {
@@ -521,14 +521,18 @@ public class FunctionType extends PrototypeObjectType {
 
   /** Returns interfaces implemented directly by a class or its superclass. */
   public Iterable<ObjectType> getImplementedInterfaces() {
-    FunctionType superCtor = isConstructor() ?
-        getSuperClassConstructor() : null;
+    FunctionType superCtor =
+        isConstructor() ? getSuperClassConstructor() : null;
     if (superCtor == null) {
       return implementedInterfaces;
-    } else {
-      return Iterables.concat(
-          implementedInterfaces, superCtor.getImplementedInterfaces());
     }
+    ImmutableList.Builder<ObjectType> builder = ImmutableList.builder();
+    builder.addAll(implementedInterfaces);
+    while (superCtor != null) {
+      builder.addAll(superCtor.implementedInterfaces);
+      superCtor = superCtor.getSuperClassConstructor();
+    }
+    return builder.build();
   }
 
   /** Returns interfaces directly implemented by the class. */

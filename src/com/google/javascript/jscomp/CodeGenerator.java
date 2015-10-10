@@ -228,11 +228,10 @@ class CodeGenerator {
         break;
 
       case Token.NAME:
-        if (first == null || first.isEmpty()) {
-          addIdentifier(n.getString());
-        } else {
+        addIdentifier(n.getString());
+        maybeAddTypeDecl(n);
+        if (first != null && !first.isEmpty()) {
           Preconditions.checkState(childCount == 1);
-          addIdentifier(n.getString());
           cc.addOp("=", true);
           if (first.isComma()) {
             addExpr(first, NodeUtil.precedence(Token.ASSIGN), Context.OTHER);
@@ -262,7 +261,8 @@ class CodeGenerator {
 
       case Token.DEFAULT_VALUE:
         add(first);
-        add("=");
+        maybeAddTypeDecl(n);
+        cc.addOp("=", true);
         add(first.getNext());
         break;
 
@@ -341,9 +341,12 @@ class CodeGenerator {
         Preconditions.checkState(childCount == 3);
 
         boolean isArrow = n.isArrowFunction();
-        // TODO(johnlenz): properly parenthesize arrow functions
+        // Arrow functions are complete expressions, so don't need parentheses
+        // if they are in an expression result.
+        boolean notSingleExpr = n.getParent() == null
+            || !n.getParent().isExprResult();
         boolean funcNeedsParens = (context == Context.START_OF_EXPR)
-            || isArrow;
+            && (!isArrow || notSingleExpr);
         if (funcNeedsParens) {
           add("(");
         }
@@ -357,9 +360,11 @@ class CodeGenerator {
 
         add(first);
 
-        add(first.getNext());
+        add(first.getNext());  // param list
+
+        maybeAddTypeDecl(n);
         if (isArrow) {
-          add("=>");
+          cc.addOp("=>", true);
         }
         add(last, Context.PRESERVE_BLOCK);
         cc.endFunction(context == Context.STATEMENT);
@@ -1028,6 +1033,14 @@ class CodeGenerator {
     }
 
     cc.endSourceMapping(n);
+  }
+
+  private void maybeAddTypeDecl(Node n) {
+    if (languageMode == LanguageMode.ECMASCRIPT6_TYPED
+        && n.getJSTypeExpression() != null) {
+      add(": ");
+      add(n.getJSTypeExpression().getRoot());
+    }
   }
 
   /**

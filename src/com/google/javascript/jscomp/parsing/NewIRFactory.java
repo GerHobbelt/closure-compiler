@@ -94,6 +94,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.TemplateSubstitutionTre
 import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.TryStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TypedParameterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.UnaryExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree;
@@ -106,6 +107,7 @@ import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
@@ -227,6 +229,8 @@ class NewIRFactory {
   private Comment currentComment;
 
   private boolean currentFileIsExterns = false;
+  private boolean hasTypeSyntax = false;
+  private boolean hasJsDocTypeAnnotations = false;
 
   private NewIRFactory(String sourceString,
                     StaticSourceFile sourceFile,
@@ -273,8 +277,11 @@ class NewIRFactory {
       case ECMASCRIPT6_STRICT:
         reservedKeywords = ES5_STRICT_RESERVED_KEYWORDS;
         break;
+      case ECMASCRIPT6_TYPED:
+        reservedKeywords = ES5_STRICT_RESERVED_KEYWORDS;
+        break;
       default:
-        throw new IllegalStateException("unknown language mode");
+        throw new IllegalStateException("unknown language mode: " + config.languageMode);
     }
   }
 
@@ -456,6 +463,27 @@ class NewIRFactory {
     validateFunctionJsDoc(n);
   }
 
+  private JSDocInfo recordJsDoc(SourceRange location, JSDocInfo info) {
+    if (info != null && info.hasTypeInformation()) {
+      hasJsDocTypeAnnotations = true;
+      if (hasTypeSyntax) {
+        errorReporter.error("Bad type syntax"
+            + " - can only have JSDoc or inline type annotations, not both",
+            sourceName, lineno(location.start), charno(location.start));
+      }
+    }
+    return info;
+  }
+
+  private void recordTypeSyntax(SourceRange location) {
+    hasTypeSyntax = true;
+    if (hasJsDocTypeAnnotations) {
+      errorReporter.error("Bad type syntax"
+          + " - can only have JSDoc or inline type annotations, not both",
+          sourceName, lineno(location.start), charno(location.start));
+    }
+  }
+
   /**
    * Checks that JSDoc intended for a function is actually attached to a
    * function.
@@ -471,10 +499,13 @@ class NewIRFactory {
       switch (n.getType()) {
         case Token.FUNCTION:
         case Token.VAR:
+        case Token.LET:
+        case Token.CONST:
         case Token.GETTER_DEF:
         case Token.SETTER_DEF:
         case Token.MEMBER_DEF:
         case Token.STRING_KEY:
+        case Token.EXPORT:
           return;
         case Token.GETELEM:
         case Token.GETPROP:
@@ -521,6 +552,7 @@ class NewIRFactory {
         // Object literal properties, catch declarations and variable
         // initializers are valid.
         case Token.NAME:
+        case Token.DEFAULT_VALUE:
           Node parent = n.getParent();
           switch (parent.getType()) {
             case Token.STRING_KEY:
@@ -680,7 +712,8 @@ class NewIRFactory {
       JsDocInfoParser jsDocParser = createJsDocInfoParser(comment);
       parsedComments.add(comment);
       if (!handlePossibleFileOverviewJsDoc(jsDocParser)) {
-        return jsDocParser.retrieveAndResetParsedJSDocInfo();
+        return recordJsDoc(comment.location,
+            jsDocParser.retrieveAndResetParsedJSDocInfo());
       }
     }
     return null;
@@ -818,7 +851,7 @@ class NewIRFactory {
       boolean optional) {
     Comment comment = getJsDoc(location);
     if (comment != null && (!optional || !comment.value.contains("@"))) {
-      return parseInlineTypeDoc(comment);
+      return recordJsDoc(location, parseInlineTypeDoc(comment));
     } else {
       return handleJsDoc(comment);
     }
@@ -979,6 +1012,7 @@ class NewIRFactory {
   }
 
   private class TransformDispatcher extends NewTypeSafeDispatcher<Node> {
+
     /**
      * Transforms the given node and then sets its type to Token.STRING if it
      * was Token.NAME. If its type was already Token.STRING, then quotes it.
@@ -1304,6 +1338,12 @@ class NewIRFactory {
       }
       node.addChildToBack(transform(functionTree.formalParameterList));
 
+      if (functionTree.returnType != null) {
+        recordJsDoc(functionTree.returnType.location, node.getJSDocInfo());
+        JSTypeExpression returnType = convertTypeTree(functionTree.returnType);
+        node.setJsTypeExpression(returnType);
+      }
+
       Node bodyNode = transform(functionTree.functionBody);
       if (!isArrow && !bodyNode.isBlock()) {
         // When in ideMode the parser tries to parse some constructs the
@@ -1385,26 +1425,6 @@ class NewIRFactory {
           transformBinaryTokenType(exprNode.operator.type),
           transform(exprNode.left),
           transform(exprNode.right));
-    }
-
-    // Move this to a more maintainable location.
-    boolean isAssignmentOp(Node n) {
-      switch (n.getType()){
-        case Token.ASSIGN:
-        case Token.ASSIGN_BITOR:
-        case Token.ASSIGN_BITXOR:
-        case Token.ASSIGN_BITAND:
-        case Token.ASSIGN_LSH:
-        case Token.ASSIGN_RSH:
-        case Token.ASSIGN_URSH:
-        case Token.ASSIGN_ADD:
-        case Token.ASSIGN_SUB:
-        case Token.ASSIGN_MUL:
-        case Token.ASSIGN_DIV:
-        case Token.ASSIGN_MOD:
-          return true;
-      }
-      return false;
     }
 
     @Override
@@ -1960,6 +1980,7 @@ class NewIRFactory {
         Node initializer = transform(decl.initializer);
         node.addChildToBack(initializer);
       }
+      maybeProcessType(node, decl.declaredType);
       return node;
     }
 
@@ -2000,13 +2021,6 @@ class NewIRFactory {
       errorReporter.error(
           "Unsupported syntax: " + node.type, sourceName, lineno(node), 0);
       return newNode(Token.EMPTY);
-    }
-
-    void reportDestructuringAssign(ParseTree node) {
-      errorReporter.error(
-          "destructuring assignment forbidden",
-          sourceName,
-          lineno(node), 0);
     }
 
     void reportGetter(ParseTree node) {
@@ -2163,6 +2177,32 @@ class NewIRFactory {
       return module;
     }
 
+    @Override
+    Node processTypedParameter(TypedParameterTree typeAnnotation) {
+      maybeWarnTypeSyntax(typeAnnotation);
+      Node param = process(typeAnnotation.param);
+      maybeProcessType(param, typeAnnotation.typeAnnotation);
+      return param;
+    }
+
+    private void maybeProcessType(Node typeTarget, ParseTree typeTree) {
+      if (typeTree == null) {
+        return;
+      }
+      recordJsDoc(typeTree.location, typeTarget.getJSDocInfo());
+      JSTypeExpression typeExpression = convertTypeTree(typeTree);
+      typeTarget.setJsTypeExpression(typeExpression);
+    }
+
+    private JSTypeExpression convertTypeTree(ParseTree typeTree) {
+      maybeWarnTypeSyntax(typeTree);
+
+      // TODO(martinprobst): More types.
+      IdentifierExpressionTree typeName = typeTree.asIdentifierExpression();
+      Node typeExpr = Node.newString(Token.NAME, typeName.identifierToken.value);
+      return new JSTypeExpression(typeExpr, sourceName);
+    }
+
     private Node transformList(
         int type, ImmutableList<ParseTree> list) {
       Node n = newNode(type);
@@ -2188,6 +2228,16 @@ class NewIRFactory {
             sourceName,
             lineno(node), charno(node));
       }
+    }
+
+    void maybeWarnTypeSyntax(ParseTree node) {
+      if (config.languageMode != LanguageMode.ECMASCRIPT6_TYPED) {
+        errorReporter.warning(
+            "type syntax is only supported in ES6 typed mode",
+            sourceName,
+            lineno(node), charno(node));
+      }
+      recordTypeSyntax(node.location);
     }
 
     @Override
@@ -2333,7 +2383,8 @@ class NewIRFactory {
 
   boolean isEs6Mode() {
     return config.languageMode == LanguageMode.ECMASCRIPT6
-        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT;
+        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT
+        || config.languageMode == LanguageMode.ECMASCRIPT6_TYPED;
   }
 
   boolean isEs5OrBetterMode() {
@@ -2344,7 +2395,8 @@ class NewIRFactory {
     // TODO(johnlenz): in ECMASCRIPT5/6 is a "mixed" mode and we should track the context
     // that we are in, if we want to support it.
     return config.languageMode == LanguageMode.ECMASCRIPT5_STRICT
-        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT;
+        || config.languageMode == LanguageMode.ECMASCRIPT6_STRICT
+        || config.languageMode == LanguageMode.ECMASCRIPT6_TYPED;
   }
 
   double normalizeNumber(LiteralToken token) {

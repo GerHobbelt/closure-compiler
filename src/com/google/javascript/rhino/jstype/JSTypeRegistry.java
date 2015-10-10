@@ -58,6 +58,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.RecordTypeBuilder.RecordProperty;
 
 import java.io.Serializable;
@@ -74,7 +75,7 @@ import java.util.Set;
  * <p>This class is not thread-safe.
  *
  */
-public class JSTypeRegistry implements Serializable {
+public class JSTypeRegistry implements TypeIRegistry, Serializable {
   private static final long serialVersionUID = 1L;
 
   /**
@@ -1588,7 +1589,7 @@ public class JSTypeRegistry implements Serializable {
         if (firstChild == null) {
           return getNativeType(UNKNOWN_TYPE);
         }
-        return createDefaultObjectUnion(
+        return createNullableType(
             createFromTypeNodesInternal(
                 firstChild, sourceName, scope));
 
@@ -1621,6 +1622,9 @@ public class JSTypeRegistry implements Serializable {
         return getNativeType(VOID_TYPE);
 
       case Token.STRING:
+      // TODO(martinprobst): The new type syntax resolution should be separate.
+      // Remove the NAME case then.
+      case Token.NAME:
         JSType namedType = getType(scope, n.getString(), sourceName,
             n.getLineno(), n.getCharno());
         if ((namedType instanceof ObjectType) &&
@@ -1794,14 +1798,7 @@ public class JSTypeRegistry implements Serializable {
         fieldType = getNativeType(JSTypeNative.UNKNOWN_TYPE);
       }
 
-      // Add the property to the record.
-      if (builder.addProperty(fieldName, fieldType, fieldNameNode) == null) {
-        // Duplicate field name, warning and skip
-        reporter.warning(
-            "Duplicate record field " + fieldName,
-            sourceName,
-            n.getLineno(), fieldNameNode.getCharno());
-      }
+      builder.addProperty(fieldName, fieldType, fieldNameNode);
     }
 
     return builder.build();

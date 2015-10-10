@@ -1,5 +1,5 @@
 /*
- * Copyright 2010 The Closure Compiler Authors.
+ * Copyright 2015 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.javascript.jscomp;
+
+package com.google.javascript.jscomp.parsing.parser.trees;
+
+import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
 /**
- * Interface indicating a CompilerPass is specialization aware.
- *
- * See {@link SpecializeModule} for details of module specialization.
- *
- * @author dcc@google.com (Devin Coughlin)
- *
+ * A parameter with a type specified.
  */
-interface SpecializationAwareCompilerPass extends CompilerPass {
-  public void enableSpecialization(SpecializeModule.SpecializationState state);
+public class TypedParameterTree extends ParseTree {
+
+  public final ParseTree param;
+  public final ParseTree typeAnnotation;
+
+  public TypedParameterTree(SourceRange location, ParseTree param, ParseTree typeAnnotation) {
+    super(ParseTreeType.TYPE_ANNOTATION, location);
+    this.param = param;
+    this.typeAnnotation = typeAnnotation;
+  }
 }

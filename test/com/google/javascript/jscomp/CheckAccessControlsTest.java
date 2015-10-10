@@ -623,6 +623,19 @@ public class CheckAccessControlsTest extends CompilerTestCase {
     });
   }
 
+  public void testProtectedAccessForProperties10() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode("foo.js",
+            "/** @constructor */ var Foo = function() {};" +
+            "/** @protected */ Foo.prototype.bar = function() {};"),
+        SourceFile.fromCode("sub_foo.js",
+            "/** @constructor @extends {Foo} */" +
+            "var SubFoo = function() {};" +
+            "(function() {" +
+              "SubFoo.prototype.baz = function() { this.bar(); }" +
+            "})();")));
+  }
+
   public void testNoProtectedAccessForProperties1() {
     test(new String[] {
       "/** @constructor */ function Foo() {} " +
@@ -1478,6 +1491,18 @@ public class CheckAccessControlsTest extends CompilerTestCase {
         "var foo = new Foo();" +
         "foo.PROP = 3;",
         null , CONST_PROPERTY_REASSIGNED_VALUE);
+  }
+
+  public void testConstantProperty3a() {
+    testSame("/** @constructor */ function Foo() {}\n" +
+        "/** @type {number} */ Foo.prototype.PROP = 2;\n" +
+        "/** @suppress {duplicate|const} */ Foo.prototype.PROP = 3;\n");
+  }
+
+  public void testConstantProperty3b() {
+    testSame("/** @constructor */ function Foo() {}\n" +
+        "/** @const */ Foo.prototype.prop = 2;\n" +
+        "/** @suppress {const} */ Foo.prototype.prop = 3;\n");
   }
 
   public void testNamespaceConstantProperty1() {

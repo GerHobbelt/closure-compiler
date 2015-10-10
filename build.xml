@@ -54,7 +54,6 @@
   <property name="tools.dir" value="${basedir}/tools" />
   <property name="compiler-jarfile"
             value="${build.dir}/${ant.project.name}.jar" />
-  <property name="num-fuzz-tests" value="10000"/>
 
   <property name="webservice.dir" value="${basedir}/src/com/google/javascript/jscomp/webservice" />
   <property name="webservice-classes.dir" value = "${build.dir}/webservice-classes" />
@@ -140,6 +139,7 @@
            destdir="${classes.dir}"
            excludes=".svn,.git"
            debug="${javac.debug}"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="srcclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -148,6 +148,7 @@
            destdir="${classes.dir}"
            excludes=".svn,.git,**/refactoring/**,**/webservice/**,**/testing/**"
            debug="${javac.debug}"
+           deprecation="on"
            includeantruntime="true">
       <classpath refid="srcclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -216,6 +217,7 @@
            destdir="${testClasses.dir}"
            excludes=".svn,.git"
            debug="on"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="allclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -224,6 +226,7 @@
            destdir="${testClasses.dir}"
            excludes=".svn,.git"
            debug="on"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="allclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -291,19 +294,6 @@
           message="Unit tests failed. See build/testoutput/index.html" />
   </target>
 
-  <target name="fuzz-test"
-          depends="all-classes-jar"
-          description="checks the compiler against a variety of js programs">
-      <exec executable="java" failonerror="true">
-        <arg value="-cp" />
-        <arg value="${compiler-jarfile}" />
-        <arg value="com.google.javascript.jscomp.regtests.CompileEachLineOfProgramOutput" />
-        <arg value="generatejs"/>
-        <arg value="--stdout"/>
-        <arg value="${num-fuzz-tests}"/>
-      </exec>
-  </target>
-
   <target name="javadoc"
           description="generate Javadoc">
     <mkdir dir="${javadoc.dir}" />
@@ -356,7 +346,8 @@
     <javac srcdir="${webservice.dir}"
            destdir="${webservice-classes.dir}"
            excludes=".svn,.git"
-           debug="${javac.debug}">
+           debug="${javac.debug}"
+           deprecation="on">
       <classpath refid="webservice-classpath.path" />
     </javac>
   </target>
@@ -393,7 +384,8 @@
     <javac srcdir="${refasterjs.dir}"
            destdir="${refasterjs-classes.dir}"
            excludes=".svn,.git"
-           debug="${javac.debug}">
+           debug="${javac.debug}"
+           deprecation="on">
       <classpath refid="refasterjs-classpath.path" />
     </javac>
   </target>

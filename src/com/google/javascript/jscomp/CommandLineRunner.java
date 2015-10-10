@@ -202,6 +202,8 @@ public class CommandLineRunner extends
         + "depends on. Modules must be listed in dependency order, and JS "
         + "source files must be listed in the corresponding order. Where "
         + "--module flags occur in relation to --js flags is unimportant. "
+        + "<num-js-files> may be set to 'auto' for the first module if it "
+        + "has no dependencies. "
         + "Provide the value 'auto' to trigger module creation from CommonJS"
         + "modules.")
     private List<String> module = new ArrayList<>();
@@ -354,7 +356,7 @@ public class CommandLineRunner extends
     @Option(name = "--use_types_for_optimization",
         hidden = true,
         usage = "Experimental: perform additional optimizations " +
-        "based on available information.  Inaccurate type annotations " +
+        "based on available information. Inaccurate type annotations " +
         "may result in incorrect results.")
     private boolean useTypesForOptimization = false;
 
@@ -425,7 +427,8 @@ public class CommandLineRunner extends
         hidden = true,
         handler = BooleanOptionHandler.class,
         usage = "Processes built-ins from the Closure library, such as "
-        + "goog.require(), goog.provide(), and goog.exportSymbol()")
+        + "goog.require(), goog.provide(), and goog.exportSymbol(). "
+        + "True by default.")
     private boolean processClosurePrimitives = true;
 
     @Option(name = "--manage_closure_dependencies",
@@ -497,14 +500,16 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "Sets what language spec that input sources conform. "
         + "Options: ECMASCRIPT3 (default), ECMASCRIPT5, ECMASCRIPT5_STRICT, "
-        + "ECMASCRIPT6 (experimental), ECMASCRIPT6_STRICT (experimental)")
+        + "ECMASCRIPT6 (experimental), ECMASCRIPT6_STRICT (experimental), "
+        + "ECMASCRIPT6_TYPED (experimental)")
     private String languageIn = "ECMASCRIPT3";
 
     @Option(name = "--language_out",
         hidden = true,
         usage = "Sets what language spec the output should conform to. "
         + " If omitted, defaults to the value of language_in. "
-        + "Options: ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT")
+        + "Options: ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT"
+        + "ECMASCRIPT6_TYPED (experimental)")
     private String languageOut = "";
 
     @Option(name = "--version",
@@ -615,7 +620,7 @@ public class CommandLineRunner extends
 
     private void printUsage(PrintStream ps) {
       CmdLineParser p = new CmdLineParser(this);
-      p.printUsage(new OutputStreamWriter(ps), null, OptionHandlerFilter.ALL);
+      p.printUsage(new OutputStreamWriter(ps, UTF_8), null, OptionHandlerFilter.ALL);
       ps.flush();
     }
 
@@ -1218,6 +1223,7 @@ public class CommandLineRunner extends
     "es3.js",
     "es5.js",
     "es6.js",
+    "es6_collections.js",
     "intl.js",
 
     // Event APIs

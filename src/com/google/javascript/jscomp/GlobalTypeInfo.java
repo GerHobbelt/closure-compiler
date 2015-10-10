@@ -182,7 +182,6 @@ class GlobalTypeInfo implements CompilerPass {
       STRUCTDICT_WITHOUT_CTOR,
       UNDECLARED_NAMESPACE,
       UNRECOGNIZED_TYPE_NAME,
-      RhinoErrorReporter.BAD_JSDOC_ANNOTATION,
       TypeCheck.CONFLICTING_EXTENDED_TYPE,
       TypeCheck.ENUM_NOT_CONSTANT,
       TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
@@ -1424,11 +1423,17 @@ class GlobalTypeInfo implements CompilerPass {
           return simpleInferExprType(n.getLastChild());
         case Token.CALL:
         case Token.NEW: {
-          JSType ratorType = simpleInferExprType(n.getFirstChild());
-          if (ratorType == null) {
+          Node callee = n.getFirstChild();
+          // We special-case the function goog.getMsg, which is used by the
+          // compiler for i18n.
+          if (callee.matchesQualifiedName("goog.getMsg")) {
+            return JSType.STRING;
+          }
+          JSType calleeType = simpleInferExprType(callee);
+          if (calleeType == null) {
             return null;
           }
-          FunctionType funType = ratorType.getFunType();
+          FunctionType funType = calleeType.getFunType();
           if (funType == null) {
             return null;
           }

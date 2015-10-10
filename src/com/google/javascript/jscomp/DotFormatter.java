@@ -24,7 +24,7 @@ import com.google.javascript.jscomp.graph.GraphvizGraph.GraphvizEdge;
 import com.google.javascript.jscomp.graph.GraphvizGraph.GraphvizNode;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import com.google.javascript.rhino.jstype.JSType;
+import com.google.javascript.rhino.TypeI;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -151,9 +151,10 @@ public class DotFormatter {
           toNode = formatNodeName(keySucc);
         }
 
-        edgeList[i] = formatNodeName(keyParent) + ARROW + toNode + " [label=\""
-          + edge.getValue().toString() + "\", " + "fontcolor=\"red\", " +
-          "weight=0.01, color=\"red\"];\n";
+        edgeList[i] =
+            formatNodeName(keyParent) + ARROW + toNode + " [label=\"" + edge.getValue() + "\", "
+            + "fontcolor=\"red\", "
+            + "weight=0.01, color=\"red\"];\n";
       }
 
       Arrays.sort(edgeList);
@@ -174,7 +175,7 @@ public class DotFormatter {
       builder.append(formatNodeName(key));
       builder.append(" [label=\"");
       builder.append(name(n));
-      JSType type = n.getJSType();
+      TypeI type = n.getTypeI();
       if (type != null) {
         builder.append(" : ");
         builder.append(type.toString());

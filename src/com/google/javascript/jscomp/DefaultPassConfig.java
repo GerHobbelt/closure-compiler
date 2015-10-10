@@ -249,17 +249,6 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(closureRewriteClass);
     }
 
-    if (options.nameAnonymousFunctionsOnly) {
-      if (options.anonymousFunctionNaming ==
-          AnonymousFunctionNamingPolicy.MAPPED) {
-        checks.add(nameMappedAnonymousFunctions);
-      } else if (options.anonymousFunctionNaming ==
-          AnonymousFunctionNamingPolicy.UNMAPPED) {
-        checks.add(nameUnmappedAnonymousFunctions);
-      }
-      return checks;
-    }
-
     if (options.jqueryPass) {
       checks.add(jqueryAliases);
     }
@@ -276,7 +265,8 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(suspiciousCode);
     }
 
-    if (options.checkRequires.isOn()) {
+    if (options.checkRequires.isOn()
+        || options.enables(DiagnosticGroups.MISSING_REQUIRE)) {
       checks.add(checkRequires);
     }
 
@@ -592,24 +582,6 @@ public class DefaultPassConfig extends PassConfig {
 
     passes.addAll(getMainOptimizationLoop());
 
-    if (options.specializeInitialModule) {
-      // When specializing the initial module, we want our fixups to be
-      // as lean as possible, so we run the entire optimization loop to a
-      // fixed point before specializing, then specialize, and then run the
-      // main optimization loop again.
-
-      if (options.crossModuleCodeMotion) {
-        passes.add(crossModuleCodeMotion);
-      }
-
-      if (options.crossModuleMethodMotion) {
-        passes.add(crossModuleMethodMotion);
-      }
-
-      passes.add(specializeInitialModule);
-      passes.addAll(getMainOptimizationLoop());
-    }
-
     passes.add(createEmptyPass("beforeModuleMotion"));
 
     if (options.crossModuleCodeMotion) {
@@ -714,10 +686,6 @@ public class DefaultPassConfig extends PassConfig {
       passes.add(aliasExternals);
     }
 
-    if (options.aliasKeywords) {
-      passes.add(aliasKeywords);
-    }
-
     // Passes after this point can no longer depend on normalized AST
     // assumptions.
     passes.add(markUnnormalized);
@@ -743,11 +711,6 @@ public class DefaultPassConfig extends PassConfig {
 
     if (options.instrumentationTemplate != null) {
       passes.add(instrumentFunctions);
-    }
-
-    // Instrument calls to memory allocations
-    if (options.getInstrumentMemoryAllocations()) {
-      passes.add(instrumentMemoryAllocations);
     }
 
     if (options.aggressiveRenaming) {
@@ -947,7 +910,7 @@ public class DefaultPassConfig extends PassConfig {
       new HotSwapPassFactory("checkRequires", true) {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
-      return new CheckRequiresForConstructors(compiler, options.checkRequires);
+      return new CheckRequiresForConstructors(compiler, CheckLevel.WARNING);
     }
   };
 
@@ -1529,7 +1492,7 @@ public class DefaultPassConfig extends PassConfig {
   /** Executes the given callbacks with a {@link CombinedCompilerPass}. */
   private static HotSwapCompilerPass combineChecks(AbstractCompiler compiler,
       List<Callback> callbacks) {
-    Preconditions.checkArgument(callbacks.size() > 0);
+    Preconditions.checkArgument(!callbacks.isEmpty());
     return new CombinedCompilerPass(compiler, callbacks);
   }
 
@@ -2118,18 +2081,6 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /**
-   * Specialize the initial module at the cost of later modules
-   */
-  final PassFactory specializeInitialModule =
-      new PassFactory("specializeInitialModule", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new SpecializeModule(compiler, devirtualizePrototypeMethods,
-          inlineFunctions, removeUnusedPrototypeProperties);
-    }
-  };
-
   /** A data-flow based variable inliner. */
   final PassFactory flowSensitiveInlineVariables =
       new PassFactory("flowSensitiveInlineVariables", true) {
@@ -2283,14 +2234,6 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /** Aliases common keywords (true, false) */
-  final PassFactory aliasKeywords = new PassFactory("aliasKeywords", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new AliasKeywords(compiler);
-    }
-  };
-
   /** Handling for the ObjectPropertyString primitive. */
   final PassFactory objectPropertyStringPostprocess =
       new PassFactory("ObjectPropertyStringPostprocess", true) {
@@ -2382,7 +2325,7 @@ public class DefaultPassConfig extends PassConfig {
 
       case ALL_UNQUOTED:
         RenameProperties rprop = new RenameProperties(
-            compiler, options.propertyAffinity, options.generatePseudoNames,
+            compiler, options.generatePseudoNames,
             prevPropertyMap, reservedChars);
         rprop.process(externs, root);
         return rprop.getPropertyMap();
@@ -2510,15 +2453,6 @@ public class DefaultPassConfig extends PassConfig {
       };
     }
   };
-
-  /** Adds instrumentation for memory allocations. */
-  final PassFactory instrumentMemoryAllocations =
-      new PassFactory("instrumentMemoryAllocations", true) {
-        @Override
-        protected CompilerPass create(final AbstractCompiler compiler) {
-          return new InstrumentMemoryAllocPass(compiler);
-        }
-      };
 
   final PassFactory instrumentForCodeCoverage =
       new PassFactory("instrumentForCodeCoverage", true) {

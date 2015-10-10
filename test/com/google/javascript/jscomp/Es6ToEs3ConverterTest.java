@@ -761,6 +761,16 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         null, Es6ToEs3Converter.CLASS_REASSIGNMENT);
   }
 
+  // Make sure we don't crash on this code.
+  // https://github.com/google/closure-compiler/issues/752
+  public void testGithub752() {
+    test("function f() { var a = b = class {};}",
+        null, Es6ToEs3Converter.CANNOT_CONVERT);
+
+    test("var ns = {}; function f() { var self = ns.Child = class {};}",
+        null, Es6ToEs3Converter.CANNOT_CONVERT);
+  }
+
   public void testArrowInClass() {
     test(Joiner.on('\n').join(
         "class C {",
@@ -1123,7 +1133,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "for (var $jscomp$iter$0 = $jscomp.makeIterator([1,2,3]),",
         "    $jscomp$key$i = $jscomp$iter$0.next();",
         "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
-        "  var i = $jscomp$key$i.value;",
+        "  i = $jscomp$key$i.value;",
         "  console.log(i);",
         "}"
     ));
@@ -1153,6 +1163,24 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "  var i = $jscomp$key$i.value;",
         "  console.log(i);",
         "}"
+    ));
+
+    // Iteration var shadows an outer var ()
+    test(Joiner.on('\n').join(
+      "var i = 'outer';",
+      "for (let i of [1, 2, 3]) {",
+      "  alert(i);",
+      "}",
+      "alert(i);"
+    ), Joiner.on('\n').join(
+        "var i = 'outer';",
+        "for (var $jscomp$iter$0 = $jscomp.makeIterator([1,2,3]),",
+        "    $jscomp$key$i = $jscomp$iter$0.next();",
+        "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
+        "  var i$1 = $jscomp$key$i.value;",
+        "  alert(i$1);",
+        "}",
+        "alert(i);"
     ));
   }
 

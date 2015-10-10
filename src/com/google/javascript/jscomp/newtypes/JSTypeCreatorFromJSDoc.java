@@ -207,8 +207,12 @@ public class JSTypeCreatorFromJSDoc {
           // TODO(dimvar): When the union has many things, we join and throw
           // away types, except the result of the last join. Very inefficient.
           // Consider optimizing.
-          union = JSType.join(
-              union, getTypeFromNodeHelper(child, registry, typeParameters));
+          JSType nextType = getTypeFromNodeHelper(child, registry, typeParameters);
+          if (nextType.isUnknown()) {
+            warn("This union type is equivalent to '?'.", n);
+            return JSType.UNKNOWN;
+          }
+          union = JSType.join(union, nextType);
         }
         return union;
       }
@@ -399,12 +403,13 @@ public class JSTypeCreatorFromJSDoc {
     int typeArgsSize = typeArguments.size();
     int typeParamsSize = typeParameters.size();
     if (typeArgsSize != typeParamsSize) {
-      String nominalTypeName = uninstantiated.getName();
-      if (!nominalTypeName.equals("Object")) {
-        // TODO(dimvar): remove this once we handle parameterized Object
+      // We used to also warn when (typeArgsSize < typeParamsSize), but it
+      // happens so often that we stopped. Array, Object and goog.Promise are
+      // common culprits, but many other types as well.
+      if (typeArgsSize > typeParamsSize) {
         warnings.add(JSError.make(
             n, INVALID_GENERICS_INSTANTIATION,
-            nominalTypeName, String.valueOf(typeParamsSize),
+            uninstantiated.getName(), String.valueOf(typeParamsSize),
             String.valueOf(typeArgsSize)));
       }
       return JSType.join(JSType.NULL,

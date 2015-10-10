@@ -46,11 +46,23 @@ import java.util.regex.Pattern;
  */
 public final class SuggestedFix {
 
+  private final Node originalMatchedNode;
   // Multimap of filename to a modification to that file.
   private final SetMultimap<String, CodeReplacement> replacements;
 
-  private SuggestedFix(SetMultimap<String, CodeReplacement> replacements) {
+  private SuggestedFix(
+      Node originalMatchedNode,
+      SetMultimap<String, CodeReplacement> replacements) {
+    this.originalMatchedNode = originalMatchedNode;
     this.replacements = replacements;
+  }
+
+  /**
+   * Returns the JS Compiler Node for the original node that caused this SuggestedFix to
+   * be constructed.
+   */
+  public Node getOriginalMatchedNode() {
+    return originalMatchedNode;
   }
 
   /**
@@ -75,8 +87,18 @@ public final class SuggestedFix {
    * manipulate JS nodes.
    */
   public static final class Builder {
+    private Node originalMatchedNode = null;
     private final ImmutableSetMultimap.Builder<String, CodeReplacement> replacements =
         ImmutableSetMultimap.builder();
+
+    /**
+     * Sets the node on this SuggestedFix that caused this SuggestedFix to be built
+     * in the first place.
+     */
+    public Builder setOriginalMatchedNode(Node node) {
+      originalMatchedNode = node;
+      return this;
+    }
 
     /**
      * Inserts a new node before the provided node.
@@ -99,6 +121,8 @@ public final class SuggestedFix {
       if (jsDoc != null) {
         startPosition = jsDoc.getOriginalCommentPosition();
       }
+      Preconditions.checkNotNull(nodeToInsertBefore.getSourceFileName(),
+          "No source file name for node: %s", nodeToInsertBefore);
       replacements.put(
           nodeToInsertBefore.getSourceFileName(),
           new CodeReplacement(startPosition, 0, content));
@@ -116,6 +140,35 @@ public final class SuggestedFix {
       if (jsDoc != null) {
         length = n.getLength() + (startPosition - jsDoc.getOriginalCommentPosition());
         startPosition = jsDoc.getOriginalCommentPosition();
+      }
+      // Variable declarations require special handling since the NAME node doesn't contain enough
+      // information if the variable is declared in a multi-variable declaration. The NAME node
+      // in a VAR declaration doesn't include its child in its length if there is an inline
+      // assignment, and the code needs to know how to delete the commas. See SuggestedFixTest for
+      // more information.
+      // TODO(mknichel): Move this logic and the start position logic to a helper function
+      // so that it can be reused in other methods.
+      if (n.isName() && n.getParent().isVar()) {
+        if (n.getNext() != null) {
+          length = n.getNext().getSourceOffset() - startPosition;
+        } else if (n.hasChildren()) {
+          Node child = n.getFirstChild();
+          length = (child.getSourceOffset() + child.getLength()) - startPosition;
+        }
+        if (n.getParent().getLastChild() == n && n != n.getParent().getFirstChild()) {
+          Node previousSibling = n.getParent().getChildBefore(n);
+          if (previousSibling.hasChildren()) {
+            Node child = previousSibling.getFirstChild();
+            int startPositionDiff = startPosition - (child.getSourceOffset() + child.getLength());
+            startPosition -= startPositionDiff;
+            length += startPositionDiff;
+          } else {
+            int startPositionDiff = startPosition - (
+                previousSibling.getSourceOffset() + previousSibling.getLength());
+            startPosition -= startPositionDiff;
+            length += startPositionDiff;
+          }
+        }
       }
       replacements.put(n.getSourceFileName(), new CodeReplacement(startPosition, length, ""));
       return this;
@@ -437,7 +490,7 @@ public final class SuggestedFix {
     }
 
     public SuggestedFix build() {
-      return new SuggestedFix(replacements.build());
+      return new SuggestedFix(originalMatchedNode, replacements.build());
     }
   }
 }
