@@ -35,7 +35,7 @@ import java.util.Map;
  * Helper classes for dealing with coding conventions.
  * @author nicksantos@google.com (Nick Santos)
  */
-public class CodingConventions {
+public final class CodingConventions {
 
   private CodingConventions() {}
 
@@ -326,7 +326,18 @@ public class CodingConventions {
 
     @Override
     public SubclassRelationship getClassesDefinedByCall(Node callNode) {
-      return null;
+      Node callName = callNode.getFirstChild();
+      if ((callName.matchesQualifiedName("$jscomp.inherits")
+          || callName.matchesQualifiedName("$jscomp$inherits"))
+          && callNode.getChildCount() == 3) {
+        Node subclass = callName.getNext();
+        Node superclass = subclass.getNext();
+
+        return new SubclassRelationship(
+            SubclassType.INHERITS, subclass, superclass);
+      } else {
+        return null;
+      }
     }
 
     @Override

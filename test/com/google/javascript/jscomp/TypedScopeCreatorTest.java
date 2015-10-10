@@ -26,7 +26,6 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.STRING_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 
 import com.google.common.base.Predicate;
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.rhino.Node;
@@ -47,7 +46,7 @@ import java.util.Deque;
  * the name is a bit of a misnomer.
  * @author nicksantos@google.com (Nick Santos)
  */
-public class TypedScopeCreatorTest extends CompilerTestCase {
+public final class TypedScopeCreatorTest extends CompilerTestCase {
 
   private JSTypeRegistry registry;
   private TypedScope globalScope;
@@ -102,8 +101,6 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     assertFalse(foo.hasProperty("bar"));
     Asserts.assertTypeEquals(registry.getNativeType(UNKNOWN_TYPE),
         foo.getPropertyType("bar"));
-    Asserts.assertTypeCollectionEquals(
-        Lists.newArrayList(foo), registry.getTypesWithProperty("bar"));
   }
 
   public void testConstructorProperty() {
@@ -114,8 +111,6 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
     JSType fooBar = foo.getPropertyType("Bar");
     assertEquals("function (new:foo.Bar): undefined", fooBar.toString());
-    Asserts.assertTypeCollectionEquals(
-        Lists.newArrayList(foo), registry.getTypesWithProperty("Bar"));
   }
 
   public void testPrototypePropertyMethodWithoutAnnotation() {
@@ -147,8 +142,6 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
     JSType fooBar = foo.getPropertyType("Bar");
     assertEquals("enum{foo.Bar}", fooBar.toString());
-    Asserts.assertTypeCollectionEquals(
-        Lists.newArrayList(foo), registry.getTypesWithProperty("Bar"));
   }
 
   public void testInferredProperty1() {
@@ -1748,17 +1741,6 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     assertEquals("Object", findNameType("f", lastLocalScope).toString());
   }
 
-  public void testClosureParameterTypesWithJSDoc() {
-    testSame(
-        "/**\n" +
-        " * @param {function(!Object)} bar\n" +
-        " */\n" +
-        "function foo(bar) {}\n" +
-        "foo(/** @type {function(string)} */" +
-        "  (function(baz) { var f = baz; }))\n");
-    assertEquals("string", findNameType("f", lastLocalScope).toString());
-  }
-
   public void testDuplicateExternProperty1() {
     testSame(
         "/** @constructor */ function Foo() {}" +
@@ -2086,30 +2068,6 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
   public void testBadIfaceInit2() throws Exception {
     testSame("var x = {}; /** @interface */ x.f;", IFACE_INITIALIZER);
-  }
-
-  public void testFunctionInHook() throws Exception {
-    testSame("/** @param {number} x */ var f = Math.random() ? " +
-        "function(x) {} : function(x) {};");
-    assertEquals("number", lastLocalScope.getVar("x").getType().toString());
-  }
-
-  public void testFunctionInAnd() throws Exception {
-    testSame("/** @param {number} x */ var f = Math.random() && " +
-        "function(x) {};");
-    assertEquals("number", lastLocalScope.getVar("x").getType().toString());
-  }
-
-  public void testFunctionInOr() throws Exception {
-    testSame("/** @param {number} x */ var f = Math.random() || " +
-        "function(x) {};");
-    assertEquals("number", lastLocalScope.getVar("x").getType().toString());
-  }
-
-  public void testFunctionInComma() throws Exception {
-    testSame("/** @param {number} x */ var f = (Math.random(), " +
-        "function(x) {});");
-    assertEquals("number", lastLocalScope.getVar("x").getType().toString());
   }
 
   public void testDeclaredCatchExpression1() {

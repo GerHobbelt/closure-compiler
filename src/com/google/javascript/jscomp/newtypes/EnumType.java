@@ -33,7 +33,7 @@ import java.util.Collection;
  * - We represent the object literal that defined the enum as an ObjectType.
  * - We represent an element of the enum by using this class in JSType.
  */
-public class EnumType extends Namespace implements TypeWithProperties {
+public final class EnumType extends Namespace implements TypeWithProperties {
 
   private enum State {
     NOT_RESOLVED,
@@ -82,6 +82,7 @@ public class EnumType extends Namespace implements TypeWithProperties {
     return enumPropType;
   }
 
+  @Override
   public JSType toJSType() {
     Preconditions.checkState(state == State.RESOLVED);
     if (enumObjType == null) {
@@ -129,7 +130,7 @@ public class EnumType extends Namespace implements TypeWithProperties {
     PersistentMap<String, Property> propMap = otherProps;
     for (String s : props) {
       propMap = propMap.with(s,
-          Property.makeConstant(enumPropType, enumPropType));
+          Property.makeConstant(null, enumPropType, enumPropType));
     }
     return withNamedTypes(
         ObjectType.makeObjectType(

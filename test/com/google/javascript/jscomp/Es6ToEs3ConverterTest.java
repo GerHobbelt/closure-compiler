@@ -23,7 +23,7 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
  *
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
-public class Es6ToEs3ConverterTest extends CompilerTestCase {
+public final class Es6ToEs3ConverterTest extends CompilerTestCase {
   private static final String EXTERNS_BASE = Joiner.on('\n').join(
       "/**",
       " * @param {...*} var_args",
@@ -36,6 +36,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
       " * @return {*}",
       " */",
       "Function.prototype.call = function(var_args) {};",
+      "",
+      "function Object() {}",
+      "Object.defineProperties;",
       "",
       // Stub out just enough of es6_runtime.js to satisfy the typechecker.
       // In a real compilation, the entire library will be loaded by
@@ -51,6 +54,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
     languageOut = LanguageMode.ECMASCRIPT3;
     enableAstValidation(true);
+    disableTypeCheck();
     runTypeCheckAfterProcessing = true;
     compareJsDoc = true;
   }
@@ -837,19 +841,229 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor */",
         "function Foo() {}",
         "Foo.f = function() {};",
-        "class Sub extends Foo {}"
-    ), null, null, TypeCheck.CONFLICTING_SHAPE_TYPE);
+        "class Sub extends Foo {}"), Joiner.on('\n').join(
+        "function Foo(){}Foo.f=function(){};",
+        "var Sub=function(var_args){Foo.apply(this,arguments)};",
+        "$jscomp.copyProperties(Sub,Foo);",
+        "$jscomp.inherits(Sub,Foo)"
+     ), null, null);
   }
 
   /**
-   * If languageOut is ES5, getters/setters in object literals are supported,
-   * but getters/setters in classes are not.
+   * Getters and setters are supported, both in object literals and in classes, but only
+   * if the output language is ES5.
    */
-  public void testClassGetterSetter() {
+  public void testEs5GettersAndSettersClasses() {
     languageOut = LanguageMode.ECMASCRIPT5;
 
-    testError("class C { get value() {} }", Es6ToEs3Converter.CANNOT_CONVERT);
-    testError("class C { set value(v) {} }", Es6ToEs3Converter.CANNOT_CONVERT);
+    test("class C { get value() { return 0; } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {?} */",
+        "C.prototype.value;",
+        "Object.defineProperties(C.prototype, {",
+        "  value: {",
+        "    /** @this {C} */",
+        "    get: function() {",
+        "      return 0;",
+        "    }",
+        "  }",
+        "});"));
+
+    test("class C { set value(val) { this.internalVal = val; } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {?} */",
+        "C.prototype.value;",
+        "Object.defineProperties(C.prototype, {",
+        "  value: {",
+        "    /** @this {C} */",
+        "    set: function(val) {",
+        "      this.internalVal = val;",
+        "    }",
+        "  }",
+        "});"));
+
+    test(Joiner.on('\n').join(
+        "class C {",
+        "  set value(val) {",
+        "    this.internalVal = val;",
+        "  }",
+        "  get value() {",
+        "    return this.internalVal;",
+        "  }",
+        "}"),
+
+        Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {?} */",
+        "C.prototype.value;",
+        "Object.defineProperties(C.prototype, {",
+        "  value: {",
+        "    /** @this {C} */",
+        "    set: function(val) {",
+        "      this.internalVal = val;",
+        "    },",
+        "    /** @this {C} */",
+        "    get: function() {",
+        "      return this.internalVal;",
+        "    }",
+        "  }",
+        "});"));
+
+    test(Joiner.on('\n').join(
+        "class C {",
+        "  get alwaysTwo() {",
+        "    return 2;",
+        "  }",
+        "",
+        "  get alwaysThree() {",
+        "    return 3;",
+        "  }",
+        "}"),
+
+        Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {?} */",
+        "C.prototype.alwaysTwo;",
+        "/** @type {?} */",
+        "C.prototype.alwaysThree;",
+        "Object.defineProperties(C.prototype, {",
+        "  alwaysTwo: {",
+        "    /** @this {C} */",
+        "    get: function() {",
+        "      return 2;",
+        "    }",
+        "  },",
+        "  alwaysThree: {",
+        "    /** @this {C} */",
+        "    get: function() {",
+        "      return 3;",
+        "    }",
+        "  },",
+        "});"));
+  }
+
+  /**
+   * Check that the types from the getter/setter are copied to the declaration on the prototype.
+   */
+  public void testEs5GettersAndSettersClassesWithTypes() {
+    languageOut = LanguageMode.ECMASCRIPT5;
+
+    test(Joiner.on('\n').join(
+        "class C {",
+        "  /** @return {number} */",
+        "  get value() { return 0; }",
+        "}"),
+
+        Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {number} */",
+        "C.prototype.value;",
+        "Object.defineProperties(C.prototype, {",
+        "  value: {",
+        "    /**",
+        "     * @return {number}",
+        "     * @this {C}",
+        "     */",
+        "    get: function() {",
+        "      return 0;",
+        "    }",
+        "  }",
+        "});"));
+
+    test(Joiner.on('\n').join(
+        "class C {",
+        "  /** @param {string} v */",
+        "  set value(v) { }",
+        "}"),
+
+        Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "/** @type {string} */",
+        "C.prototype.value;",
+        "Object.defineProperties(C.prototype, {",
+        "  value: {",
+        "    /**",
+        "     * @this {C}",
+        "     * @param {string} v",
+        "     */",
+        "    set: function(v) {}",
+        "  }",
+        "});"));
+
+    testError(Joiner.on('\n').join(
+        "class C {",
+        "  /** @return {string} */",
+        "  get value() { }",
+        "",
+        "  /** @param {number} v */",
+        "  set value(v) { }",
+        "}"), Es6ToEs3Converter.CONFLICTING_GETTER_SETTER_TYPE);
+  }
+
+  public void testClassEs5GetterSetterIncorrectTypes() {
+    enableTypeCheck(CheckLevel.WARNING);
+    languageOut = LanguageMode.ECMASCRIPT5;
+
+    // Using @type instead of @return on a getter.
+    test(EXTERNS_BASE, Joiner.on('\n').join(
+        "class C {",
+        "  /** @type {string} */",
+        "  get value() { }",
+        "}"),
+
+        Joiner.on('\n').join(
+            "/** @constructor @struct */",
+            "var C = function() {};",
+            "/** @type {?} */",
+            "C.prototype.value;",
+            "Object.defineProperties(C.prototype, {",
+            "  value: {",
+            "    /** @type {string} */",
+            "    get: function() {}",
+            "  }",
+            "});"), null, TypeValidator.TYPE_MISMATCH_WARNING);
+
+    // Using @type instead of @param on a setter.
+    test(EXTERNS_BASE, Joiner.on('\n').join(
+        "class C {",
+        "  /** @type {string} */",
+        "  set value(v) { }",
+        "}"),
+
+        Joiner.on('\n').join(
+            "/** @constructor @struct */",
+            "var C = function() {};",
+            "/** @type {?} */",
+            "C.prototype.value;",
+            "Object.defineProperties(C.prototype, {",
+            "  value: {",
+            "    /** @type {string} */",
+            "    set: function(v) {}",
+            "  }",
+            "});"), null, TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
+  /**
+   * @bug 20536614
+   */
+  public void testStaticGetterSetter() {
+    languageOut = LanguageMode.ECMASCRIPT5;
+
+    testError("class C { static get foo() {} }", Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    testError("class C { static set foo(x) {} }", Es6ToEs3Converter.CANNOT_CONVERT_YET);
+  }
+
+  /**
+   * Computed property getters and setters in classes are not supported.
+   */
+  public void testClassComputedPropGetterSetter() {
+    languageOut = LanguageMode.ECMASCRIPT5;
 
     testError("class C { get [foo]() {}}", Es6ToEs3Converter.CANNOT_CONVERT);
     testError("class C { set [foo](val) {}}", Es6ToEs3Converter.CANNOT_CONVERT);
@@ -864,9 +1078,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   /**
-   * ES5 getters and setters should be left alone if the languageOut is ES5.
+   * ES5 getters and setters on object literals should be left alone if the languageOut is ES5.
    */
-  public void testEs5GettersAndSetters_es5() {
+  public void testEs5GettersAndSettersObjLit_es5() {
     languageOut = LanguageMode.ECMASCRIPT5;
     testSame("var x = { get y() {} };");
     testSame("var x = { set y(value) {} };");
@@ -1071,6 +1285,36 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         ),
         null,
         TypeCheck.WRONG_ARGUMENT_COUNT);
+  }
+
+  public void testDefaultUndefinedParameters() {
+    enableTypeCheck(CheckLevel.WARNING);
+
+    test("function f(zero, one=undefined) {}",
+         "function f(zero, one) {}");
+
+    test("function f(zero, one=void 42) {}",
+         "function f(zero, one) {}");
+
+    test("function f(zero, one=void(42)) {}",
+         "function f(zero, one) {}");
+
+    test("function f(zero, one=void '\\x42') {}",
+         "function f(zero, one) {}");
+
+    test("function f(zero, one='undefined') {}",
+        Joiner.on('\n').join(
+          "function f(zero, one) {",
+          "  one = (one === undefined) ? 'undefined' : one;",
+          "}"
+    ));
+
+    test("function f(zero, one=void g()) {}",
+        Joiner.on('\n').join(
+          "function f(zero, one) {",
+          "  one = (one === undefined) ? void g() : one;",
+          "}"
+    ));
   }
 
   public void testRestParameter() {
@@ -1778,4 +2022,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
     ));
   }
 
+  public void testUnicodeEscapes() {
+    test("var \\u{73} = \'\\u{2603}\'", "var s = \'\u2603\'");  // ☃
+    test("var \\u{63} = \'\\u{1f42a}\'", "var c = \'\uD83D\uDC2A\'");  // 🐪
+  }
 }

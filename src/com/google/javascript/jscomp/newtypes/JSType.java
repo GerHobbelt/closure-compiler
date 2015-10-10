@@ -22,6 +22,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.javascript.rhino.FunctionTypeI;
+import com.google.javascript.rhino.ObjectTypeI;
+import com.google.javascript.rhino.TypeI;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -36,7 +39,7 @@ import java.util.TreeSet;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public abstract class JSType {
+public abstract class JSType implements TypeI {
   protected static final int BOTTOM_MASK = 0x0;
   protected static final int TYPEVAR_MASK = 0x1;
   protected static final int NON_SCALAR_MASK = 0x2;
@@ -166,6 +169,43 @@ public abstract class JSType {
 
   protected abstract ImmutableSet<EnumType> getEnums();
 
+  // DO NOT USE THIS METHOD IN THIS FILE!
+  // It represents unions very inefficiently and is only used by client code to avoid exposing the
+  // internal representation which uses bitmaps.
+  // Also, this method stops distinguishing between true and false; it promotes to boolean.
+  public Collection<JSType> getAlternates() {
+    if (isTop() || isUnknown()) {
+      return ImmutableSet.of(this);
+    }
+    ImmutableSet.Builder<JSType> builder = ImmutableSet.builder();
+    int mask = getMask();
+    if ((mask & NUMBER_MASK) != 0) {
+      builder.add(NUMBER);
+    }
+    if ((mask & STRING_MASK) != 0) {
+      builder.add(STRING);
+    }
+    if (isBoolean()) {
+      builder.add(BOOLEAN);
+    }
+    if ((mask & NULL_MASK) != 0) {
+      builder.add(NULL);
+    }
+    if ((mask & UNDEFINED_MASK) != 0) {
+      builder.add(UNDEFINED);
+    }
+    if ((mask & TYPEVAR_MASK) != 0) {
+      builder.add(fromTypeVar(getTypeVar()));
+    }
+    for (ObjectType obj : getObjs()) {
+      builder.add(fromObjectType(obj));
+    }
+    for (EnumType e : getEnums()) {
+      builder.add(fromEnum(e));
+    }
+    return builder.build();
+  }
+
   // Factory method for wrapping a function in a JSType
   static JSType fromFunctionType(FunctionType fn, NominalType fnNominal) {
     return makeType(
@@ -179,11 +219,11 @@ public abstract class JSType {
     return makeType(NON_SCALAR_MASK, ImmutableSet.of(obj), null, ImmutableSet.<EnumType>of());
   }
 
-  public static JSType fromTypeVar(String template) {
+  public static JSType fromTypeVar(String typevarName) {
     return makeType(
         TYPEVAR_MASK,
         ImmutableSet.<ObjectType>of(),
-        template,
+        typevarName,
         ImmutableSet.<EnumType>of());
   }
 
@@ -246,6 +286,7 @@ public abstract class JSType {
     return TOP_MASK == getMask();
   }
 
+  @Override
   public boolean isBottom() {
     return BOTTOM_MASK == getMask();
   }
@@ -305,7 +346,7 @@ public abstract class JSType {
     return (getMask() & NULL_MASK) != 0;
   }
 
-  boolean isTypeVariable() {
+  public boolean isTypeVariable() {
     return (getMask() & TYPEVAR_MASK) != 0 && (getMask() & ~TYPEVAR_MASK) == 0;
   }
 
@@ -419,6 +460,8 @@ public abstract class JSType {
 
   // When joining w/ TOP or UNKNOWN, avoid setting more fields on them, eg, obj.
   public static JSType join(JSType lhs, JSType rhs) {
+    Preconditions.checkNotNull(lhs);
+    Preconditions.checkNotNull(rhs);
     if (lhs.isTop() || rhs.isTop()) {
       return TOP;
     } else if (lhs.isUnknown() || rhs.isUnknown()) {
@@ -477,6 +520,7 @@ public abstract class JSType {
   private static void updateTypemap(
       Multimap<String, JSType> typeMultimap,
       String typeParam, JSType type) {
+    Preconditions.checkNotNull(type);
     Set<JSType> typesToRemove = new LinkedHashSet<>();
     for (JSType other : typeMultimap.get(typeParam)) {
       JSType unified = unifyUnknowns(type, other);
@@ -505,6 +549,8 @@ public abstract class JSType {
    * JSType.UNKNOWN as a "hole" to be filled.
    * @return The unified type, or null if unification fails */
   static JSType unifyUnknowns(JSType t1, JSType t2) {
+    Preconditions.checkNotNull(t1);
+    Preconditions.checkNotNull(t2);
     if (t1.isUnknown()) {
       return t2;
     } else if (t2.isUnknown()) {
@@ -568,6 +614,7 @@ public abstract class JSType {
    */
   public boolean unifyWithSubtype(JSType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
+    Preconditions.checkNotNull(other);
     if (this.isUnknown() || this.isTop()) {
       return true;
     } else if (getMask() == TYPEVAR_MASK
@@ -582,20 +629,17 @@ public abstract class JSType {
     }
 
     Set<EnumType> ununifiedEnums = ImmutableSet.of();
-    if (getEnums().isEmpty()) {
-      ununifiedEnums = other.getEnums();
-    } else if (other.getEnums().isEmpty()) {
+    if (!other.getEnums().isEmpty()) {
       ununifiedEnums = new LinkedHashSet<>();
       for (EnumType e : other.getEnums()) {
-        if (!getEnums().contains(e)) {
+        if (!fromEnum(e).isSubtypeOf(this)) {
           ununifiedEnums.add(e);
         }
       }
     }
 
     Set<ObjectType> ununifiedObjs = new LinkedHashSet<>(other.getObjs());
-    // Each obj in this must unify w/ exactly one obj in other.
-    // However, we don't check that two different objects of this don't unify
+    // We don't check that two different objects of this don't unify
     // with the same other type.
     // Fancy cases are unfortunately iteration-order dependent, eg,
     // Foo<number>|Foo<string> may or may not unify with Foo<T>|Foo<string>
@@ -612,7 +656,7 @@ public abstract class JSType {
     if (thisTypevar == null || !typeParameters.contains(thisTypevar)) {
       return ununifiedObjs.isEmpty() && ununifiedEnums.isEmpty()
           && (otherTypevar == null || otherTypevar.equals(thisTypevar))
-          && getMask() == (getMask() | other.getMask());
+          && getMask() == (getMask() | (other.getMask() & ~ENUM_MASK));
     } else {
       // this is (T | ...)
       int templateMask = BOTTOM_MASK;
@@ -763,7 +807,16 @@ public abstract class JSType {
   }
 
   public static JSType plus(JSType lhs, JSType rhs) {
+    if (lhs.equals(STRING) || rhs.equals(STRING)) {
+      return STRING;
+    }
+    if (lhs.isUnknown() || lhs.isTop() || rhs.isUnknown() || rhs.isTop()) {
+      return UNKNOWN;
+    }
+    // If either has string, string in the result.
     int newtype = (lhs.getMask() | rhs.getMask()) & STRING_MASK;
+    // If both have non-string (including boolean, null, undefined),
+    // number in the result.
     if ((lhs.getMask() & ~STRING_MASK) != 0
         && (rhs.getMask() & ~STRING_MASK) != 0) {
       newtype |= NUMBER_MASK;
@@ -796,8 +849,9 @@ public abstract class JSType {
     return isSubtypeOfHelper(false, other);
   }
 
-  public boolean isSubtypeOf(JSType other) {
-    return isSubtypeOfHelper(true, other);
+  @Override
+  public boolean isSubtypeOf(TypeI other) {
+    return isSubtypeOfHelper(true, (JSType) other);
   }
 
   private boolean isSubtypeOfHelper(
@@ -879,18 +933,22 @@ public abstract class JSType {
     return result;
   }
 
-  NominalType getNominalTypeIfUnique() {
-    if (getObjs().isEmpty() || getObjs().size() > 1) {
+  public NominalType getNominalTypeIfSingletonObj() {
+    if (getMask() != NON_SCALAR_MASK || getObjs().size() > 1) {
       return null;
     }
     return Iterables.getOnlyElement(getObjs()).getNominalType();
   }
 
-  public boolean isInterfaceDefinition() {
-    if (getObjs().isEmpty() || getObjs().size() > 1) {
-      return false;
+  public ObjectType getObjectTypeIfSingletonObj() {
+    if (getMask() != NON_SCALAR_MASK || getObjs().size() > 1) {
+      return null;
     }
-    FunctionType ft = Iterables.getOnlyElement(getObjs()).getFunType();
+    return Iterables.getOnlyElement(getObjs());
+  }
+
+  public boolean isInterfaceDefinition() {
+    FunctionType ft = getFunTypeIfSingletonObj();
     return ft != null && ft.isInterfaceDefinition();
   }
 
@@ -1082,6 +1140,47 @@ public abstract class JSType {
   }
 
   @Override
+  public boolean isConstructor() {
+    FunctionType ft = getFunTypeIfSingletonObj();
+    return ft != null && ft.isConstructor();
+  }
+
+  @Override
+  public boolean isEquivalentTo(TypeI type) {
+    return equals(type);
+  }
+
+  @Override
+  public boolean isFunctionType() {
+    return getFunType() != null;
+  }
+
+  @Override
+  public boolean isInterface() {
+    return isInterfaceDefinition();
+  }
+
+  @Override
+  public boolean isUnknownType() {
+    return isUnknown();
+  }
+
+  @Override
+  public TypeI restrictByNotNullOrUndefined() {
+    throw new UnsupportedOperationException("restrictByNotNullOrUndefined not implemented yet.");
+  }
+
+  @Override
+  public FunctionTypeI toMaybeFunctionType() {
+    throw new UnsupportedOperationException("toMaybeFunctionType not implemented yet.");
+  }
+
+  @Override
+  public ObjectTypeI toMaybeObjectType() {
+    throw new UnsupportedOperationException("toMaybeObjectType not implemented yet.");
+  }
+
+  @Override
   public boolean equals(Object o) {
     if (o == null) {
       return false;
@@ -1091,22 +1190,24 @@ public abstract class JSType {
     }
     Preconditions.checkArgument(o instanceof JSType);
     JSType t2 = (JSType) o;
-    return getMask() == t2.getMask() && Objects.equals(getObjs(), t2.getObjs());
+    return getMask() == t2.getMask() && Objects.equals(getObjs(), t2.getObjs())
+        && Objects.equals(getEnums(), t2.getEnums())
+        && Objects.equals(getTypeVar(), t2.getTypeVar());
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(getMask(), getObjs());
+    return Objects.hash(getMask(), getObjs(), getEnums(), getTypeVar());
   }
 }
 
 final class UnionType extends JSType {
   private final int mask;
-  // objs is null for scalar types
+  // objs is empty for scalar types
   private final ImmutableSet<ObjectType> objs;
   // typeVar is null for non-generic types
   private final String typeVar;
-  // enums is null for types that don't have enums
+  // enums is empty for types that don't have enums
   private final ImmutableSet<EnumType> enums;
 
   UnionType(int mask, ImmutableSet<ObjectType> objs,

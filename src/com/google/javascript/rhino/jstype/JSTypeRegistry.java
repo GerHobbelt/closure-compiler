@@ -40,7 +40,6 @@
 package com.google.javascript.rhino.jstype;
 
 import static com.google.javascript.rhino.jstype.JSTypeNative.ALL_TYPE;
-import static com.google.javascript.rhino.jstype.JSTypeNative.ARRAY_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.NO_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.VOID_TYPE;
@@ -50,8 +49,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
@@ -63,6 +60,7 @@ import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.RecordTypeBuilder.RecordProperty;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -118,9 +116,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
 
   private final Map<String, JSType> namesToTypes;
 
-  // Set of namespaces in which types (or other namespaces) exist.
-  private final Set<String> namespaces = new HashSet<>();
-
   // NOTE(nicksantos): This is a terrible terrible hack. When type expressions
   // are evaluated, we need to be able to decide whether that type name
   // resolves to a nullable type or a non-nullable type. Object types are
@@ -144,19 +139,19 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   // A map of properties to the types on which those properties have been
   // declared.
   private final Map<String, UnionTypeBuilder> typesIndexedByProperty =
-      Maps.newHashMap();
+       new HashMap<>();
 
   // A map of properties to each reference type on which those
   // properties have been declared. Each type has a unique name used
   // for de-duping.
   private final Map<String, Map<String, ObjectType>>
-      eachRefTypeIndexedByProperty = Maps.newHashMap();
+      eachRefTypeIndexedByProperty = new HashMap<>();
 
   // A map of properties to the greatest subtype on which those properties have
   // been declared. This is filled lazily from the types declared in
   // typesIndexedByProperty.
   private final Map<String, JSType> greatestSubtypeByProperty =
-      Maps.newHashMap();
+       new HashMap<>();
 
   // A map from interface name to types that implement it.
   private final Multimap<String, FunctionType> interfaceToImplementors =
@@ -174,7 +169,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   private boolean lastGeneration = true;
 
   // The template type name.
-  private final Map<String, TemplateType> templateTypes = Maps.newHashMap();
+  private final Map<String, TemplateType> templateTypes = new HashMap<>();
 
   // A single empty TemplateTypeMap, which can be safely reused in cases where
   // there are no template types.
@@ -222,7 +217,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     eachRefTypeIndexedByProperty.clear();
     initializeBuiltInTypes();
     namesToTypes.clear();
-    namespaces.clear();
     initializeRegistry();
   }
 
@@ -502,7 +496,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
 
     // unknown function type, i.e. (?...) -> ?
     FunctionType U2U_FUNCTION_TYPE =
-        createFunctionType(UNKNOWN_TYPE, true, UNKNOWN_TYPE);
+        createFunctionTypeWithVarArgs(UNKNOWN_TYPE, UNKNOWN_TYPE);
     registerNativeType(JSTypeNative.U2U_FUNCTION_TYPE, U2U_FUNCTION_TYPE);
 
     // unknown constructor type, i.e. (?...) -> ? with the Unknown type
@@ -591,14 +585,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   private void register(JSType type, String name) {
     Preconditions.checkArgument(
         !name.contains("<"), "Type names cannot contain template annotations.");
-
     namesToTypes.put(name, type);
-
-    // Add all the namespaces in which this name lives.
-    while (name.indexOf('.') > 0) {
-      name = name.substring(0, name.lastIndexOf('.'));
-      namespaces.add(name);
-    }
   }
 
   private void registerNativeType(JSTypeNative typeId, JSType type) {
@@ -637,7 +624,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
       Map<String, ObjectType> typeSet =
           eachRefTypeIndexedByProperty.get(propertyName);
       if (typeSet == null) {
-        typeSet = Maps.newHashMap();
+        typeSet = new HashMap<>();
         eachRefTypeIndexedByProperty.put(propertyName, typeSet);
       }
       ObjectType objType = (ObjectType) type;
@@ -718,22 +705,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   /**
-   * Returns each type that has a property {@code propertyName} defined on it.
-   *
-   * Like most types in our type system, the collection of types returned
-   * will be collapsed. This means that if a type is defined on
-   * {@code Object} and on {@code Array}, it would be reasonable for this
-   * method to return either {@code [Object, Array]} or just {@code [Object]}.
-   */
-  public Iterable<JSType> getTypesWithProperty(String propertyName) {
-    if (typesIndexedByProperty.containsKey(propertyName)) {
-      return typesIndexedByProperty.get(propertyName).getAlternates();
-    } else {
-      return ImmutableList.of();
-    }
-  }
-
-  /**
    * Returns each reference type that has a property {@code propertyName}
    * defined on it.
    *
@@ -773,26 +744,13 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   private static List<ObjectType> getSuperStack(ObjectType a) {
-    List<ObjectType> stack = Lists.newArrayListWithExpectedSize(5);
+    List<ObjectType> stack = new ArrayList<>(5);
     for (ObjectType current = a;
          current != null;
          current = current.getImplicitPrototype()) {
       stack.add(current);
     }
     return stack;
-  }
-
-  /**
-   * Increments the current generation. Clients must call this in order to
-   * move to the next generation of type resolution, allowing types to attempt
-   * resolution again.
-   */
-  public void incrementGeneration() {
-    for (NamedType type : resolvedNamedTypes.values()) {
-      type.clearResolved();
-    }
-    unresolvedNamedTypes.putAll(resolvedNamedTypes);
-    resolvedNamedTypes.clear();
   }
 
   boolean isLastGeneration() {
@@ -867,11 +825,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    */
   public boolean isForwardDeclaredType(String name) {
     return forwardDeclaredTypes.contains(name);
-  }
-
-  /** Determines whether the given JS package exists. */
-  public boolean hasNamespace(String name) {
-    return namespaces.contains(name);
   }
 
   /**
@@ -1189,30 +1142,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    * @param parameterTypes the parameters' types
    */
   public FunctionType createFunctionTypeWithVarArgs(
-      JSType returnType, List<JSType> parameterTypes) {
-    return createFunctionType(
-        returnType, createParametersWithVarArgs(parameterTypes));
-  }
-
-  /**
-   * Creates a function type.
-   *
-   * @param returnType the function's return type
-   * @param parameterTypes the parameters' types
-   */
-  public FunctionType createFunctionType(
-      JSType returnType, List<JSType> parameterTypes) {
-    return createFunctionType(returnType, createParameters(parameterTypes));
-  }
-
-  /**
-   * Creates a function type. The last parameter type of the function is
-   * considered a variable length argument.
-   *
-   * @param returnType the function's return type
-   * @param parameterTypes the parameters' types
-   */
-  public FunctionType createFunctionTypeWithVarArgs(
       JSType returnType, JSType... parameterTypes) {
     return createFunctionType(
         returnType, createParametersWithVarArgs(parameterTypes));
@@ -1229,18 +1158,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
       JSType returnType, JSType... parameterTypes) {
     return createNativeFunctionType(
         returnType, createParametersWithVarArgs(parameterTypes));
-  }
-
-  /**
-   * Creates a function type which can act as a constructor.
-   *
-   * @param returnType the function's return type
-   * @param parameterTypes the parameters' types
-   */
-  public FunctionType createConstructorType(
-      JSType returnType, JSType... parameterTypes) {
-    return createConstructorType(
-        null, null, createParameters(parameterTypes), returnType, null);
   }
 
   /**
@@ -1264,42 +1181,14 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    * @param returnType the function's return type
    * @param parameterTypes the parameters' types
    */
-  public JSType createFunctionType(ObjectType instanceType,
+  public JSType createFunctionTypeWithInstanceType(ObjectType instanceType,
       JSType returnType, List<JSType> parameterTypes) {
+    Node paramsNode = createParameters(parameterTypes.toArray(new JSType[parameterTypes.size()]));
     return new FunctionBuilder(this)
-        .withParamsNode(createParameters(parameterTypes))
+        .withParamsNode(paramsNode)
         .withReturnType(returnType)
         .withTypeOfThis(instanceType)
         .build();
-  }
-
-  /**
-   * Creates a function type in which {@code this} refers to an object instance.
-   * The last parameter type of the function is considered a variable length
-   * argument.
-   *
-   * @param instanceType the type of {@code this}
-   * @param returnType the function's return type
-   * @param parameterTypes the parameters' types
-   */
-  public JSType createFunctionTypeWithVarArgs(ObjectType instanceType,
-      JSType returnType, List<JSType> parameterTypes) {
-    return new FunctionBuilder(this)
-        .withParamsNode(createParametersWithVarArgs(parameterTypes))
-        .withReturnType(returnType)
-        .withTypeOfThis(instanceType)
-        .build();
-  }
-
-  /**
-   * Creates a tree hierarchy representing a typed argument list.
-   *
-   * @param parameterTypes the parameter types.
-   * @return a tree hierarchy representing a typed argument list.
-   */
-  public Node createParameters(List<JSType> parameterTypes) {
-    return createParameters(
-        parameterTypes.toArray(new JSType[parameterTypes.size()]));
   }
 
   /**
@@ -1371,22 +1260,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   /**
-   * Creates a function type.
-   * @param returnType the function's return type
-   * @param lastVarArgs whether the last parameter type should be considered as
-   * an extensible var_args parameter
-   * @param parameterTypes the parameters' types
-   */
-  public FunctionType createFunctionType(JSType returnType,
-      boolean lastVarArgs, JSType... parameterTypes) {
-    if (lastVarArgs) {
-      return createFunctionTypeWithVarArgs(returnType, parameterTypes);
-    } else {
-      return createFunctionType(returnType, parameterTypes);
-    }
-  }
-
-  /**
    * Creates a new function type based on an existing function type but
    * with a new return type.
    * @param existingFunctionType the existing function type.
@@ -1397,20 +1270,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     return new FunctionBuilder(this)
         .copyFromOtherFunction(existingFunctionType)
         .withReturnType(returnType)
-        .build();
-  }
-
-  /**
-   * Creates a new function type based on an existing function type but
-   * with a new {@code this} type.
-   * @param existingFunctionType the existing function type.
-   * @param thisType the new this type.
-   */
-  public FunctionType createFunctionTypeWithNewThisType(
-      FunctionType existingFunctionType, ObjectType thisType) {
-    return new FunctionBuilder(this)
-        .copyFromOtherFunction(existingFunctionType)
-        .withTypeOfThis(thisType)
         .build();
   }
 
@@ -1438,29 +1297,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   /**
-   * Creates a function type which can act as a constructor.
-   * @param returnType the function's return type
-   * @param lastVarArgs whether the last parameter type should be considered as
-   * an extensible var_args parameter
-   * @param parameterTypes the parameters' types
-   */
-  public FunctionType createConstructorType(JSType returnType,
-      boolean lastVarArgs, JSType... parameterTypes) {
-    if (lastVarArgs) {
-      return createConstructorTypeWithVarArgs(returnType, parameterTypes);
-    } else {
-      return createConstructorType(returnType, parameterTypes);
-    }
-  }
-
-  /**
-   * Create an object type.
-   */
-  public ObjectType createObjectType(ObjectType implicitPrototype) {
-    return createObjectType(null, null, implicitPrototype);
-  }
-
-  /**
    * Creates a record type.
    */
   public RecordType createRecordType(Map<String, RecordProperty> properties) {
@@ -1470,8 +1306,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   /**
    * Create an object type.
    */
-  public ObjectType createObjectType(String name, Node n,
-      ObjectType implicitPrototype) {
+  public ObjectType createObjectType(String name, ObjectType implicitPrototype) {
     return new PrototypeObjectType(this, name, implicitPrototype);
   }
 
@@ -1507,16 +1342,6 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   /**
-   * Create an anonymous object type for a native type.
-   */
-  ObjectType createNativeAnonymousObjectType() {
-    PrototypeObjectType type =
-        new PrototypeObjectType(this, null, null, true, null);
-    type.setPrettyPrint(true);
-    return type;
-  }
-
-  /**
    * Creates a constructor function type.
    * @param name the function's name or {@code null} to indicate that the
    *     function is anonymous.
@@ -1530,19 +1355,10 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    */
   public FunctionType createConstructorType(String name, Node source,
       Node parameters, JSType returnType, ImmutableList<TemplateType> templateKeys) {
+    Preconditions.checkArgument(source == null || source.isFunction());
     return new FunctionType(this, name, source,
         createArrowType(parameters, returnType), null,
         createTemplateTypeMap(templateKeys, null), true, false);
-  }
-
-  ImmutableList<TemplateType> createTemplateMapKeys(ImmutableList<String> keys) {
-    ImmutableList.Builder<TemplateType> builder = ImmutableList.builder();
-    if (keys != null) {
-      for (String key : keys) {
-        builder.add(new TemplateType(this, key));
-      }
-    }
-    return builder.build();
   }
 
   /**
@@ -1838,7 +1654,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
             createFromTypeNodesInternal(current, sourceName, scope);
 
         return new FunctionBuilder(this)
-            .withParams(paramBuilder)
+            .withParamsNode(paramBuilder.build())
             .withReturnType(returnType)
             .withTypeOfThis(thisType)
             .setIsConstructor(isConstructor)
@@ -1920,7 +1736,8 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   private boolean isNonNullable(JSType type) {
     // TODO(lpino): Verify that nonNullableTypeNames is correct
     for (String s : nonNullableTypeNames) {
-      if (type.isEquivalentTo(getType(s))) {
+      JSType that = getType(s);
+      if (that != null && type.isEquivalentTo(that)) {
         return true;
       }
     }

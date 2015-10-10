@@ -1641,7 +1641,7 @@ public class Node implements Cloneable, Serializable {
       return false;
     }
 
-    if (compareType && !JSType.isEquivalent((JSType) typei, node.getJSType())) {
+    if (compareType && !JSType.isEquivalent(getJSType(), node.getJSType())) {
       return false;
     }
 
@@ -2054,48 +2054,20 @@ public class Node implements Cloneable, Serializable {
    * specified type.
    */
   public JSType getJSType() {
-    return (JSType) typei;
+    return typei instanceof JSType ? (JSType) typei : null;
   }
 
   public void setJSType(JSType jsType) {
-      this.typei = jsType;
+    this.typei = jsType;
   }
 
   public TypeI getTypeI() {
-    return typei;
+    // For the time being, we only want to return the type iff it's an old type.
+    return getJSType();
   }
 
   public void setTypeI(TypeI type) {
     this.typei = type;
-  }
-
-  public FileLevelJsDocBuilder getJsDocBuilderForNode() {
-    return new FileLevelJsDocBuilder();
-  }
-
-  /**
-   * An inner class that provides back-door access to the license
-   * property of the JSDocInfo property for this node. This is only
-   * meant to be used for top-level script nodes where the
-   * {@link com.google.javascript.jscomp.parsing.JsDocInfoParser} needs to
-   * be able to append directly to the top-level node, not just the
-   * current node.
-   */
-  public class FileLevelJsDocBuilder {
-    public void append(String fileLevelComment) {
-      JSDocInfo jsDocInfo = getJSDocInfo();
-      if (jsDocInfo == null) {
-        // TODO(user): Is there a way to determine whether to
-        // parse the JsDoc documentation from here?
-        jsDocInfo = new JSDocInfo(false);
-      }
-      String license = jsDocInfo.getLicense();
-      if (license == null) {
-        license = "";
-      }
-      jsDocInfo.setLicense(license + fileLevelComment);
-      setJSDocInfo(jsDocInfo);
-    }
   }
 
   /**
@@ -2190,17 +2162,6 @@ public class Node implements Cloneable, Serializable {
   @SuppressWarnings("unchecked")
   public Set<String> getDirectives() {
     return (Set<String>) getProp(DIRECTIVES);
-  }
-
-  /**
-   * Adds a warning to be suppressed. This is indistinguishable
-   * from having a {@code @suppress} tag in the code.
-   */
-  public void addSuppression(String warning) {
-    if (getJSDocInfo() == null) {
-      setJSDocInfo(new JSDocInfo(false));
-    }
-    getJSDocInfo().addSuppression(warning);
   }
 
   /**

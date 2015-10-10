@@ -45,12 +45,12 @@ import static com.google.javascript.rhino.jstype.TernaryValue.UNKNOWN;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Object type.
@@ -82,7 +82,7 @@ import java.util.Set;
  */
 public abstract class ObjectType
     extends JSType
-    implements ObjectTypeI, StaticTypedScope<JSType> {
+    implements ObjectTypeI {
   private boolean visited;
   private JSDocInfo docInfo = null;
   private boolean unknown = true;
@@ -95,10 +95,8 @@ public abstract class ObjectType
     super(registry, templateTypeMap);
   }
 
-  @Override
   public Node getRootNode() { return null; }
 
-  @Override
   public ObjectType getParentScope() {
     return getImplicitPrototype();
   }
@@ -114,17 +112,14 @@ public abstract class ObjectType
    * Default getSlot implementation. This gets overridden by FunctionType
    * for lazily-resolved prototypes.
    */
-  @Override
   public Property getSlot(String name) {
     return getPropertyMap().getSlot(name);
   }
 
-  @Override
   public Property getOwnSlot(String name) {
     return getPropertyMap().getOwnProperty(name);
   }
 
-  @Override
   public JSType getTypeOfThis() {
     return null;
   }
@@ -270,6 +265,7 @@ public abstract class ObjectType
    * @return this object's constructor or {@code null} if it is a native
    * object (constructed natively v.s. by instantiation of a function)
    */
+  @Override
   public abstract FunctionType getConstructor();
 
   /**
@@ -403,6 +399,11 @@ public abstract class ObjectType
     // by default, do nothing
   }
 
+  /** Sets the node where the property was defined. */
+  public void setPropertyNode(String propertyName, Node defSite) {
+    // by default, do nothing
+  }
+
   @Override
   public JSType findPropertyType(String propertyName) {
     return hasProperty(propertyName) ?
@@ -497,7 +498,7 @@ public abstract class ObjectType
    * its supertypes.
    */
   public Set<String> getPropertyNames() {
-    Set<String> props = Sets.newTreeSet();
+    Set<String> props = new TreeSet<>();
     collectPropertyNames(props);
     return props;
   }

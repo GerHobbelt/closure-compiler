@@ -75,6 +75,19 @@ public final class ImplicitNullabilityCheck extends AbstractPostOrderCallback
               case Token.THIS:  // The names inside function(this:Foo) and
               case Token.NEW:   // function(new:Bar) are already non-null.
                 return;
+              case Token.PIPE: { // Inside a union
+                Node gp = parent.getParent();
+                if (gp != null && gp.getType() == Token.QMARK) {
+                  return; // Inside an explicitly nullable union
+                }
+                for (Node child : parent.children()) {
+                  if (child.isString() && child.getString().equals("null")
+                      || child.getType() == Token.QMARK) {
+                    return; // Inside a union that contains null or nullable type
+                  }
+                }
+                break;
+              }
             }
           }
           String typeName = node.getString();

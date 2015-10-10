@@ -40,7 +40,7 @@ import java.util.Set;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class JSTypeCreatorFromJSDoc {
+public final class JSTypeCreatorFromJSDoc {
   public static final DiagnosticType INVALID_GENERICS_INSTANTIATION =
       DiagnosticType.warning(
         "JSC_INVALID_GENERICS_INSTANTIATION",
@@ -290,36 +290,37 @@ public class JSTypeCreatorFromJSDoc {
         return getQmarkFunctionOrNull(registry.getCommonTypes());
       case "Object":
         return objectOrNull;
-      default: {
-        if (outerTypeParameters.contains(typeName)) {
-          return JSType.fromTypeVar(typeName);
-        } else {
-          // It's either a typedef, an enum, a type variable or a nominal type
-          Typedef td = registry.getTypedef(typeName);
-          if (td != null) {
-            return getTypedefType(td, registry);
-          }
-          EnumType e = registry.getEnum(typeName);
-          if (e != null) {
-            return getEnumPropType(e, registry);
-          }
-          JSType namedType = registry.lookupTypeByName(typeName);
-          if (namedType == null) {
-            unknownTypeNames.put(n, typeName);
-            throw new UnknownTypeException("Unhandled type: " + typeName);
-          }
-          if (namedType.isTypeVariable()) {
-            howmanyTypeVars++;
-            return namedType;
-          }
-          if (namedType.isUnknown()) {
-            return namedType;
-          }
-          return getNominalTypeHelper(
-              namedType, n, registry, outerTypeParameters);
-        }
-      }
+      default:
+        return lookupTypeByName(typeName, n, registry, outerTypeParameters);
     }
+  }
+
+  private JSType lookupTypeByName(String name,
+      Node n, DeclaredTypeRegistry registry, ImmutableList<String> outerTypeParameters)
+      throws UnknownTypeException {
+    if (outerTypeParameters.contains(name)) {
+      return JSType.fromTypeVar(name);
+    }
+    Declaration decl = registry.getDeclaration(QualifiedName.fromQname(name), true);
+    if (decl == null) {
+      unknownTypeNames.put(n, name);
+      throw new UnknownTypeException("Unhandled type: " + name);
+    }
+    // It's either a typedef, an enum, a type variable or a nominal type
+    if (decl.getTypedef() != null) {
+      return getTypedefType(decl.getTypedef(), registry);
+    }
+    if (decl.getEnum() != null) {
+      return getEnumPropType(decl.getEnum(), registry);
+    }
+    if (decl.isTypeVar()) {
+      howmanyTypeVars++;
+      return decl.getTypeOfSimpleDecl();
+    }
+    if (decl.getNominal() != null) {
+      return getNominalTypeHelper(decl.getNominal(), n, registry, outerTypeParameters);
+    }
+    return JSType.UNKNOWN;
   }
 
   private JSType getTypedefType(Typedef td, DeclaredTypeRegistry registry) {
@@ -382,11 +383,10 @@ public class JSTypeCreatorFromJSDoc {
     e.resolveEnum(enumeratedType);
   }
 
-  private JSType getNominalTypeHelper(JSType namedType, Node n,
+  private JSType getNominalTypeHelper(RawNominalType rawType, Node n,
       DeclaredTypeRegistry registry, ImmutableList<String> outerTypeParameters)
       throws UnknownTypeException {
-    NominalType uninstantiated = namedType.getNominalTypeIfUnique();
-    RawNominalType rawType = uninstantiated.getRawNominalType();
+    NominalType uninstantiated = rawType.getAsNominalType();
     if (!rawType.isGeneric() && !n.hasChildren()) {
       return rawType.getInstanceAsNullableJSType();
     }
@@ -499,7 +499,7 @@ public class JSTypeCreatorFromJSDoc {
   private NominalType getNominalType(Node n,
       DeclaredTypeRegistry registry, ImmutableList<String> typeParameters) {
     return getTypeFromComment(n, registry, typeParameters)
-        .getNominalTypeIfUnique();
+        .removeType(JSType.NULL).getNominalTypeIfSingletonObj();
   }
 
   private ImmutableSet<NominalType> getImplementedInterfaces(
@@ -525,14 +525,14 @@ public class JSTypeCreatorFromJSDoc {
       JSType interfaceType =
           getMaybeTypeFromComment(expRoot, registry, typeParameters);
       if (interfaceType != null) {
-        NominalType nt = interfaceType.getNominalTypeIfUnique();
+        NominalType nt = interfaceType.getNominalTypeIfSingletonObj();
         if (nt != null && nt.isInterface()) {
           builder.add(nt);
         } else {
           String errorMsg = implementedIntfs ?
               "Cannot implement non-interface" :
               "Cannot extend non-interface";
-          warn(errorMsg, jsdoc.getAssociatedNode());
+          warn(errorMsg, expRoot);
         }
       }
     }
@@ -815,7 +815,7 @@ public class JSTypeCreatorFromJSDoc {
       // people use other types as well: unions, records, etc.
       // Decide what to do about those.
       NominalType thisTypeAsNominal = thisType == null
-          ? null : thisType.getNominalTypeIfUnique();
+          ? null : thisType.getNominalTypeIfSingletonObj();
       builder.addReceiverType(thisTypeAsNominal);
     }
 
@@ -924,7 +924,7 @@ public class JSTypeCreatorFromJSDoc {
     if (extendedType == null) {
       return null;
     }
-    NominalType parentClass = extendedType.getNominalTypeIfUnique();
+    NominalType parentClass = extendedType.getNominalTypeIfSingletonObj();
     if (parentClass != null && parentClass.isClass()) {
       return parentClass;
     }

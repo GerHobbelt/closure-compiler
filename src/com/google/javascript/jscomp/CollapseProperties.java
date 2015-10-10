@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.GlobalNamespace.AstChange;
 import com.google.javascript.jscomp.GlobalNamespace.Name;
 import com.google.javascript.jscomp.GlobalNamespace.Ref;
@@ -34,6 +33,7 @@ import com.google.javascript.rhino.TokenStream;
 import com.google.javascript.rhino.TypeI;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -91,6 +91,10 @@ class CollapseProperties implements CompilerPass {
       "JSC_UNSAFE_CTOR_ALIASING",
       "Variable {0} aliases a constructor, "
       + "so it cannot be assigned multiple times");
+
+  static final DiagnosticType INVALID_NOCOLLAPSE = DiagnosticType.warning(
+      "JSC_INVALID_NOCOLLAPSE",
+      "@nocollapse is not permitted here");
 
   private AbstractCompiler compiler;
 
@@ -170,7 +174,7 @@ class CollapseProperties implements CompilerPass {
           name.aliasingGets > 0) {
         // {@code name} meets condition (b). Find all of its local aliases
         // and try to inline them.
-        List<Ref> refs = Lists.newArrayList(name.getRefs());
+        List<Ref> refs = new ArrayList<>(name.getRefs());
         for (Ref ref : refs) {
           if (ref.type == Type.ALIASING_GET && ref.scope.isLocal()) {
             // {@code name} meets condition (c). Try to inline it.
@@ -221,9 +225,9 @@ class CollapseProperties implements CompilerPass {
       if (aliasParent.getFirstChild().isQualifiedName()) {
         Name name = namespace.getSlot(aliasParent.getFirstChild().getQualifiedName());
         if (name != null && isInlinableGlobalAlias(name)) {
-          List<AstChange> newNodes = Lists.newArrayList();
+          List<AstChange> newNodes = new ArrayList<>();
 
-          List<Ref> refs = Lists.newArrayList(name.getRefs());
+          List<Ref> refs = new ArrayList<>(name.getRefs());
           for (Ref ref : refs) {
             switch (ref.type) {
               case SET_FROM_GLOBAL:
@@ -274,7 +278,7 @@ class CollapseProperties implements CompilerPass {
       for (Name prop : name.props) {
         rewriteAliasProps(prop, value, depth + 1, newNodes);
 
-        List<Ref> refs = Lists.newArrayList(prop.getRefs());
+        List<Ref> refs = new ArrayList<>(prop.getRefs());
         for (Ref ref : refs) {
           Node target = ref.node;
           for (int i = 0; i <= depth; i++) {
@@ -353,7 +357,7 @@ class CollapseProperties implements CompilerPass {
       collector.processScope(scope);
 
       ReferenceCollection aliasRefs = collector.getReferences(aliasVar);
-      List<AstChange> newNodes = Lists.newArrayList();
+      List<AstChange> newNodes = new ArrayList<>();
 
       if (aliasRefs.isWellDefined()
           && aliasRefs.firstReferenceIsAssigningDeclaration()) {
@@ -506,7 +510,7 @@ class CollapseProperties implements CompilerPass {
    */
   private void flattenReferencesToCollapsibleDescendantNames(
       Name n, String alias) {
-    if (n.props == null) {
+    if (n.props == null || n.isCollapsingExplicitlyDenied()) {
       return;
     }
 
@@ -696,6 +700,14 @@ class CollapseProperties implements CompilerPass {
 
     // Handle this name first so that nested object literals get unrolled.
     if (n.canCollapse()) {
+      // Enum properties are always collapsed. Warn when @nocollapse
+      // is used on an enum property
+      if (n.docInfo != null && n.docInfo.isNoCollapse() &&
+          n.isDescendantOfEnum()) {
+        compiler.report(
+            JSError.make(n.getDeclaration().getNode(), INVALID_NOCOLLAPSE));
+      }
+
       updateObjLitOrFunctionDeclaration(n, alias, canCollapseChildNames);
     }
 
@@ -882,7 +894,7 @@ class CollapseProperties implements CompilerPass {
       Node nameNode = NodeUtil.newName(compiler,
           alias, ref.node.getAncestor(2), n.getFullName());
 
-      JSDocInfo info = ref.node.getParent().getJSDocInfo();
+      JSDocInfo info = NodeUtil.getBestJSDocInfo(ref.node.getParent());
       if (ref.node.getLastChild().getBooleanProp(Node.IS_CONSTANT_NAME) ||
           (info != null && info.isConstant())) {
         nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
@@ -997,7 +1009,7 @@ class CollapseProperties implements CompilerPass {
    */
   private void updateFunctionDeclarationAtFunctionNode(
       Name n, boolean canCollapseChildNames) {
-    if (!canCollapseChildNames) {
+    if (!canCollapseChildNames || !n.canCollapse()) {
       return;
     }
 
@@ -1075,8 +1087,7 @@ class CollapseProperties implements CompilerPass {
       if (key.getBooleanProp(Node.IS_CONSTANT_NAME)) {
         nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
       }
-      Node newVar = IR.var(nameNode)
-          .copyInformationFromForTree(key);
+      Node newVar = IR.var(nameNode).copyInformationFromForTree(key);
       if (nameToAddAfter != null) {
         varParent.addChildAfter(newVar, nameToAddAfter);
       } else {
@@ -1099,7 +1110,7 @@ class CollapseProperties implements CompilerPass {
         p.getDeclaration().node = nameNode;
 
         if (value.isFunction()) {
-          checkForHosedThisReferences(value, value.getJSDocInfo(), p);
+          checkForHosedThisReferences(value, key.getJSDocInfo(), p);
         }
       }
 
@@ -1118,7 +1129,7 @@ class CollapseProperties implements CompilerPass {
    * @param parent The node to which new global variables should be added
    *     as children
    * @param addAfter The child of after which new
-   *     variables should be added (may be null)
+   *     variables should be added
    * @return The number of variables added
    */
   private int addStubsForUndeclaredProperties(

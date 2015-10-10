@@ -34,7 +34,7 @@ import java.util.Map;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class FunctionTypeBuilder {
+public final class FunctionTypeBuilder {
   static class WrongParameterOrderException extends RuntimeException {
     WrongParameterOrderException(String message) {
       super(message);
@@ -50,8 +50,8 @@ public class FunctionTypeBuilder {
   private NominalType nominalType;
   // Only used to build DeclaredFunctionType for prototype methods
   private NominalType receiverType;
-  // Non-null iff this function has an @template annotation
-  private ImmutableList<String> typeParameters;
+  // Non-empty iff this function has an @template annotation
+  private ImmutableList<String> typeParameters = ImmutableList.of();
 
   static FunctionTypeBuilder qmarkFunctionBuilder() {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
@@ -117,7 +117,8 @@ public class FunctionTypeBuilder {
 
   public FunctionTypeBuilder addTypeParameters(
       ImmutableList<String> typeParameters) {
-    Preconditions.checkState(this.typeParameters == null);
+    Preconditions.checkNotNull(typeParameters);
+    Preconditions.checkState(this.typeParameters.isEmpty());
     this.typeParameters = typeParameters;
     return this;
   }

@@ -22,8 +22,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
@@ -43,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Builds a global namespace of all the objects and their properties in
@@ -907,9 +906,10 @@ class GlobalNamespace
 
     Type type;
     private boolean declaredType = false;
-    private boolean hasDeclaredTypeDescendant = false;
+    private boolean isDeclared = false;
     int globalSets = 0;
     int localSets = 0;
+    int localSetsWithNoCollapse = 0;
     int aliasingGets = 0;
     int totalGets = 0;
     int callGets = 0;
@@ -964,6 +964,7 @@ class GlobalNamespace
 
     void addRef(Ref ref) {
       addRefInternal(ref);
+      JSDocInfo info;
       switch (ref.type) {
         case SET_FROM_GLOBAL:
           if (declaration == null) {
@@ -974,6 +975,11 @@ class GlobalNamespace
           break;
         case SET_FROM_LOCAL:
           localSets++;
+          info = ref.getNode() == null ? null :
+              NodeUtil.getBestJSDocInfo(ref.getNode());
+          if (info != null && info.isNoCollapse()) {
+            localSetsWithNoCollapse++;
+          }
           break;
         case PROTOTYPE_GET:
         case DIRECT_GET:
@@ -1009,12 +1015,18 @@ class GlobalNamespace
           }
         }
 
+        JSDocInfo info;
         switch (ref.type) {
           case SET_FROM_GLOBAL:
             globalSets--;
             break;
           case SET_FROM_LOCAL:
             localSets--;
+            info = ref.getNode() == null ? null :
+                NodeUtil.getBestJSDocInfo(ref.getNode());
+            if (info != null && info.isNoCollapse()) {
+              localSetsWithNoCollapse--;
+            }
             break;
           case PROTOTYPE_GET:
           case DIRECT_GET:
@@ -1043,7 +1055,7 @@ class GlobalNamespace
 
     void addRefInternal(Ref ref) {
       if (refs == null) {
-        refs = Lists.newArrayList();
+        refs = new ArrayList<>();
       }
       refs.add(ref);
     }
@@ -1074,10 +1086,28 @@ class GlobalNamespace
       return false;
     }
 
+    boolean isCollapsingExplicitlyDenied() {
+      // Enum keys are always collapsed. @nocollapse annotations are ignored
+      if (isDescendantOfEnum()) {
+        return false;
+      }
+
+      if (docInfo == null) {
+        Ref ref = getDeclaration();
+        if (ref != null) {
+          docInfo = getDocInfoForDeclaration(ref);
+        }
+      }
+
+      return docInfo != null && docInfo.isNoCollapse();
+    }
+
     boolean canCollapse() {
-      return !inExterns && !isGetOrSetDefinition() && (declaredType ||
+      return !inExterns && !isGetOrSetDefinition() &&
+          !isCollapsingExplicitlyDenied() &&
+          (declaredType ||
           (parent == null || parent.canCollapseUnannotatedChildNames()) &&
-          (globalSets > 0 || localSets > 0) &&
+          (globalSets > 0 || localSets > 0) && localSetsWithNoCollapse == 0 &&
           deleteProps == 0);
     }
 
@@ -1096,6 +1126,10 @@ class GlobalNamespace
       // it's probably not worth the effort.
       Preconditions.checkNotNull(declaration);
       if (declaration.getTwin() != null) {
+        return false;
+      }
+
+      if (isCollapsingExplicitlyDenied()) {
         return false;
       }
 
@@ -1119,18 +1153,20 @@ class GlobalNamespace
 
     /** Whether this is an object literal that needs to keep its keys. */
     boolean shouldKeepKeys() {
-      return type == Type.OBJECTLIT && aliasingGets > 0;
+      return type == Type.OBJECTLIT &&
+          (aliasingGets > 0 || isCollapsingExplicitlyDenied());
     }
 
     boolean needsToBeStubbed() {
-      return globalSets == 0 && localSets > 0;
+      return globalSets == 0 && localSets > 0 && localSetsWithNoCollapse == 0 &&
+          !isCollapsingExplicitlyDenied();
     }
 
     void setDeclaredType() {
       declaredType = true;
       for (Name ancestor = parent; ancestor != null;
            ancestor = ancestor.parent) {
-        ancestor.hasDeclaredTypeDescendant = true;
+        ancestor.isDeclared = true;
       }
     }
 
@@ -1155,7 +1191,7 @@ class GlobalNamespace
      * considered namespaces.
      */
     boolean isNamespaceObjectLit() {
-      return hasDeclaredTypeDescendant && type == Type.OBJECTLIT;
+      return isDeclared && type == Type.OBJECTLIT;
     }
 
     /**
@@ -1164,6 +1200,24 @@ class GlobalNamespace
      */
     boolean isSimpleName() {
       return parent == null;
+    }
+
+    /**
+     * Determines whether a node is a property of an enum.
+     * This is recursive because static properties can be added to enums after
+     * declaration.
+     */
+    boolean isDescendantOfEnum() {
+      if (parent == null) {
+        return false;
+      }
+
+      if (parent.type == Type.OBJECTLIT && parent.docInfo != null &&
+          parent.docInfo.hasEnumParameterType()) {
+        return true;
+      }
+
+      return parent.isDescendantOfEnum();
     }
 
     @Override public String toString() {
@@ -1190,6 +1244,8 @@ class GlobalNamespace
           case Token.VAR:
             return ref.node == refParent.getFirstChild() ?
                 refParent.getJSDocInfo() : ref.node.getJSDocInfo();
+          case Token.OBJECTLIT:
+            return ref.node.getJSDocInfo();
         }
       }
 
@@ -1313,6 +1369,11 @@ class GlobalNamespace
     static Ref createRefForTesting(Type type) {
       return new Ref(type, -1);
     }
+
+    @Override
+    public String toString() {
+      return node.toString();
+    }
   }
 
 
@@ -1345,7 +1406,7 @@ class GlobalNamespace
     @Override public void process(Node externs, Node root) {
       GlobalNamespace namespace = new GlobalNamespace(compiler, externs, root);
 
-      Set<String> currentSymbols = Sets.newTreeSet();
+      Set<String> currentSymbols = new TreeSet<>();
       for (String name : namespace.getNameIndex().keySet()) {
         if (isInterestingSymbol.apply(name)) {
           currentSymbols.add(name);

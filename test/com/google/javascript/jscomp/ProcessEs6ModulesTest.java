@@ -24,7 +24,7 @@ import com.google.javascript.rhino.Node;
  * Unit tests for {@link ProcessEs6Modules}
  */
 
-public class ProcessEs6ModulesTest extends CompilerTestCase {
+public final class ProcessEs6ModulesTest extends CompilerTestCase {
   private static final String FILEOVERVIEW =
       "/** @fileoverview\n * @suppress {missingProvide|missingRequire}\n */";
 
@@ -83,6 +83,12 @@ public class ProcessEs6ModulesTest extends CompilerTestCase {
   public void testImportStar() {
     test("import * as name from 'test'; use(name.foo);",
         FILEOVERVIEW + "goog.require('module$test'); use(module$test.foo)");
+  }
+
+  public void testTypeNodeRewriting() {
+    test("import * as name from 'other'; /** @type {name.foo} */ var x;",
+        FILEOVERVIEW + "goog.require('module$other');"
+        + "/** @type {module$other.foo} */ var x$$module$testcode;");
   }
 
   public void testExport() {
@@ -365,6 +371,23 @@ public class ProcessEs6ModulesTest extends CompilerTestCase {
         "}",
         "var module$testcode = {};",
         "/** @const */ module$testcode.Foo = Foo$$module$testcode;"
+    ));
+  }
+
+  public void testRenameTypedef() {
+    test(Joiner.on('\n').join(
+        "import 'other';",
+        "/** @typedef {string|!Object} */",
+        "export var UnionType;"
+    ), Joiner.on('\n').join(
+        FILEOVERVIEW,
+        "goog.provide('module$testcode');",
+        "goog.require('module$other');",
+        "/** @typedef {string|!Object} */",
+        "var UnionType$$module$testcode;",
+        "var module$testcode = {};",
+        "/** @typedef {UnionType$$module$testcode} */",
+        "module$testcode.UnionType;"
     ));
   }
 

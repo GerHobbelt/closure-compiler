@@ -28,6 +28,51 @@ var md = {};
 
 
 /******************************************************************************
+ * $bottonSheet Service
+ *****************************************************************************/
+
+
+/** @constructor */
+md.$bottomSheet = function() {};
+
+/**
+ * @typedef {{
+ *   templateUrl: (string|undefined),
+ *   template: (string|undefined),
+ *   scope: (!Object|undefined),
+ *   preserveScope: (boolean|undefined),
+ *   controller: (!Function|string|undefined),
+ *   locals: (!Object|undefined),
+ *   targetEvent: (!Object|undefined),
+ *   resolve: (!Object|undefined),
+ *   controllerAs: (string|undefined),
+ *   parent: (!Element|undefined),
+ *   disableParentScroll: (boolean|undefined)
+ * }}
+ */
+md.$bottomSheet.options;
+
+
+/**
+ * @param {!md.$bottomSheet.options} options
+ * @return {!angular.$q.Promise}
+ */
+md.$bottomSheet.prototype.show = function(options) {};
+
+
+/**
+ * @type {function(*=)}
+ */
+md.$bottomSheet.prototype.hide = function() {};
+
+
+/**
+ * @type {function(*=)}
+ */
+md.$bottomSheet.prototype.cancel = function() {};
+
+
+/******************************************************************************
  * $dialog Service
  *****************************************************************************/
 
@@ -56,11 +101,11 @@ md.$dialog.options;
 
 /**
  * @typedef {{
- *   title: (function(string): md.$dialog.AlertConfig_),
- *   content: (function(string): md.$dialog.AlertConfig_),
- *   ariaLabel: (function(string): md.$dialog.AlertConfig_),
- *   ok: (function(string): md.$dialog.AlertConfig_),
- *   theme: (function(string): md.$dialog.AlertConfig_)
+ *   title: (function(string): !md.$dialog.AlertConfig_),
+ *   content: (function(string): !md.$dialog.AlertConfig_),
+ *   ariaLabel: (function(string): !md.$dialog.AlertConfig_),
+ *   ok: (function(string): !md.$dialog.AlertConfig_),
+ *   theme: (function(string): !md.$dialog.AlertConfig_)
  * }}
  */
 md.$dialog.AlertConfig_;
@@ -68,20 +113,20 @@ md.$dialog.AlertConfig_;
 
 /**
  * @typedef {{
- *   title: (function(string): md.$dialog.ConfirmConfig_),
- *   content: (function(string): md.$dialog.ConfirmConfig_),
- *   ariaLabel: (function(string): md.$dialog.ConfirmConfig_),
- *   ok: (function(string): md.$dialog.ConfirmConfig_),
- *   cancel: (function(string): md.$dialog.ConfirmConfig_),
- *   theme: (function(string): md.$dialog.ConfirmConfig_)
+ *   title: (function(string): !md.$dialog.ConfirmConfig_),
+ *   content: (function(string): !md.$dialog.ConfirmConfig_),
+ *   ariaLabel: (function(string): !md.$dialog.ConfirmConfig_),
+ *   ok: (function(string): !md.$dialog.ConfirmConfig_),
+ *   cancel: (function(string): !md.$dialog.ConfirmConfig_),
+ *   theme: (function(string): !md.$dialog.ConfirmConfig_)
  * }}
  */
 md.$dialog.ConfirmConfig_;
 
 
 /**
- * @param {md.$dialog.options|md.$dialog.ConfirmConfig_|
- *     md.$dialog.AlertConfig_} options
+ * @param {!md.$dialog.options|!md.$dialog.ConfirmConfig_|
+ *     !md.$dialog.AlertConfig_} options
  * @return {!angular.$q.Promise}
  */
 md.$dialog.prototype.show = function(options) {};

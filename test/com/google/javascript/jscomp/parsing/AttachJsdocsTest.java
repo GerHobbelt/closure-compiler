@@ -29,7 +29,7 @@ import com.google.javascript.rhino.testing.TestErrorReporter;
 /**
  * Ported from rhino/testsrc/org/mozilla/javascript/tests/AttachJsDocsTest.java
  */
-public class AttachJsdocsTest extends BaseJSTypeTestCase {
+public final class AttachJsdocsTest extends BaseJSTypeTestCase {
   private Config.LanguageMode mode;
 
   @Override
@@ -789,8 +789,8 @@ public class AttachJsdocsTest extends BaseJSTypeTestCase {
         testErrorReporter).ast;
 
     // verifying that all warnings were seen
-    assertThat(testErrorReporter.hasEncounteredAllErrors()).isTrue();
-    assertThat(testErrorReporter.hasEncounteredAllWarnings()).isTrue();
+    testErrorReporter.assertHasEncounteredAllErrors();
+    testErrorReporter.assertHasEncounteredAllWarnings();
 
     return script;
   }

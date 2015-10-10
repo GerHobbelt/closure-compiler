@@ -277,9 +277,10 @@ CanvasRenderingContext2D.prototype.arc = function(
     x, y, radius, startAngle, endAngle, opt_anticlockwise) {};
 
 /**
+ * @param {string=} opt_fillRule
  * @return {undefined}
  */
-CanvasRenderingContext2D.prototype.fill = function() {};
+CanvasRenderingContext2D.prototype.fill = function(opt_fillRule) {};
 
 /**
  * @return {undefined}
@@ -287,17 +288,20 @@ CanvasRenderingContext2D.prototype.fill = function() {};
 CanvasRenderingContext2D.prototype.stroke = function() {};
 
 /**
+ * @param {string=} opt_fillRule
  * @return {undefined}
  */
-CanvasRenderingContext2D.prototype.clip = function() {};
+CanvasRenderingContext2D.prototype.clip = function(opt_fillRule) {};
 
 /**
  * @param {number} x
  * @param {number} y
+ * @param {string=} opt_fillRule
  * @return {boolean}
  * @nosideeffects
  */
-CanvasRenderingContext2D.prototype.isPointInPath = function(x, y) {};
+CanvasRenderingContext2D.prototype.isPointInPath = function(
+    x, y, opt_fillRule) {};
 
 /**
  * @param {string} text
@@ -1000,9 +1004,16 @@ SharedWorker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
+ * @see http://www.w3.org/TR/url-1/#dom-urlutilsreadonly
  * @interface
  */
 function WorkerLocation() {}
+
+/** @type {string} */
+WorkerLocation.prototype.href;
+
+/** @type {string} */
+WorkerLocation.prototype.origin;
 
 /** @type {string} */
 WorkerLocation.prototype.protocol;
@@ -2381,22 +2392,6 @@ DOMTokenList.prototype.toString = function() {};
 HTMLElement.prototype.classList;
 
 /**
- * Web Cryptography API
- * @see http://www.w3.org/TR/WebCryptoAPI/
- */
-
-/** @see https://developer.mozilla.org/en/DOM/window.crypto */
-Window.prototype.crypto;
-
-/**
- * @see https://developer.mozilla.org/en/DOM/window.crypto.getRandomValues
- * @param {!ArrayBufferView} typedArray
- * @return {!ArrayBufferView}
- * @throws {Error}
- */
-Window.prototype.crypto.getRandomValues = function(typedArray) {};
-
-/**
  * Constraint Validation API properties and methods
  * @see http://www.w3.org/TR/2009/WD-html5-20090423/forms.html#the-constraint-validation-api
  */
@@ -2727,29 +2722,18 @@ Element.ALLOW_KEYBOARD_INPUT = 1;
 Element.prototype.ALLOW_KEYBOARD_INPUT = 1;
 
 
-/** @constructor */
-function MutationObserverInit() {}
-
-/** @type {boolean} */
-MutationObserverInit.prototype.childList;
-
-/** @type {boolean} */
-MutationObserverInit.prototype.attributes;
-
-/** @type {boolean} */
-MutationObserverInit.prototype.characterData;
-
-/** @type {boolean} */
-MutationObserverInit.prototype.subtree;
-
-/** @type {boolean} */
-MutationObserverInit.prototype.attributeOldValue;
-
-/** @type {boolean} */
-MutationObserverInit.prototype.characterDataOldValue;
-
-/** @type {Array.<string>} */
-MutationObserverInit.prototype.attributeFilter;
+/**
+ * @typedef {{
+ *   childList: (boolean|undefined),
+ *   attributes: (boolean|undefined),
+ *   characterData: (boolean|undefined),
+ *   subtree: (boolean|undefined),
+ *   attributeOldValue: (boolean|undefined),
+ *   characterDataOldValue: (boolean|undefined),
+ *   attributeFilter: (!Array<string>|undefined)
+ * }}
+ */
+var MutationObserverInit;
 
 
 /** @constructor */
@@ -2874,6 +2858,11 @@ Document.prototype.register;
  */
 Document.prototype.fonts;
 
+
+/**
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Document/currentScript
+ */
+Document.prototype.currentScript;
 
 /**
  * Definition of ShadowRoot interface,
@@ -3239,3 +3228,17 @@ HTMLDialogElement.prototype.showModal = function(opt_anchor) {};
  * @param {string=} opt_returnValue
  */
 HTMLDialogElement.prototype.close = function(opt_returnValue) {};
+
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#the-template-element
+ * @constructor
+ * @extends {HTMLElement}
+ */
+function HTMLTemplateElement() {}
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#the-template-element
+ * @type {!DocumentFragment}
+ */
+HTMLTemplateElement.prototype.content;

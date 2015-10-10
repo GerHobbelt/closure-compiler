@@ -37,7 +37,7 @@ import com.google.javascript.rhino.jstype.Visitor;
  * expects the parse tree inputs to be typed.
  *
  */
-public class SemanticReverseAbstractInterpreter
+public final class SemanticReverseAbstractInterpreter
     extends ChainableReverseAbstractInterpreter {
 
   /**
@@ -490,7 +490,7 @@ public class SemanticReverseAbstractInterpreter
           JSType unknownType = typeRegistry.getNativeType(
               JSTypeNative.UNKNOWN_TYPE);
           informed.inferQualifiedSlot(
-              object, propertyQualifiedName, unknownType, unknownType);
+              object, propertyQualifiedName, unknownType, unknownType, false);
           return informed;
         }
       }

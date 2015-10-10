@@ -23,6 +23,7 @@ import com.google.javascript.jscomp.ProcessCommonJSModules.FindGoogProvideOrGoog
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -42,7 +43,7 @@ import java.util.regex.Pattern;
  *
  * @author moz@google.com (Michael Zhou)
  */
-public class ProcessEs6Modules extends AbstractPostOrderCallback {
+public final class ProcessEs6Modules extends AbstractPostOrderCallback {
   private static final String MODULE_SLASH = ES6ModuleLoader.MODULE_SLASH;
 
   private static final String MODULE_NAME_SEPARATOR = "\\$";
@@ -60,14 +61,16 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
   private Map<String, String> exportMap = new LinkedHashMap<>();
 
   /**
-   * Maps symbol names to a pair of <moduleName, originalName>. The original
+   * Maps symbol names to a pair of (moduleName, originalName). The original
    * name is the name of the symbol exported by the module. This is required
    * because we want to be able to update the original property on the module
-   * object. Eg: "import {foo as f} from 'm'" maps 'f' to the pair <'m', 'foo'>.
+   * object. Eg: "import {foo as f} from 'm'" maps 'f' to the pair ('m', 'foo').
+   * In the entry for "import * as ns", the originalName will be the empty string.
    */
   private Map<String, ModuleOriginalNamePair> importMap = new HashMap<>();
 
-  private Set<String> types = new LinkedHashSet<>();
+  private Set<String> classes = new HashSet<>();
+  private Set<String> typedefs = new HashSet<>();
 
   private Set<String> alreadyRequired = new HashSet<>();
 
@@ -156,7 +159,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
       }
     }
 
-    Node script = NodeUtil.getEnclosingType(parent, Token.SCRIPT);
+    Node script = NodeUtil.getEnclosingScript(parent);
     // Emit goog.require call for the module.
     if (alreadyRequired.add(moduleName)) {
       Node require = IR.exprResult(
@@ -263,12 +266,15 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
             exportMap.put(name, name);
           }
 
-          // If the declaration declares a new type, we need to create @typedef
-          // annotations for the type checker later.
-          // TODO(moz): Currently we only record ES6 classes, need to handle
-          // other kinds of type declarations too.
+          // If the declaration declares a new type, create annotations for
+          // the type checker.
+          // TODO(moz): Currently we only record ES6 classes and typedefs,
+          // need to handle other kinds of type declarations too.
           if (declaration.isClass()) {
-            types.add(name);
+            classes.add(name);
+          }
+          if (export.getJSDocInfo() != null && export.getJSDocInfo().hasTypedefType()) {
+            typedefs.add(name);
           }
         }
         declaration.setJSDocInfo(export.getJSDocInfo());
@@ -303,24 +309,39 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
       script.addChildToBack(varNode);
     }
 
-    // moduleName.foo = foo;
     for (Map.Entry<String, String> entry : exportMap.entrySet()) {
       String exportedName = entry.getKey();
       String withSuffix = entry.getValue();
       Node getProp = IR.getprop(IR.name(moduleName), IR.string(exportedName));
-      Node assign = IR.assign(
-          getProp,
-          NodeUtil.newQName(compiler, withSuffix));
-      Node exprResult = IR.exprResult(assign)
-          .useSourceInfoIfMissingFromForTree(script);
-      // Hack: Remove this annotation, once type inference improves.
-      if (types.contains(exportedName)) {
+
+      if (typedefs.contains(exportedName)) {
+        // /** @typedef {foo} */
+        // moduleName.foo;
         JSDocInfoBuilder builder = new JSDocInfoBuilder(true);
-        builder.recordConstancy();
-        JSDocInfo info = builder.build(assign);
-        assign.setJSDocInfo(info);
+        JSTypeExpression typeExpr = new JSTypeExpression(
+            IR.string(exportedName), script.getSourceFileName());
+        builder.recordTypedef(typeExpr);
+        JSDocInfo info = builder.build();
+        getProp.setJSDocInfo(info);
+        Node exprResult = IR.exprResult(getProp)
+            .useSourceInfoIfMissingFromForTree(script);
+        script.addChildToBack(exprResult);
+      } else {
+        //   moduleName.foo = foo;
+        // with a @const annotation if needed.
+        Node assign = IR.assign(
+            getProp,
+            NodeUtil.newQName(compiler, withSuffix));
+        Node exprResult = IR.exprResult(assign)
+            .useSourceInfoIfMissingFromForTree(script);
+        if (classes.contains(exportedName)) {
+          JSDocInfoBuilder builder = new JSDocInfoBuilder(true);
+          builder.recordConstancy();
+          JSDocInfo info = builder.build();
+          assign.setJSDocInfo(info);
+        }
+        script.addChildToBack(exprResult);
       }
-      script.addChildToBack(exprResult);
     }
 
     // Rename vars to not conflict in global scope.
@@ -345,7 +366,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
     }
     // Don't check provides and requires, since most of them are auto-generated.
     jsDocInfo.recordSuppressions(ImmutableSet.of("missingProvide", "missingRequire"));
-    script.setJSDocInfo(jsDocInfo.build(script));
+    script.setJSDocInfo(jsDocInfo.build());
 
     exportMap.clear();
     compiler.reportCodeChange();
@@ -353,6 +374,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
 
   private void rewriteRequires(Node script) {
     NodeTraversal.traverse(compiler, script, new NodeTraversal.AbstractShallowCallback() {
+      @Override
       public void visit(NodeTraversal t, Node n, Node parent) {
         if (n.isCall()
             && n.getFirstChild().matchesQualifiedName("goog.require")
@@ -399,9 +421,11 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
 
   /**
    * Traverses a node tree and
-   * 1. Appends a suffix to all global variable names defined in this module.
-   * 2. Changes references to imported values to be property accesses on the
+   * <ol>
+   *   <li>Appends a suffix to all global variable names defined in this module.
+   *   <li>Changes references to imported values to be property accesses on the
    *    imported module object.
+   * </ol>
    */
   private class RenameGlobalVars extends AbstractPostOrderCallback {
     private final String suffix;
@@ -490,7 +514,11 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
             typeNode.setString(baseName + "$$" + suffix + rest);
           } else if (var == null && importMap.containsKey(baseName)) {
             ModuleOriginalNamePair pair = importMap.get(baseName);
-            typeNode.setString(baseName + "$$" + pair.module + rest);
+            if (pair.originalName.isEmpty()) {
+              typeNode.setString(pair.module + rest);
+            } else {
+              typeNode.setString(baseName + "$$" + pair.module + rest);
+            }
           }
           typeNode.putProp(Node.ORIGINALNAME_PROP, name);
         }
@@ -511,6 +539,11 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
     private ModuleOriginalNamePair(String module, String originalName) {
       this.module = module;
       this.originalName = originalName;
+    }
+
+    @Override
+    public String toString() {
+      return "(" + module + ", " + originalName + ")";
     }
   }
 }

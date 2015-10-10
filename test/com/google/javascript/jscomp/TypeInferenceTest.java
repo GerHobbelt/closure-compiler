@@ -33,7 +33,6 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.VOID_TYPE;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.CodingConvention.AssertionFunctionSpec;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.DataFlowAnalysis.BranchedFlowState;
@@ -50,13 +49,14 @@ import com.google.javascript.rhino.testing.Asserts;
 
 import junit.framework.TestCase;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Tests {@link TypeInference}.
  *
  */
-public class TypeInferenceTest extends TestCase {
+public final class TypeInferenceTest extends TestCase {
 
   private Compiler compiler;
   private JSTypeRegistry registry;
@@ -64,7 +64,7 @@ public class TypeInferenceTest extends TestCase {
   private JSType assumedThisType;
   private FlowScope returnScope;
   private static final Map<String, AssertionFunctionSpec>
-      ASSERTION_FUNCTION_MAP = Maps.newHashMap();
+      ASSERTION_FUNCTION_MAP = new HashMap<>();
   static {
     for (AssertionFunctionSpec func :
         new ClosureCodingConvention().getAssertionFunctions()) {
@@ -80,7 +80,7 @@ public class TypeInferenceTest extends TestCase {
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
     compiler.initOptions(options);
     registry = compiler.getTypeRegistry();
-    assumptions = Maps.newHashMap();
+    assumptions = new HashMap<>();
     returnScope = null;
   }
 
@@ -275,7 +275,7 @@ public class TypeInferenceTest extends TestCase {
         createUndefinableType(STRING_TYPE), null);
     assumingThisType(thisType);
     inFunction("var y = 1; this.foo = x; y = this.foo;");
-    verify("y", CHECKED_UNKNOWN_TYPE);
+    verify("y", createUndefinableType(STRING_TYPE));
   }
 
   public void testAssert1() {
@@ -431,8 +431,8 @@ public class TypeInferenceTest extends TestCase {
   }
 
   public void testAssertElement() {
-    JSType elementType = registry.createObjectType("Element", null,
-        registry.getNativeObjectType(OBJECT_TYPE));
+    JSType elementType =
+        registry.createObjectType("Element", registry.getNativeObjectType(OBJECT_TYPE));
     assuming("x", elementType);
     inFunction("out1 = x; goog.asserts.assertElement(x); out2 = x;");
     verify("out1", elementType);
@@ -1095,7 +1095,7 @@ public class TypeInferenceTest extends TestCase {
         "var x = /** @type {Object} */ (this).method;");
     verify(
         "x",
-        registry.createFunctionType(
+        registry.createFunctionTypeWithInstanceType(
             registry.getNativeObjectType(OBJECT_TYPE),
             registry.getNativeType(BOOLEAN_TYPE),
             ImmutableList.<JSType>of() /* params */));
