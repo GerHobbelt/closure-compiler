@@ -82,7 +82,7 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
           // to be covariant on F.prototype.constructor.
           // To get around this, we just turn off type-checking on arguments
           // and return types of G.prototype.constructor.
-          childCtor.cloneWithoutArrowType(),
+          childCtor.forgetParameterAndReturnTypes(),
           childCtor.getSource());
     }
   }
@@ -240,12 +240,10 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
     String className = null;
     if (NodeUtil.isExprCall(parent)) {
       Node callee = node.getFirstChild();
-      if (callee != null && callee.isGetProp()) {
-        if (callee.matchesQualifiedName(functionName)) {
-          Node target = callee.getNext();
-          if (target != null && target.isString()) {
-            className = target.getString();
-          }
+      if (callee != null && callee.isGetProp() && callee.matchesQualifiedName(functionName)) {
+        Node target = callee.getNext();
+        if (target != null && target.isString()) {
+          className = target.getString();
         }
       }
     }
@@ -508,7 +506,6 @@ public class ClosureCodingConvention extends CodingConventions.Proxy {
             if (ctorType != null && ctorType.isConstructor()) {
               return ctorType.getInstanceTypeOfCtor();
             }
-
           }
         }
       }

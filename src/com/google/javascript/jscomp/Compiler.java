@@ -33,7 +33,7 @@ import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.CompilerOptions.DevMode;
 import com.google.javascript.jscomp.JSModuleGraph.MissingModuleException;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.Scope.Var;
+import com.google.javascript.jscomp.TypeValidator.TypeMismatch;
 import com.google.javascript.jscomp.deps.SortedDependencies;
 import com.google.javascript.jscomp.deps.SortedDependencies.CircularDependencyException;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
@@ -56,7 +56,6 @@ import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
-import java.io.Serializable;
 import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1213,6 +1212,7 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
+  // Only used by jsdev
   public MemoizedScopeCreator getTypedScopeCreator() {
     return getPassConfig().getTypedScopeCreator();
   }
@@ -1265,7 +1265,7 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
-  public Scope getTopScope() {
+  public TypedScope getTopScope() {
     return getPassConfig().getTopScope();
   }
 
@@ -1284,11 +1284,17 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
+  // Only used by passes in the old type checker.
   TypeValidator getTypeValidator() {
     if (typeValidator == null) {
       typeValidator = new TypeValidator(this);
     }
     return typeValidator;
+  }
+
+  @Override
+  Iterable<TypeMismatch> getTypeMismatches() {
+    return getTypeValidator().getMismatches();
   }
 
   @Override
@@ -1339,7 +1345,7 @@ public class Compiler extends AbstractCompiler {
         externsRoot.addChildToBack(n);
       }
 
-      if (options.rewriteEs6Modules) {
+      if (options.lowerFromEs6()) {
         processEs6Modules();
       }
 
@@ -1512,7 +1518,7 @@ public class Compiler extends AbstractCompiler {
       }
       new ProcessEs6Modules(
           this,
-          ES6ModuleLoader.createNaiveLoader(this, options.commonJSModulePathPrefix),
+          new ES6ModuleLoader(this, options.commonJSModulePathPrefix),
           true)
       .processFile(root);
     }
@@ -1542,8 +1548,8 @@ public class Compiler extends AbstractCompiler {
       if (options.processCommonJSModules) {
         ProcessCommonJSModules cjs = new ProcessCommonJSModules(
             this,
-            ES6ModuleLoader.createNaiveLoader(
-                this, options.commonJSModulePathPrefix), true);
+            new ES6ModuleLoader(this, options.commonJSModulePathPrefix),
+            true);
         cjs.process(null, root);
 
         JSModule m = new JSModule(cjs.inputToModuleName(input));
@@ -1983,18 +1989,6 @@ public class Compiler extends AbstractCompiler {
     return options.cssRenamingMap;
   }
 
-  /**
-   * Reprocesses the current defines over the AST.  This is used by GwtCompiler
-   * to generate N outputs for different targets from the same (checked) AST.
-   * For each target, we apply the target-specific defines by calling
-   * {@code processDefines} and then {@code optimize} to optimize the AST
-   * specifically for that target.
-   */
-  public void processDefines() {
-    (new DefaultPassConfig(options)).processDefines.create(this)
-        .process(externsRoot, jsRoot);
-  }
-
   /** Control Flow Analysis. */
   ControlFlowGraph<Node> computeCFG() {
     logger.fine("Computing Control Flow Graph");
@@ -2179,12 +2173,6 @@ public class Compiler extends AbstractCompiler {
         acceptConstKeyword(),
         options.extraAnnotationNames);
   }
-
-  @Override
-  public boolean isTypeCheckingEnabled() {
-    return options.checkTypes;
-  }
-
 
   //------------------------------------------------------------------------
   // Error reporting
@@ -2437,70 +2425,6 @@ public class Compiler extends AbstractCompiler {
    */
   List<CompilerInput> getExternsInOrder() {
     return Collections.unmodifiableList(externs);
-  }
-
-  /**
-   * Stores the internal compiler state just before optimization is performed.
-   * This can be saved and restored in order to efficiently optimize multiple
-   * different output targets without having to perform checking multiple times.
-   *
-   * NOTE: This does not include all parts of the compiler's internal state. In
-   * particular, SourceFiles and CompilerOptions are not recorded. In
-   * order to recreate a Compiler instance from scratch, you would need to
-   * call {@code init} with the same arguments as in the initial creation before
-   * restoring intermediate state.
-   */
-  public static class IntermediateState implements Serializable {
-    private static final long serialVersionUID = 1L;
-
-    Node externsRoot;
-    private Node jsRoot;
-    private List<CompilerInput> externs;
-    private List<CompilerInput> inputs;
-    private List<JSModule> modules;
-    private PassConfig.State passConfigState;
-    private JSTypeRegistry typeRegistry;
-    private AbstractCompiler.LifeCycleStage lifeCycleStage;
-    private Map<String, Node> injectedLibraries;
-
-    private IntermediateState() {}
-  }
-
-  /**
-   * Returns the current internal state, excluding the input files and modules.
-   */
-  public IntermediateState getState() {
-    IntermediateState state = new IntermediateState();
-    state.externsRoot = externsRoot;
-    state.jsRoot = jsRoot;
-    state.externs = externs;
-    state.inputs = inputs;
-    state.modules = modules;
-    state.passConfigState = getPassConfig().getIntermediateState();
-    state.typeRegistry = typeRegistry;
-    state.lifeCycleStage = getLifeCycleStage();
-    state.injectedLibraries = Maps.newLinkedHashMap(injectedLibraries);
-
-    return state;
-  }
-
-  /**
-   * Sets the internal state to the capture given.  Note that this assumes that
-   * the input files are already set up.
-   */
-  public void setState(IntermediateState state) {
-    externsRoot = state.externsRoot;
-    jsRoot = state.jsRoot;
-    externs = state.externs;
-    inputs = state.inputs;
-    modules = state.modules;
-    passes = createPassConfigInternal();
-    getPassConfig().setIntermediateState(state.passConfigState);
-    typeRegistry = state.typeRegistry;
-    setLifeCycleStage(state.lifeCycleStage);
-
-    injectedLibraries.clear();
-    injectedLibraries.putAll(state.injectedLibraries);
   }
 
   @VisibleForTesting

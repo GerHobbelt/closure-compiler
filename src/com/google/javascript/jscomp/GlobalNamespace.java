@@ -27,14 +27,14 @@ import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
+import com.google.javascript.rhino.StaticSymbolTable;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.JSType;
-import com.google.javascript.rhino.jstype.StaticReference;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSlot;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
-import com.google.javascript.rhino.jstype.StaticSymbolTable;
+import com.google.javascript.rhino.TypeI;
+import com.google.javascript.rhino.jstype.StaticTypedRef;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
+import com.google.javascript.rhino.jstype.StaticTypedSlot;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -51,7 +51,7 @@ import java.util.Set;
  * @author nicksantos@google.com (Nick Santos)
  */
 class GlobalNamespace
-    implements StaticScope<JSType>,
+    implements StaticTypedScope<TypeI>,
     StaticSymbolTable<GlobalNamespace.Name, GlobalNamespace.Ref> {
 
   private AbstractCompiler compiler;
@@ -111,7 +111,7 @@ class GlobalNamespace
   }
 
   @Override
-  public StaticScope<JSType> getParentScope() {
+  public StaticTypedScope<TypeI> getParentScope() {
     return null;
   }
 
@@ -127,8 +127,8 @@ class GlobalNamespace
   }
 
   @Override
-  public JSType getTypeOfThis() {
-    return compiler.getTypeRegistry().getNativeObjectType(GLOBAL_THIS);
+  public TypeI getTypeOfThis() {
+    return compiler.getTypeIRegistry().getNativeObjectType(GLOBAL_THIS);
   }
 
   @Override
@@ -138,7 +138,7 @@ class GlobalNamespace
   }
 
   @Override
-  public StaticScope<JSType> getScope(Name slot) {
+  public StaticTypedScope<TypeI> getScope(Name slot) {
     return this;
   }
 
@@ -260,7 +260,7 @@ class GlobalNamespace
    * @return Whether the name reference is a global variable reference
    */
   private boolean isGlobalVarReference(String name, Scope s) {
-    Scope.Var v = s.getVar(name);
+    Var v = s.getVar(name);
     if (v == null && externsScope != null) {
       v = externsScope.getVar(name);
     }
@@ -566,7 +566,7 @@ class GlobalNamespace
             currentPreOrderIndex++);
         nameObj.addRef(get);
         Ref.markTwins(set, get);
-      } else if (isTypeDeclaration(n, parent)) {
+      } else if (isTypeDeclaration(n)) {
         // Names with a @constructor or @enum annotation are always collapsed
         nameObj.setDeclaredType();
       }
@@ -582,7 +582,7 @@ class GlobalNamespace
      * @return Whether the set operation is either a constructor or enum
      *     declaration
      */
-    private boolean isTypeDeclaration(Node n, Node parent) {
+    private boolean isTypeDeclaration(Node n) {
       Node valueNode = NodeUtil.getRValueOfLValue(n);
       JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
       // Heed the annotations only if they're sensibly used.
@@ -641,6 +641,8 @@ class GlobalNamespace
       Ref.Type type = Ref.Type.DIRECT_GET;
       if (parent != null) {
         switch (parent.getType()) {
+          case Token.EXPR_RESULT:
+            break;
           case Token.IF:
           case Token.INSTANCEOF:
           case Token.TYPEOF:
@@ -884,7 +886,7 @@ class GlobalNamespace
    * correspond to JavaScript objects whose properties we should consider
    * collapsing.
    */
-  static class Name implements StaticSlot<JSType> {
+  static class Name implements StaticTypedSlot<TypeI> {
     enum Type {
       OBJECTLIT,
       FUNCTION,
@@ -956,7 +958,7 @@ class GlobalNamespace
     }
 
     @Override
-    public JSType getType() {
+    public TypeI getType() {
       return null;
     }
 
@@ -1136,6 +1138,14 @@ class GlobalNamespace
       return declaredType;
     }
 
+    boolean isConstructor() {
+      Node declNode = declaration.node;
+      Node rvalueNode = NodeUtil.getRValueOfLValue(declNode);
+      JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(declNode);
+      return rvalueNode != null && rvalueNode.isFunction()
+          && jsdoc != null && jsdoc.isConstructor();
+    }
+
     /**
      * Determines whether this name is a prefix of at least one class or enum
      * name. Because classes and enums are always collapsed, the namespace will
@@ -1144,7 +1154,7 @@ class GlobalNamespace
      * For example, if foo.bar.DomHelper is a class, then foo and foo.bar are
      * considered namespaces.
      */
-    boolean isNamespace() {
+    boolean isNamespaceObjectLit() {
       return hasDeclaredTypeDescendant && type == Type.OBJECTLIT;
     }
 
@@ -1193,7 +1203,7 @@ class GlobalNamespace
    * A global name reference. Contains references to the relevant parse tree
    * node and its ancestors that may be affected.
    */
-  static class Ref implements StaticReference<JSType> {
+  static class Ref implements StaticTypedRef<TypeI> {
 
     // Note: we are more aggressive about collapsing @enum and @constructor
     // declarations than implied here, see Name#canCollapse
@@ -1267,7 +1277,7 @@ class GlobalNamespace
     }
 
     @Override
-    public StaticSlot<JSType> getSymbol() {
+    public StaticTypedSlot<TypeI> getSymbol() {
       return name;
     }
 

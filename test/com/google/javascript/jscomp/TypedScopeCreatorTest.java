@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.TypedScopeCreator.CTOR_INITIALIZER;
 import static com.google.javascript.jscomp.TypedScopeCreator.IFACE_INITIALIZER;
 import static com.google.javascript.rhino.jstype.JSTypeNative.BOOLEAN_TYPE;
@@ -28,7 +29,6 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.EnumType;
@@ -50,8 +50,8 @@ import java.util.Deque;
 public class TypedScopeCreatorTest extends CompilerTestCase {
 
   private JSTypeRegistry registry;
-  private Scope globalScope;
-  private Scope lastLocalScope;
+  private TypedScope globalScope;
+  private TypedScope lastLocalScope;
 
   @Override
   public int getNumRepetitions() {
@@ -69,7 +69,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
   private final Callback callback = new AbstractPostOrderCallback() {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
-      Scope s = t.getScope();
+      TypedScope s = t.getTypedScope();
       if (s.isGlobal()) {
         globalScope = s;
       } else {
@@ -86,13 +86,12 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
       public void process(Node externs, Node root) {
         MemoizedScopeCreator scopeCreator =
             new MemoizedScopeCreator(new TypedScopeCreator(compiler));
-        Scope topScope = scopeCreator.createScope(root.getParent(), null);
+        TypedScope topScope = scopeCreator.createScope(root.getParent(), null);
         (new TypeInferencePass(
             compiler, compiler.getReverseAbstractInterpreter(),
             topScope, scopeCreator)).process(externs, root);
-        NodeTraversal t = new NodeTraversal(
-            compiler, callback, scopeCreator);
-        t.traverseRoots(Lists.newArrayList(externs, root));
+        NodeTraversal t = new NodeTraversal(compiler, callback, scopeCreator);
+        t.traverseRoots(externs, root);
       }
     };
   }
@@ -265,12 +264,12 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     ObjectType f = (ObjectType) findNameType("f", globalScope);
     assertTrue(f.hasProperty("BAR"));
     assertEquals("Foo<number>", f.getPropertyType("BAR").toString());
-    assertTrue(f instanceof EnumType);
+    assertThat(f).isInstanceOf(EnumType.class);
   }
 
   public void testEnumElement() {
     testSame("/** @enum */ var Foo = {BAR: 1}; var f = Foo;");
-    Var bar = globalScope.getVar("Foo.BAR");
+    TypedVar bar = globalScope.getVar("Foo.BAR");
     assertNotNull(bar);
     assertEquals("Foo<number>", bar.getType().toString());
   }
@@ -305,7 +304,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     ObjectType f = (ObjectType) findNameType("f", globalScope);
     assertTrue(f.hasProperty("BAR"));
     assertEquals("Foo<number>", f.getPropertyType("BAR").toString());
-    assertTrue(f instanceof EnumType);
+    assertThat(f).isInstanceOf(EnumType.class);
   }
 
   public void testNamespacesEnumAlias() {
@@ -725,7 +724,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
   public void testInferredVar() throws Exception {
     testSame("var x = 3; x = 'x'; x = true;");
 
-    Var x = globalScope.getVar("x");
+    TypedVar x = globalScope.getVar("x");
     assertEquals("(boolean|number|string)", x.getType().toString());
     assertTrue(x.isTypeInferred());
   }
@@ -733,7 +732,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
   public void testDeclaredVar() throws Exception {
     testSame("/** @type {?number} */ var x = 3; var y = x;");
 
-    Var x = globalScope.getVar("x");
+    TypedVar x = globalScope.getVar("x");
     assertEquals("(null|number)", x.getType().toString());
     assertFalse(x.isTypeInferred());
 
@@ -746,7 +745,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
         "/** @type {number} */ I.prototype.bar;" +
         "I.prototype.baz = function(){};");
 
-    Var i = globalScope.getVar("I");
+    TypedVar i = globalScope.getVar("I");
     assertEquals("function (this:I): ?", i.getType().toString());
     assertTrue(i.getType().isInterface());
 
@@ -767,7 +766,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
         "I.prototype = {baz: function(){}};" +
         "/** @type {number} */ I.prototype.bar;");
 
-    Var i = globalScope.getVar("I");
+    TypedVar i = globalScope.getVar("I");
     assertEquals("function (this:I): ?", i.getType().toString());
     assertTrue(i.getType().isInterface());
 
@@ -930,7 +929,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
         CompilerTypeTestCase.DEFAULT_EXTERNS,
         "", null);
 
-    Var v = globalScope.getVar("Object");
+    TypedVar v = globalScope.getVar("Object");
     FunctionType obj = (FunctionType) v.getType();
     assertEquals("function (new:Object, *=): Object", obj.toString());
     assertNotNull(v.getNode());
@@ -1028,7 +1027,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
   public void testForLoopIntegration() {
     testSame("var y = 3; for (var x = true; x; y = x) {}");
 
-    Var y = globalScope.getVar("y");
+    TypedVar y = globalScope.getVar("y");
     assertTrue(y.isTypeInferred());
     assertEquals("(boolean|number)", y.getType().toString());
   }
@@ -1967,7 +1966,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
   public void testDeclaredObjectLitProperty6() throws Exception {
     testSame("var x = {/** This is JsDoc */ prop: function(){}};");
-    Var prop = globalScope.getVar("x.prop");
+    TypedVar prop = globalScope.getVar("x.prop");
     JSType propType = prop.getType();
     assertEquals("function (): undefined", propType.toString());
     assertFalse(prop.isTypeInferred());
@@ -1978,7 +1977,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
   public void testInferredObjectLitProperty1() throws Exception {
     testSame("var x = {prop: 3};");
-    Var prop = globalScope.getVar("x.prop");
+    TypedVar prop = globalScope.getVar("x.prop");
     JSType propType = prop.getType();
     assertEquals("number", propType.toString());
     assertTrue(prop.isTypeInferred());
@@ -1989,7 +1988,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
   public void testInferredObjectLitProperty2() throws Exception {
     testSame("var x = {prop: function(){}};");
-    Var prop = globalScope.getVar("x.prop");
+    TypedVar prop = globalScope.getVar("x.prop");
     JSType propType = prop.getType();
     assertEquals("function (): undefined", propType.toString());
     assertTrue(prop.isTypeInferred());
@@ -2129,7 +2128,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     assertEquals("string", globalScope.getVar("e").getType().toString());
   }
 
-  private JSType findNameType(final String name, Scope scope) {
+  private JSType findNameType(final String name, TypedScope scope) {
     return findTypeOnMatchedNode(new Predicate<Node>() {
       @Override public boolean apply(Node n) {
         return name.equals(n.getQualifiedName());
@@ -2137,11 +2136,11 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     }, scope);
   }
 
-  private String findNameTypeStr(final String name, Scope scope) {
+  private String findNameTypeStr(final String name, TypedScope scope) {
     return findNameType(name, scope).toString();
   }
 
-  private JSType findTokenType(final int type, Scope scope) {
+  private JSType findTokenType(final int type, TypedScope scope) {
     return findTypeOnMatchedNode(new Predicate<Node>() {
       @Override public boolean apply(Node n) {
         return type == n.getType();
@@ -2149,7 +2148,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
     }, scope);
   }
 
-  private JSType findTypeOnMatchedNode(Predicate<Node> matcher, Scope scope) {
+  private JSType findTypeOnMatchedNode(Predicate<Node> matcher, TypedScope scope) {
     Node root = scope.getRootNode();
     Deque<Node> queue = new ArrayDeque<>();
     queue.push(root);

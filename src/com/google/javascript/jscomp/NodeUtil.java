@@ -27,9 +27,9 @@ import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 import com.google.javascript.rhino.jstype.TernaryValue;
 
 import java.util.Collection;
@@ -421,7 +421,7 @@ public final class NodeUtil {
    * In two last cases with named function expressions, the second name is
    * returned (the variable or qualified name).
    *
-   * @param n A class node
+   * @param clazz A class node
    * @return the node best representing the class's name
    */
   static Node getClassNameNode(Node clazz) {
@@ -454,7 +454,7 @@ public final class NodeUtil {
     return getNameNode(n);
   }
 
-  static String getFunctionName(Node n) {
+  public static String getFunctionName(Node n) {
     Node nameNode = getFunctionNameNode(n);
     return nameNode == null ? null : nameNode.getQualifiedName();
   }
@@ -1422,7 +1422,17 @@ public final class NodeUtil {
       case Token.SUPER:
       case Token.TRUE:
       case Token.TEMPLATELIT:
+      // Tokens from the type declaration AST
+      case Token.STRING_TYPE:
+      case Token.NUMBER_TYPE:
+      case Token.BOOLEAN_TYPE:
+      case Token.ANY_TYPE:
+      case Token.RECORD_TYPE:
+      case Token.NULLABLE_TYPE:
       case Token.NAMED_TYPE:
+      case Token.UNDEFINED_TYPE:
+      case Token.FUNCTION_TYPE:
+      case Token.REST_PARAMETER_TYPE:
         return 15;
       case Token.CAST:
         return 16;
@@ -1761,10 +1771,10 @@ public final class NodeUtil {
   }
 
   /**
-   * Finds the class member containing the given node.
+   * Finds the class member function containing the given node.
    */
-  static Node getEnclosingClassMember(Node n) {
-    return getEnclosingType(n, Token.MEMBER_DEF);
+  static Node getEnclosingClassMemberFunction(Node n) {
+    return getEnclosingType(n, Token.MEMBER_FUNCTION_DEF);
   }
 
   /**
@@ -2666,6 +2676,17 @@ public final class NodeUtil {
   }
 
   /**
+   * Creates a property access on the {@code context} tree.
+   */
+  public static Node newPropertyAccess(AbstractCompiler compiler, Node context, String name) {
+    Node propNode = IR.getprop(context, IR.string(name));
+    if (compiler.getCodingConvention().isConstantKey(name)) {
+      propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
+    }
+    return propNode;
+  }
+
+  /**
    * Creates a node representing a qualified name.
    *
    * @param name A qualified name (e.g. "foo" or "foo.bar.baz")
@@ -3263,7 +3284,7 @@ public final class NodeUtil {
       return false;
     }
 
-    Scope.Var var = scope.getVar(node.getString());
+    Var var = scope.getVar(node.getString());
     return var != null && (var.isInferredConst() || var.isConst());
   }
 

@@ -58,6 +58,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.RecordTypeBuilder.RecordProperty;
 
@@ -162,11 +163,11 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
       LinkedHashMultimap.create();
 
   // All the unresolved named types.
-  private final Multimap<StaticScope<JSType>, NamedType> unresolvedNamedTypes =
+  private final Multimap<StaticTypedScope<JSType>, NamedType> unresolvedNamedTypes =
       ArrayListMultimap.create();
 
   // All the resolved named types.
-  private final Multimap<StaticScope<JSType>, NamedType> resolvedNamedTypes =
+  private final Multimap<StaticTypedScope<JSType>, NamedType> resolvedNamedTypes =
       ArrayListMultimap.create();
 
   // NamedType warns about unresolved types in the last generation.
@@ -874,11 +875,102 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   }
 
   /**
+   * The nice API for this method is a single argument; dereference is a detail. In the old type
+   * checker, most calls to getReadableJSTypeName are with true (do dereferencing).
+   * When we implement this method in the new type checker, we won't do dereferencing, but that's
+   * fine because we are stricter about null/undefined checking.
+   * (So, null and undefined wouldn't be in the type in the first place.)
+   */
+  @Override
+  public String getReadableTypeName(Node n) {
+    return getReadableJSTypeName(n, true);
+  }
+
+  public String getReadableTypeNameNoDeref(Node n) {
+    return getReadableJSTypeName(n, false);
+  }
+
+  /**
+   * Given a node, get a human-readable name for the type of that node so
+   * that will be easy for the programmer to find the original declaration.
+   *
+   * For example, if SubFoo's property "bar" might have the human-readable
+   * name "Foo.prototype.bar".
+   *
+   * @param n The node.
+   * @param dereference If true, the type of the node will be dereferenced
+   *     to an Object type, if possible.
+   */
+  private String getReadableJSTypeName(Node n, boolean dereference) {
+    JSType type = getJSTypeOrUnknown(n);
+    if (dereference) {
+      ObjectType dereferenced = type.dereference();
+      if (dereferenced != null) {
+        type = dereferenced;
+      }
+    }
+
+    // The best type name is the actual type name.
+    if (type.isFunctionPrototypeType()
+        || (type.toObjectType() != null
+            && type.toObjectType().getConstructor() != null)) {
+      return type.toString();
+    }
+
+    // If we're analyzing a GETPROP, the property may be inherited by the
+    // prototype chain. So climb the prototype chain and find out where
+    // the property was originally defined.
+    if (n.isGetProp()) {
+      ObjectType objectType = getJSTypeOrUnknown(n.getFirstChild()).dereference();
+      if (objectType != null) {
+        String propName = n.getLastChild().getString();
+        if (objectType.getConstructor() != null
+            && objectType.getConstructor().isInterface()) {
+          objectType = FunctionType.getTopDefiningInterface(
+              objectType, propName);
+        } else {
+          // classes
+          while (objectType != null && !objectType.hasOwnProperty(propName)) {
+            objectType = objectType.getImplicitPrototype();
+          }
+        }
+
+        // Don't show complex function names or anonymous types.
+        // Instead, try to get a human-readable type name.
+        if (objectType != null
+            && (objectType.getConstructor() != null
+                || objectType.isFunctionPrototypeType())) {
+          return objectType + "." + propName;
+        }
+      }
+    }
+
+    if (n.isQualifiedName()) {
+      return n.getQualifiedName();
+    } else if (type.isFunctionType()) {
+      // Don't show complex function names.
+      return "function";
+    } else {
+      return type.toString();
+    }
+  }
+
+  private JSType getJSTypeOrUnknown(Node n) {
+    JSType jsType = n.getJSType();
+    if (jsType == null) {
+      return getNativeType(UNKNOWN_TYPE);
+    } else {
+      return jsType;
+    }
+  }
+
+  /**
    * Looks up a type by name.
    *
    * @param jsTypeName The name string.
    * @return the corresponding JSType object or {@code null} it cannot be found
    */
+  @Override
   public JSType getType(String jsTypeName) {
     // TODO(user): Push every local type name out of namesToTypes so that
     // NamedType#resolve is correct.
@@ -889,14 +981,17 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     return namesToTypes.get(jsTypeName);
   }
 
+  @Override
   public JSType getNativeType(JSTypeNative typeId) {
     return nativeTypes[typeId.ordinal()];
   }
 
+  @Override
   public ObjectType getNativeObjectType(JSTypeNative typeId) {
     return (ObjectType) getNativeType(typeId);
   }
 
+  @Override
   public FunctionType getNativeFunctionType(JSTypeNative typeId) {
     return (FunctionType) getNativeType(typeId);
   }
@@ -913,7 +1008,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    * @return a NamedType if the string argument is not one of the known types,
    *     otherwise the corresponding JSType object.
    */
-  public JSType getType(StaticScope<JSType> scope, String jsTypeName,
+  public JSType getType(StaticTypedScope<JSType> scope, String jsTypeName,
       String sourceName, int lineno, int charno) {
     // Resolve template type names
     JSType type = null;
@@ -953,7 +1048,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   /**
    * Resolve all the unresolved types in the given scope.
    */
-  public void resolveTypesInScope(StaticScope<JSType> scope) {
+  public void resolveTypesInScope(StaticTypedScope<JSType> scope) {
     for (NamedType type : unresolvedNamedTypes.get(scope)) {
       type.resolve(reporter, scope);
     }
@@ -1566,14 +1661,15 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    * @param sourceName The source file name.
    * @param scope A scope for doing type name lookups.
    */
-  public JSType createFromTypeNodes(Node n, String sourceName,
-      StaticScope<JSType> scope) {
-    return createFromTypeNodesInternal(n, sourceName, scope);
+  @Override
+  public JSType createTypeFromCommentNode(
+      Node n, String sourceName, StaticTypedScope<? extends TypeI> scope) {
+    return createFromTypeNodesInternal(n, sourceName, (StaticTypedScope<JSType>) scope);
   }
 
-  /** @see #createFromTypeNodes(Node, String, StaticScope) */
+  /** @see #createFromTypeNodes(Node, String, StaticTypedScope) */
   private JSType createFromTypeNodesInternal(Node n, String sourceName,
-      StaticScope<JSType> scope) {
+      StaticTypedScope<JSType> scope) {
     switch (n.getType()) {
       case Token.LC: // Record type.
         return createRecordTypeFromNodes(
@@ -1759,7 +1855,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    * @param scope A scope for doing type name lookups.
    */
   private JSType createRecordTypeFromNodes(Node n, String sourceName,
-      StaticScope<JSType> scope) {
+      StaticTypedScope<JSType> scope) {
 
     RecordTypeBuilder builder = new RecordTypeBuilder(this);
 

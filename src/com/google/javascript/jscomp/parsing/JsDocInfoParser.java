@@ -31,8 +31,8 @@ import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SimpleErrorReporter;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.util.HashSet;
 import java.util.List;
@@ -951,13 +951,11 @@ public final class JsDocInfoParser {
                   new TypeTransformationParser(typeTransformationExpr,
                       sourceFile, errorReporter, templateLineno, templateCharno);
               // If the parsing was successful store the type transformation
-              if (ttlParser.parseTypeTransformation()) {
-                if (!jsdocBuilder.recordTypeTransformation(names.get(0),
-                    ttlParser.getTypeTransformationAst())) {
-                  parser.addTypeWarning(
-                      "msg.jsdoc.template.name.declared.twice",
-                      templateLineno, templateCharno);
-                }
+              if (ttlParser.parseTypeTransformation()
+                  && !jsdocBuilder.recordTypeTransformation(
+                      names.get(0), ttlParser.getTypeTransformationAst())) {
+                parser.addTypeWarning(
+                    "msg.jsdoc.template.name.declared.twice", templateLineno, templateCharno);
               }
             }
           }
@@ -1060,12 +1058,9 @@ public final class JsDocInfoParser {
             // This will have some weird behavior in some cases
             // (for example, @private can now be used as a type-cast),
             // but should be mostly OK.
-            if ((type != null && isAlternateTypeAnnotation)
-                || annotation == Annotation.TYPE) {
-              if (!jsdocBuilder.recordType(type)) {
-                parser.addTypeWarning(
-                    "msg.jsdoc.incompat.type", lineno, charno);
-              }
+            if (((type != null && isAlternateTypeAnnotation) || annotation == Annotation.TYPE)
+                && !jsdocBuilder.recordType(type)) {
+              parser.addTypeWarning("msg.jsdoc.incompat.type", lineno, charno);
             }
 
             boolean isAnnotationNext = lookAheadForAnnotation();
@@ -1473,7 +1468,7 @@ public final class JsDocInfoParser {
                                       int startCharno,
                                       boolean matchingLC,
                                       boolean onlyParseSimpleNames) {
-    Node typeNode = null;
+    Node typeNode;
 
     if (onlyParseSimpleNames) {
       typeNode = parseTypeNameAnnotation(token);
@@ -2136,6 +2131,13 @@ public final class JsDocInfoParser {
    * FunctionType := 'function' FunctionSignatureType
    * FunctionSignatureType :=
    *    TypeParameters '(' 'this' ':' TypeName, ParametersType ')' ResultType
+   *
+   * <p>The Node that is produced has type Token.FUNCTION but does not look like a typical
+   * function node. If there is a 'this:' or 'new:' type, that type is added as a child.
+   * Then, if there are parameters, a PARAM_LIST node is added as a child. Finally, if
+   * there is a return type, it is added as a child. This means that the parameters
+   * could be the first or second child, and the return type could be
+   * the first, second, or third child.
    */
   private Node parseFunctionType(JsDocToken token) {
     // NOTE(nicksantos): We're not implementing generics at the moment, so

@@ -149,14 +149,9 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
 
       String functionNameString = callTarget.getString();
       Node firstArgument = callTarget.getNext();
-      if ((firstArgument != null) &&
-          (firstArgument.isString() ||
-           firstArgument.isNumber())) {
-        if (functionNameString.equals("parseInt") ||
-            functionNameString.equals("parseFloat")) {
-          subtree = tryFoldParseNumber(subtree, functionNameString,
-              firstArgument);
-        }
+      if ((firstArgument != null) && (firstArgument.isString() || firstArgument.isNumber())
+          && (functionNameString.equals("parseInt") || functionNameString.equals("parseFloat"))) {
+        subtree = tryFoldParseNumber(subtree, functionNameString, firstArgument);
       }
     }
     return subtree;
@@ -783,9 +778,8 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
     // Split the string and convert the returned array into JS nodes
     String[] stringArray = jsSplit(stringValue, separator, limit);
     Node arrayOfStrings = IR.arraylit();
-    for (int i = 0; i < stringArray.length; i++) {
-      arrayOfStrings.addChildToBack(
-          IR.string(stringArray[i]).srcref(stringNode));
+    for (String element : stringArray) {
+      arrayOfStrings.addChildToBack(IR.string(element).srcref(stringNode));
     }
 
     Node parent = n.getParent();

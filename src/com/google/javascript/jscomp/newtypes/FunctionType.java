@@ -17,10 +17,10 @@
 package com.google.javascript.jscomp.newtypes;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 
 import java.util.Collection;
@@ -370,7 +370,7 @@ public class FunctionType {
       }
       // NOTE(dimvar): This is a bug. The code that triggers this should be rare
       // and the fix is not trivial, so for now we decided to not fix.
-      // See unit tests in NewTypeInferenceTest#testGenericsSubtyping
+      // See unit tests in NewTypeInferenceTestES5OrLower#testGenericsSubtyping
       return instantiateGenericsWithUnknown(this).isSubtypeOf(other);
     }
 
@@ -571,7 +571,7 @@ public class FunctionType {
     return typeParameters;
   }
 
-  boolean unifyWith(FunctionType other, List<String> typeParameters,
+  boolean unifyWithSubtype(FunctionType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
     Preconditions.checkState(this.typeParameters == null);
     Preconditions.checkState(this.outerVarPreconditions.isEmpty());
@@ -592,7 +592,7 @@ public class FunctionType {
     while (thisReqFormals.hasNext()) {
       JSType reqFormal = thisReqFormals.next();
       JSType otherReqFormal = otherReqFormals.next();
-      if (!reqFormal.unifyWith(otherReqFormal, typeParameters, typeMultimap)) {
+      if (!reqFormal.unifyWithSubtype(otherReqFormal, typeParameters, typeMultimap)) {
         return false;
       }
     }
@@ -605,7 +605,7 @@ public class FunctionType {
     while (thisOptFormals.hasNext()) {
       JSType optFormal = thisOptFormals.next();
       JSType otherOptFormal = otherOptFormals.next();
-      if (!optFormal.unifyWith(otherOptFormal, typeParameters, typeMultimap)) {
+      if (!optFormal.unifyWithSubtype(otherOptFormal, typeParameters, typeMultimap)) {
         return false;
       }
     }
@@ -614,7 +614,7 @@ public class FunctionType {
         restFormals != null && other.restFormals == null) {
       return false;
     }
-    if (restFormals != null && !restFormals.unifyWith(
+    if (restFormals != null && !restFormals.unifyWithSubtype(
         other.restFormals, typeParameters, typeMultimap)) {
       return false;
     }
@@ -623,7 +623,7 @@ public class FunctionType {
         || nominalType != null && other.nominalType == null) {
       return false;
     }
-    if (nominalType != null && !nominalType.unifyWith(
+    if (nominalType != null && !nominalType.unifyWithSubtype(
         other.nominalType, typeParameters, typeMultimap)) {
       return false;
     }
@@ -631,12 +631,12 @@ public class FunctionType {
     // If one of the two functions doesn't use THIS in the body, we can still
     // unify.
     if (this.receiverType != null && other.receiverType != null
-        && !this.receiverType.unifyWith(
+        && !this.receiverType.unifyWithSubtype(
             other.receiverType, typeParameters, typeMultimap)) {
       return false;
     }
 
-    return returnType.unifyWith(other.returnType, typeParameters, typeMultimap);
+    return returnType.unifyWithSubtype(other.returnType, typeParameters, typeMultimap);
   }
 
   private static FunctionType instantiateGenericsWithUnknown(FunctionType f) {
@@ -855,10 +855,10 @@ public class FunctionType {
     if (argTypes.size() < getMinArity() || argTypes.size() > getMaxArity()) {
       return null;
     }
-    Multimap<String, JSType> typeMultimap = HashMultimap.create();
+    Multimap<String, JSType> typeMultimap = LinkedHashMultimap.create();
     for (int i = 0, size = argTypes.size(); i < size; i++) {
       if (!this.getFormalType(i)
-          .unifyWith(argTypes.get(i), typeParameters, typeMultimap)) {
+          .unifyWithSubtype(argTypes.get(i), typeParameters, typeMultimap)) {
         return null;
       }
     }

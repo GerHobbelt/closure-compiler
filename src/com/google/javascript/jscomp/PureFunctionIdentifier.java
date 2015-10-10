@@ -26,7 +26,6 @@ import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.jscomp.graph.DiGraph;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
@@ -691,7 +690,7 @@ class PureFunctionIdentifier implements CompilerPass {
     private boolean isLocalValueType(JSType jstype) {
       Preconditions.checkNotNull(jstype);
       JSType subtype =  jstype.getGreatestSubtype(
-          compiler.getTypeRegistry().getNativeType(JSTypeNative.OBJECT_TYPE));
+          (JSType) compiler.getTypeIRegistry().getNativeType(JSTypeNative.OBJECT_TYPE));
       // If the type includes anything related to a object type, don't assume
       // anything about the locality of the value.
       return subtype.isNoType();

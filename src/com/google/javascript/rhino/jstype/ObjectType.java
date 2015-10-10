@@ -82,7 +82,7 @@ import java.util.Set;
  */
 public abstract class ObjectType
     extends JSType
-    implements ObjectTypeI, StaticScope<JSType> {
+    implements ObjectTypeI, StaticTypedScope<JSType> {
   private boolean visited;
   private JSDocInfo docInfo = null;
   private boolean unknown = true;
@@ -421,7 +421,7 @@ public abstract class ObjectType
    *         returns {@code null}.
    */
   public JSType getPropertyType(String propertyName) {
-    StaticSlot<JSType> slot = getSlot(propertyName);
+    StaticTypedSlot<JSType> slot = getSlot(propertyName);
     if (slot == null) {
       if (isNoResolvedType() || isCheckedUnknownType()) {
         return getNativeType(JSTypeNative.CHECKED_UNKNOWN_TYPE);
@@ -460,7 +460,7 @@ public abstract class ObjectType
    * Checks whether the property's type is inferred.
    */
   public boolean isPropertyTypeInferred(String propertyName) {
-    StaticSlot<JSType> slot = getSlot(propertyName);
+    StaticTypedSlot<JSType> slot = getSlot(propertyName);
     return slot == null ? false : slot.isTypeInferred();
   }
 
@@ -468,7 +468,7 @@ public abstract class ObjectType
    * Checks whether the property's type is declared.
    */
   public boolean isPropertyTypeDeclared(String propertyName) {
-    StaticSlot<JSType> slot = getSlot(propertyName);
+    StaticTypedSlot<JSType> slot = getSlot(propertyName);
     return slot == null ? false : !slot.isTypeInferred();
   }
 

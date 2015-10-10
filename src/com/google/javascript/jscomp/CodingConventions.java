@@ -19,12 +19,12 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -209,7 +209,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       nextConvention.defineDelegateProxyPrototypeProperties(
@@ -421,7 +421,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       // do nothing.

@@ -32,6 +32,7 @@ import com.google.javascript.jscomp.AbstractCommandLineRunner.FlagUsageException
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.rhino.Node;
+
 import junit.framework.TestCase;
 
 import java.io.ByteArrayOutputStream;
@@ -246,7 +247,6 @@ public class CommandLineRunnerTest extends TestCase {
 
   public void testTypedAdvanced() {
     args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
-    args.add("--use_types_for_optimization");
     test(
         "/** @constructor */\n" +
         "function Foo() {}\n" +
@@ -257,6 +257,26 @@ public class CommandLineRunnerTest extends TestCase {
         "new Foo().handle1(1, 2);\n" +
         "new Bar().handle1(1, 2);\n",
         "alert(2)");
+  }
+
+  public void testTypedDisabledAdvanced() {
+    args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
+    args.add("--use_types_for_optimization=false");
+    test(
+        "/** @constructor */\n"
+        + "function Foo() {}\n"
+        +"Foo.prototype.handle1 = function(x, y) { alert(y); };\n"
+        + "/** @constructor */\n"
+        + "function Bar() {}\n"
+        + "Bar.prototype.handle1 = function(x, y) {};\n"
+        + "new Foo().handle1(1, 2);\n"
+        + "new Bar().handle1(1, 2);\n",
+        "function a() {}\n"
+        + "a.prototype.a = function(d, c) { alert(c); };\n"
+        + "function b() {}\n"
+        + "b.prototype.a = function() {};\n"
+        + "(new a).a(1, 2);\n"
+        + "(new b).a(1, 2);");
   }
 
   public void testTypeCheckingOnWithVerbose() {
@@ -974,7 +994,7 @@ public class CommandLineRunnerTest extends TestCase {
                 .toString());
   }
 
-  public void testSourceMapLocationsTranslations3() throws IOException {
+  public void testSourceMapLocationsTranslations3() {
     // Prevents this from trying to load externs.zip
     args.add("--use_only_custom_externs=true");
 
@@ -987,6 +1007,22 @@ public class CommandLineRunnerTest extends TestCase {
     assertThat(runner.shouldRunCompiler()).isFalse();
     assertThat(new String(errReader.toByteArray(), UTF_8))
         .contains("Bad value for --source_map_location_mapping");
+  }
+
+  public void testSourceMapInputs() throws Exception {
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--source_map_input=input1|input1.sourcemap");
+    args.add("--source_map_input=input2|input2.sourcemap");
+    testSame("var x = 3;");
+
+    Map<String, SourceMapInput> inputMaps = lastCompiler.getOptions()
+        .inputSourceMaps;
+    assertThat(inputMaps).hasSize(2);
+    assertThat(inputMaps.get("input1").getOriginalPath())
+        .isEqualTo("input1.sourcemap");
+    assertThat(inputMaps.get("input2").getOriginalPath())
+        .isEqualTo("input2.sourcemap");
   }
 
   public void testModuleWrapperBaseNameExpansion() throws Exception {

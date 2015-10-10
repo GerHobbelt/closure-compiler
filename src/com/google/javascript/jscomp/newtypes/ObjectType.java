@@ -611,9 +611,9 @@ public class ObjectType implements TypeWithProperties {
 
   static ImmutableSet<ObjectType> joinSets(
       ImmutableSet<ObjectType> objs1, ImmutableSet<ObjectType> objs2) {
-    if (objs1 == null) {
+    if (objs1.isEmpty()) {
       return objs2;
-    } else if (objs2 == null) {
+    } else if (objs2.isEmpty()) {
       return objs1;
     }
     ObjectType[] objs1Arr = objs1.toArray(new ObjectType[0]);
@@ -661,13 +661,10 @@ public class ObjectType implements TypeWithProperties {
   // TODO(dimvar): handle greatest lower bound of interface types.
   // If we do that, we need to normalize the output, otherwise it could contain
   // two object types that are in a subtype relation, eg, see
-  // NewTypeInferenceTest#testDifficultObjectSpecialization.
+  // NewTypeInferenceTestES5OrLower#testDifficultObjectSpecialization.
   static ImmutableSet<ObjectType> meetSetsHelper(
       boolean specializeObjs1,
       Set<ObjectType> objs1, Set<ObjectType> objs2) {
-    if (objs1 == null || objs2 == null) {
-      return null;
-    }
     ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
     for (ObjectType obj2 : objs2) {
       for (ObjectType obj1 : objs1) {
@@ -800,16 +797,16 @@ public class ObjectType implements TypeWithProperties {
    * {@code typeMultimap} to add any new template varaible type bindings.
    * @return Whether unification succeeded
    */
-  boolean unifyWith(ObjectType other, List<String> typeParameters,
+  boolean unifyWithSubtype(ObjectType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
     if (fn != null) {
       if (other.fn == null ||
-          !fn.unifyWith(other.fn, typeParameters, typeMultimap)) {
+          !fn.unifyWithSubtype(other.fn, typeParameters, typeMultimap)) {
         return false;
       }
     }
     if (nominalType != null && other.nominalType != null) {
-      return nominalType.unifyWith(
+      return nominalType.unifyWithSubtype(
           other.nominalType, typeParameters, typeMultimap);
     }
     if (nominalType != null || other.nominalType != null) {
@@ -819,7 +816,7 @@ public class ObjectType implements TypeWithProperties {
       Property thisProp = props.get(propName);
       Property otherProp = other.props.get(propName);
       if (otherProp == null ||
-          !thisProp.unifyWith(otherProp, typeParameters, typeMultimap)) {
+          !thisProp.unifyWithSubtype(otherProp, typeParameters, typeMultimap)) {
         return false;
       }
     }

@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
@@ -75,7 +74,7 @@ final class FunctionTypeBuilder {
   private final CodingConvention codingConvention;
   private final JSTypeRegistry typeRegistry;
   private final Node errorRoot;
-  private final Scope scope;
+  private final TypedScope scope;
 
   private FunctionContents contents = UnknownFunctionContents.get();
 
@@ -208,7 +207,7 @@ final class FunctionTypeBuilder {
    * @param scope The syntactic scope.
    */
   FunctionTypeBuilder(String fnName, AbstractCompiler compiler,
-      Node errorRoot, Scope scope) {
+      Node errorRoot, TypedScope scope) {
     Preconditions.checkNotNull(errorRoot);
 
     this.fnName = fnName == null ? "" : fnName;
@@ -345,15 +344,13 @@ final class FunctionTypeBuilder {
       // Class template types, which can be used in the scope of a constructor
       // definition.
       ImmutableList<String> typeParameters = info.getTemplateTypeNames();
-      if (!typeParameters.isEmpty()) {
-        if (isConstructor || isInterface) {
-          ImmutableList.Builder<TemplateType> builder = ImmutableList.builder();
-          for (String typeParameter : typeParameters) {
-            builder.add(typeRegistry.createTemplateType(typeParameter));
-          }
-          classTemplateTypeNames = builder.build();
-          typeRegistry.setTemplateTypeNames(classTemplateTypeNames);
+      if (!typeParameters.isEmpty() && (isConstructor || isInterface)) {
+        ImmutableList.Builder<TemplateType> builder = ImmutableList.builder();
+        for (String typeParameter : typeParameters) {
+          builder.add(typeRegistry.createTemplateType(typeParameter));
         }
+        classTemplateTypeNames = builder.build();
+        typeRegistry.setTemplateTypeNames(classTemplateTypeNames);
       }
 
       // base type
@@ -820,11 +817,11 @@ final class FunctionTypeBuilder {
    * to be declared in a scope. Notice that TypedScopeCreator takes
    * care of most scope-declaring.
    */
-  private Scope getScopeDeclaredIn() {
+  private TypedScope getScopeDeclaredIn() {
     int dotIndex = fnName.indexOf('.');
     if (dotIndex != -1) {
       String rootVarName = fnName.substring(0, dotIndex);
-      Var rootVar = scope.getVar(rootVarName);
+      TypedVar rootVar = scope.getVar(rootVarName);
       if (rootVar != null) {
         return rootVar.getScope();
       }

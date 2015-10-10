@@ -219,7 +219,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       boolean manageClosureDependencies,
       boolean onlyClosureDependencies,
       boolean processCommonJSModules,
-      boolean rewriteEs6Modules,
       List<String> closureEntryPoints)
       throws FlagUsageException {
     if (onlyClosureDependencies) {
@@ -234,12 +233,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
           .setMoocherDropping(true)
           .setEntryPoints(closureEntryPoints);
     } else if (processCommonJSModules) {
-      return new DependencyOptions()
-        .setDependencyPruning(false)
-        .setDependencySorting(true)
-        .setMoocherDropping(false)
-        .setEntryPoints(closureEntryPoints);
-    } else if (rewriteEs6Modules) {
       return new DependencyOptions()
         .setDependencyPruning(false)
         .setDependencySorting(true)
@@ -287,7 +280,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         config.manageClosureDependencies,
         config.onlyClosureDependencies,
         config.processCommonJSModules,
-        config.rewriteEs6Modules,
         config.closureEntryPoints);
     if (depOptions != null) {
       options.setDependencyOptions(depOptions);
@@ -393,7 +385,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     options.acceptConstKeyword = config.acceptConstKeyword;
     options.transformAMDToCJSModules = config.transformAMDToCJSModules;
     options.processCommonJSModules = config.processCommonJSModules;
-    options.rewriteEs6Modules = config.rewriteEs6Modules;
     options.transpileOnly = config.transpileOnly;
     options.commonJSModulePathPrefix = config.commonJSModulePathPrefix;
     options.angularPass = config.angularPass;
@@ -848,11 +839,10 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     List<String> moduleSpecs = config.module;
 
     boolean createCommonJsModules = false;
-    if (options.processCommonJSModules) {
-      if (moduleSpecs.size() == 1 && "auto".equals(moduleSpecs.get(0))) {
-        createCommonJsModules = true;
-        moduleSpecs.remove(0);
-      }
+    if (options.processCommonJSModules
+        && (moduleSpecs.size() == 1 && "auto".equals(moduleSpecs.get(0)))) {
+      createCommonJsModules = true;
+      moduleSpecs.remove(0);
     }
     if (!moduleSpecs.isEmpty()) {
       modules = createJsModules(moduleSpecs, jsFiles);
@@ -1337,25 +1327,20 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     // Output the maps.
-    if (variableMapOutputPath != null) {
-      if (compiler.getVariableMap() != null) {
-        compiler.getVariableMap().save(variableMapOutputPath);
-      }
+    if (variableMapOutputPath != null && compiler.getVariableMap() != null) {
+      compiler.getVariableMap().save(variableMapOutputPath);
     }
 
-    if (propertyMapOutputPath != null) {
-      if (compiler.getPropertyMap() != null) {
-        compiler.getPropertyMap().save(propertyMapOutputPath);
-      }
+    if (propertyMapOutputPath != null && compiler.getPropertyMap() != null) {
+      compiler.getPropertyMap().save(propertyMapOutputPath);
     }
 
-    if (functionInformationMapOutputPath != null) {
-      if (compiler.getFunctionalInformationMap() != null) {
-        try (final OutputStream file = filenameToOutputStream(functionInformationMapOutputPath)) {
-          CodedOutputStream outputStream = CodedOutputStream.newInstance(file);
-          compiler.getFunctionalInformationMap().writeTo(outputStream);
-          outputStream.flush();
-        }
+    if (functionInformationMapOutputPath != null
+        && compiler.getFunctionalInformationMap() != null) {
+      try (final OutputStream file = filenameToOutputStream(functionInformationMapOutputPath)) {
+        CodedOutputStream outputStream = CodedOutputStream.newInstance(file);
+        compiler.getFunctionalInformationMap().writeTo(outputStream);
+        outputStream.flush();
       }
     }
   }
@@ -2140,16 +2125,6 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     CommandLineConfig setProcessCommonJSModules(
         boolean processCommonJSModules) {
       this.processCommonJSModules = processCommonJSModules;
-      return this;
-    }
-
-    private boolean rewriteEs6Modules = false;
-
-    /**
-     * Sets whether to process ES6 modules.
-     */
-    CommandLineConfig setRewriteEs6Modules(boolean rewriteEs6Modules) {
-      this.rewriteEs6Modules = rewriteEs6Modules;
       return this;
     }
 

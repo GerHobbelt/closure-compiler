@@ -306,6 +306,12 @@ public class CommandLineRunner extends
         "(i.e. filesystem-path|webserver-path)")
     private List<String> sourceMapLocationMapping = Lists.newArrayList();
 
+    @Option(name = "--source_map_input",
+        hidden = true,
+        usage = "Source map locations for input files, separated by a '|', " +
+        "(i.e. input-file-path|input-source-map)")
+    private List<String> sourceMapInputs = Lists.newArrayList();
+
     // Used to define the flag, values are stored by the handler.
     @SuppressWarnings("unused")
     @Option(name = "--jscomp_error",
@@ -360,10 +366,11 @@ public class CommandLineRunner extends
 
     @Option(name = "--use_types_for_optimization",
         hidden = true,
-        usage = "Experimental: perform additional optimizations " +
-        "based on available information. Inaccurate type annotations " +
+        handler = BooleanOptionHandler.class,
+        usage = "Enable or disable the optimizations " +
+        "based on available type information. Inaccurate type annotations " +
         "may result in incorrect results.")
-    private boolean useTypesForOptimization = false;
+    private boolean useTypesForOptimization = true;
 
     @Option(name = "--warning_level",
         aliases = {"-W"},
@@ -389,6 +396,12 @@ public class CommandLineRunner extends
         usage = "Generates export code for those marked with @export")
     private boolean generateExports = false;
 
+    @Option(name = "--export_local_property_definitions",
+        hidden = true,
+        handler = BooleanOptionHandler.class,
+        usage = "Generates export code for local properties marked with @export")
+    private boolean exportLocalPropertyDefinitions = false;
+
     @Option(name = "--formatting",
         hidden = true,
         usage = "Specifies which formatting options, if any, should be "
@@ -400,11 +413,6 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "Process CommonJS modules to a concatenable form.")
     private boolean processCommonJsModules = false;
-
-    @Option(name = "--rewrite_es6_modules",
-        hidden = true,
-        usage = "Rewrite ES6 modules to a concatenable form.")
-    private boolean rewriteEs6Modules = false;
 
     @Option(name = "--transpile_only",
         hidden = true,
@@ -513,7 +521,7 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "Sets what language spec the output should conform to. "
         + " If omitted, defaults to the value of language_in. "
-        + "Options: ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT"
+        + "Options: ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT, "
         + "ECMASCRIPT6_TYPED (experimental)")
     private String languageOut = "";
 
@@ -521,7 +529,8 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "Experimental: Allows ES6 language_out, for compiling "
         + "ES6 to ES6 as well as transpiling to ES6 from lower versions. "
-        + "Enabling this flag may cause the compiler to crash.")
+        + "Enabling this flag may cause the compiler to crash or produce "
+        + "incorrect output.")
     private boolean allowEs6Out = false;
 
     @Option(name = "--version",
@@ -587,7 +596,8 @@ public class CommandLineRunner extends
     private String customOptionsFile = "";
 
     @Argument
-    private List<String> arguments = new ArrayList<>();
+    private final List<String> arguments = new ArrayList<>();
+    private final CmdLineParser parser;
 
     private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP =
         ImmutableMap.<String, CompilationLevel>builder()
@@ -602,11 +612,14 @@ public class CommandLineRunner extends
             .put("FROM_CONFIG_FILE", CompilationLevel.FROM_CONFIG_FILE)
             .build();
 
+    Flags() {
+      parser = new CmdLineParser(this);
+    }
+
     /**
      * Parse the given args list.
      */
     private void parse(List<String> args) throws CmdLineException {
-      CmdLineParser parser = new CmdLineParser(this);
       parser.parseArgument(args.toArray(new String[] {}));
 
       compilationLevelParsed =
@@ -619,14 +632,13 @@ public class CommandLineRunner extends
     }
 
     private void printUsage(PrintStream ps) {
-      CmdLineParser p = new CmdLineParser(this);
-      p.printUsage(new OutputStreamWriter(ps, UTF_8), null, OptionHandlerFilter.ALL);
+      parser.printUsage(new OutputStreamWriter(ps, UTF_8), null, OptionHandlerFilter.ALL);
       ps.flush();
     }
 
     private void printShortUsageAfterErrors(PrintStream ps) {
       ps.print("Sample usage: ");
-      ps.println((new CmdLineParser(this)).printExample(OptionHandlerFilter.PUBLIC, null));
+      ps.println(parser.printExample(OptionHandlerFilter.PUBLIC, null));
       ps.println("Run with --help for all options and details");
       ps.flush();
     }
@@ -656,27 +668,43 @@ public class CommandLineRunner extends
       patterns.addAll(arguments);
       List<String> allJsInputs = findJsFiles(patterns);
       if (!patterns.isEmpty() && allJsInputs.isEmpty()) {
-        throw new CmdLineException(new CmdLineParser(this), "No inputs matched");
+        throw new CmdLineException(parser, "No inputs matched");
       }
       return allJsInputs;
     }
 
-    @SuppressWarnings("deprecation")
     List<SourceMap.LocationMapping> getSourceMapLocationMappings() throws CmdLineException {
       ImmutableList.Builder<LocationMapping> locationMappings = ImmutableList.builder();
 
-      Splitter splitter = Splitter.on('|').limit(2);
-      for (String locationMapping : sourceMapLocationMapping) {
-        List<String> parts = splitter.splitToList(locationMapping);
-        if (parts.size() != 2) {
-          throw new CmdLineException(
-            "Bad value for --source_map_location_mapping: " +
-            ImmutableList.of(sourceMapLocationMapping));
-        }
-        locationMappings.add(new SourceMap.LocationMapping(parts.get(0), parts.get(1)));
+      ImmutableMap<String, String> split = splitPipeParts(
+          sourceMapLocationMapping, "--source_map_location_mapping");
+      for (Map.Entry<String, String> mapping : split.entrySet()) {
+        locationMappings.add(new SourceMap.LocationMapping(mapping.getKey(),
+            mapping.getValue()));
       }
 
       return locationMappings.build();
+    }
+
+    ImmutableMap<String, String> getSourceMapInputs() throws CmdLineException {
+      return splitPipeParts(sourceMapInputs, "--source_map_input");
+    }
+
+    private ImmutableMap<String, String> splitPipeParts(Iterable<String> input,
+        String flagName) throws CmdLineException {
+      ImmutableMap.Builder<String, String> result = new ImmutableMap.Builder<>();;
+
+      Splitter splitter = Splitter.on('|').limit(2);
+      for (String inputSourceMap : input) {
+        List<String> parts = splitter.splitToList(inputSourceMap);
+        if (parts.size() != 2) {
+          throw new CmdLineException(parser, "Bad value for " + flagName +
+              " (duplicate key): " + input);
+        }
+        result.put(parts.get(0), parts.get(1));
+      }
+
+      return result.build();
     }
 
     // Our own option parser to be backwards-compatible.
@@ -969,6 +997,7 @@ public class CommandLineRunner extends
 
     List<String> jsFiles = null;
     List<LocationMapping> mappings = null;
+    ImmutableMap<String, String> sourceMapInputs = null;
     try {
       flags.parse(processedArgs);
 
@@ -979,6 +1008,7 @@ public class CommandLineRunner extends
 
       jsFiles = flags.getJsFiles();
       mappings = flags.getSourceMapLocationMappings();
+      sourceMapInputs = flags.getSourceMapInputs();
     } catch (CmdLineException e) {
       reportError(e.getMessage());
     } catch (IOException ioErr) {
@@ -1055,6 +1085,7 @@ public class CommandLineRunner extends
           .setCreateSourceMap(flags.createSourceMap)
           .setSourceMapFormat(flags.sourceMapFormat)
           .setSourceMapLocationMappings(mappings)
+          .setSourceMapInputFiles(sourceMapInputs)
           .setWarningGuardSpec(Flags.getWarningGuardSpec())
           .setDefine(flags.define)
           .setCharset(flags.charset)
@@ -1067,7 +1098,6 @@ public class CommandLineRunner extends
           .setLanguageIn(flags.languageIn)
           .setLanguageOut(flags.languageOut)
           .setProcessCommonJSModules(flags.processCommonJsModules)
-          .setRewriteEs6Modules(flags.rewriteEs6Modules)
           .setTranspileOnly(flags.transpileOnly)
           .setCommonJSModulePathPrefix(flags.commonJsPathPrefix)
           .setTransformAMDToCJSModules(flags.transformAmdModules)
@@ -1121,6 +1151,10 @@ public class CommandLineRunner extends
 
     if (flags.generateExports) {
       options.setGenerateExports(flags.generateExports);
+    }
+
+    if (flags.exportLocalPropertyDefinitions) {
+      options.setExportLocalPropertyDefinitions(true);
     }
 
     WarningLevel wLevel = flags.warningLevel;
@@ -1204,7 +1238,7 @@ public class CommandLineRunner extends
     ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
 
     // Looking for BOM.
-    if ((int)textProto.charAt(0) == UTF8_BOM_CODE) {
+    if (textProto.charAt(0) == UTF8_BOM_CODE) {
       // Stripping the BOM.
       textProto = textProto.substring(1);
     }
@@ -1261,6 +1295,7 @@ public class CommandLineRunner extends
     "ie_vml.js",
     "iphone.js",
     "mediasource.js",
+    "page_visibility.js",
     "v8.js",
     "webstorage.js",
     "w3c_anim_timing.js",

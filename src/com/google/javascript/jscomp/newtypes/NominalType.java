@@ -23,8 +23,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -96,7 +96,7 @@ public class NominalType {
 
   NominalType instantiateGenerics(List<JSType> types) {
     Preconditions.checkState(types.size() == rawType.typeParameters.size());
-    Map<String, JSType> typeMap = new HashMap<>();
+    Map<String, JSType> typeMap = new LinkedHashMap<>();
     for (int i = 0; i < rawType.typeParameters.size(); i++) {
       typeMap.put(rawType.typeParameters.get(i), types.get(i));
     }
@@ -335,7 +335,7 @@ public class NominalType {
     return c2.isSubclassOf(c1) ? c2 : null;
   }
 
-  boolean unifyWith(NominalType other, List<String> typeParameters,
+  boolean unifyWithSubtype(NominalType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
     if (this.rawType != other.rawType) {
       return false;
@@ -354,7 +354,7 @@ public class NominalType {
     }
     boolean hasUnified = true;
     for (String typeParam : rawType.typeParameters) {
-      hasUnified = hasUnified && typeMap.get(typeParam).unifyWith(
+      hasUnified = hasUnified && typeMap.get(typeParam).unifyWithSubtype(
           other.typeMap.get(typeParam), typeParameters, typeMultimap);
     }
     return hasUnified;
@@ -626,7 +626,7 @@ public class NominalType {
     }
 
     public Set<String> getAllOwnProps() {
-      Set<String> ownProps = new HashSet<>();
+      Set<String> ownProps = new LinkedHashSet<>();
       ownProps.addAll(classProps.keySet());
       ownProps.addAll(protoProps.keySet());
       return ownProps;

@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CheckConformance.InvalidRequirementSpec;
 import com.google.javascript.jscomp.ConformanceRules.AbstractRule;
 import com.google.javascript.jscomp.ConformanceRules.ConformanceResult;
+import com.google.javascript.jscomp.testing.BlackHoleErrorManager;
 import com.google.javascript.rhino.Node;
 import com.google.protobuf.TextFormat;
 
@@ -87,6 +88,7 @@ public class CheckConformanceTest extends CompilerTestCase {
   protected void setUp() throws Exception {
     super.setUp();
     super.enableTypeCheck(CheckLevel.OFF);
+    super.enableClosurePass();
     configuration = DEFAULT_CONFORMANCE;
   }
 
@@ -281,7 +283,7 @@ public class CheckConformanceTest extends CompilerTestCase {
       testSame(ImmutableList.of(SourceFile.fromCode("bar.js", "eval()")));
       fail("expected IllegalArgumentException");
     } catch (Exception e) {
-      assertTrue(e instanceof IllegalArgumentException);
+      assertThat(e).isInstanceOf(IllegalArgumentException.class);
     }
   }
 
@@ -1074,6 +1076,22 @@ public class CheckConformanceTest extends CompilerTestCase {
         "};");
   }
 
+  public void testCustomBanUnresolvedType() {
+    configuration =
+        "requirement: {\n"
+        + "  type: CUSTOM\n"
+        + "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanUnresolvedType'\n"
+        + "  error_message: 'BanUnresolvedType Message'\n"
+        + "}";
+
+    testSame(
+        EXTERNS,
+        "goog.forwardDeclare('Foo');"
+        + "/** @param {Foo} a */ function f(a) {a.foo()};",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanUnresolvedType Message");
+  }
+
   public void testMergeRequirements() {
     Compiler compiler = createCompiler();
     ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
@@ -1089,7 +1107,8 @@ public class CheckConformanceTest extends CompilerTestCase {
 
   public void testMergeRequirements_findsDuplicates() {
     Compiler compiler = createCompiler();
-    ErrorManager errorManager = new BlackHoleErrorManager(compiler);
+    ErrorManager errorManager = new BlackHoleErrorManager();
+    compiler.setErrorManager(errorManager);
     ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
     builder.addRequirementBuilder().addWhitelist("x").addWhitelist("x");
     CheckConformance.mergeRequirements(compiler, ImmutableList.of(builder.build()));

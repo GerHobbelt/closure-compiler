@@ -23,7 +23,6 @@ import com.google.javascript.jscomp.ReferenceCollectingCallback.Behavior;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
-import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.Node;
 
 import java.util.Iterator;
@@ -252,15 +251,10 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
           }
         }
 
-        if (!shadowDetected && isDeclaration
-            && (letConstShadowsVar || shadowCatchVar)) {
-          if (v.getScope() == reference.getScope()) {
-            compiler.report(
-                JSError.make(
-                    referenceNode,
-                    checkLevel,
-                    REDECLARED_VARIABLE_ERROR, v.name));
-          }
+        if (!shadowDetected && isDeclaration && (letConstShadowsVar || shadowCatchVar)
+            && v.getScope() == reference.getScope()) {
+          compiler.report(
+              JSError.make(referenceNode, checkLevel, REDECLARED_VARIABLE_ERROR, v.name));
         }
 
         if (isUnhoistedNamedFunction && !isDeclaration && isDeclaredInScope) {
