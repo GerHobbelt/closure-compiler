@@ -227,7 +227,7 @@
     <copy file="${build.dir}/compiler.jar"
           todir="${dist.dir}/" />
 
-    <copy file="${build.dir}/externs.zip"
+    <copy file="${classes.dir}/externs.zip"
           todir="${dist.dir}/" />
   </target>
 
@@ -420,7 +420,7 @@
           depends="refasterjs-compile, compile">
    <jar destfile="${refasterjs-jarfile}" update="true">
      <zipgroupfileset dir="${lib.dir}" includes="*.jar"/>
-     <fileset dir="${build.dir}" includes="externs.zip" />
+     <fileset dir="${classes.dir}" includes="externs.zip" />
      <fileset dir="${classes.dir}" />
      <fileset dir="${refasterjs-classes.dir}" />
      <manifest>
