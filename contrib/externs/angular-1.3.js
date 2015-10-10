@@ -369,6 +369,7 @@ angular.LinkingFunctions.post = function(scope, iElement, iAttrs, controller) {
  *   restrict: (string|undefined),
  *   scope: (boolean|Object.<string, string>|undefined),
  *   template: (string|undefined),
+ *   templateNamespace: (string|undefined),
  *   templateUrl: (string|
  *       function(!angular.JQLite=,!angular.Attributes=)|
  *       undefined),
@@ -840,6 +841,7 @@ angular.Module.requires;
  * @typedef {{
  *   $$phase: string,
  *   $apply: function((string|function(!angular.Scope))=):*,
+ *   $applyAsync: function((string|function(!angular.Scope))=),
  *   $broadcast: function(string, ...[*]),
  *   $destroy: function(),
  *   $digest: function(),
@@ -1029,43 +1031,69 @@ angular.$animate;
 
 /**
  * @param {JQLiteSelector} element
+ * @param {Object} from
+ * @param {Object} to
+ * @param {string=} opt_className
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
+ */
+angular.$animate.prototype.animate = function(
+    element, from, to, opt_className, opt_options) {};
+
+/**
+ * @param {JQLiteSelector} element
  * @param {JQLiteSelector} parentElement
  * @param {JQLiteSelector} afterElement
- * @param {function()=} opt_doneCallback
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
  */
 angular.$animate.prototype.enter = function(
-    element, parentElement, afterElement, opt_doneCallback) {};
+    element, parentElement, afterElement, opt_options) {};
 
 /**
  * @param {JQLiteSelector} element
- * @param {function()=} opt_doneCallback
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
  */
-angular.$animate.prototype.leave = function(element, opt_doneCallback) {};
+angular.$animate.prototype.leave = function(element, opt_options) {};
 
 /**
  * @param {JQLiteSelector} element
  * @param {JQLiteSelector} parentElement
  * @param {JQLiteSelector} afterElement
- * @param {function()=} opt_doneCallback
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
  */
 angular.$animate.prototype.move = function(
-    element, parentElement, afterElement, opt_doneCallback) {};
+    element, parentElement, afterElement, opt_options) {};
 
 /**
  * @param {JQLiteSelector} element
  * @param {string} className
- * @param {function()=} opt_doneCallback
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
  */
 angular.$animate.prototype.addClass = function(
-    element, className, opt_doneCallback) {};
+    element, className, opt_options) {};
 
 /**
  * @param {JQLiteSelector} element
  * @param {string} className
- * @param {function()=} opt_doneCallback
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
  */
 angular.$animate.prototype.removeClass = function(
-    element, className, opt_doneCallback) {};
+    element, className, opt_options) {};
+
+/**
+ * @param {JQLiteSelector} element
+ * @param {string} add
+ * @param {string} remove
+ * @param {Object.<string, *>=} opt_options
+ * @return {!angular.$q.Promise}
+ */
+angular.$animate.prototype.setClass = function(
+    element, add, remove, opt_options) {};
 
 /**
  * @param {boolean=} opt_value
@@ -1073,6 +1101,11 @@ angular.$animate.prototype.removeClass = function(
  * @return {boolean}
  */
 angular.$animate.prototype.enabled = function(opt_value, opt_element) {};
+
+/**
+ * @param {angular.$q.Promise} animationPromise
+ */
+angular.$animate.prototype.cancel = function(animationPromise) {};
 
 /******************************************************************************
  * $animateProvider Service
@@ -1119,6 +1152,11 @@ angular.$compile;
  *       !angular.$cacheFactory.Cache}
  */
 angular.$cacheFactory;
+
+/**
+ * @typedef {function(string): ?angular.$cacheFactory.Cache}
+ */
+angular.$cacheFactory.get;
 
 /** @typedef {{capacity: (number|undefined)}} */
 angular.$cacheFactory.Options;
@@ -1598,10 +1636,20 @@ angular.$location.url = function(opt_url) {};
 
 /**
  * @typedef {{
+ *   enabled: (boolean|undefined),
+ *   requireBase: (boolean|undefined)
+ * }}
+ */
+angular.$locationProvider.html5ModeConfig;
+
+/**
+ * @typedef {{
  *   hashPrefix:
  *       function(string=): (string|!angular.$locationProvider),
  *   html5Mode:
- *       function(boolean=): (boolean|!angular.$locationProvider)
+ *       function(
+ *           (boolean|angular.$locationProvider.html5ModeConfig)=):
+ *               (boolean|!angular.$locationProvider)
  *   }}
  */
 angular.$locationProvider;
@@ -1613,10 +1661,10 @@ angular.$locationProvider;
 angular.$locationProvider.hashPrefix = function(opt_prefix) {};
 
 /**
- * @param {boolean=} opt_enabled
+ * @param {(boolean|angular.$locationProvider.html5ModeConfig)=} opt_mode
  * @return {boolean|!angular.$locationProvider}
  */
-angular.$locationProvider.html5Mode = function(opt_enabled) {};
+angular.$locationProvider.html5Mode = function(opt_mode) {};
 
 /******************************************************************************
  * $log Service
@@ -1947,95 +1995,6 @@ angular.$provide.service = function(name, constructor) {};
  * @return {Object}
  */
 angular.$provide.value = function(name, object) {};
-
-/******************************************************************************
- * $q Service
- *****************************************************************************/
-
-/**
- * @typedef {{
- *   all: function((Object.<!angular.$q.Promise>|Array.<!angular.$q.Promise>)):
- *       !angular.$q.Promise,
- *   defer: function():!angular.$q.Deferred,
- *   reject: function(*):!angular.$q.Promise,
- *   when: function(*):!angular.$q.Promise
- *   }}
- */
-angular.$q;
-
-/**
- * @param {!Object.<!angular.$q.Promise>|Array.<!angular.$q.Promise>} promises
- * @return {!angular.$q.Promise}
- */
-angular.$q.all = function(promises) {};
-
-/**
- * @return {!angular.$q.Deferred}
- */
-angular.$q.defer = function() {};
-
-/**
- * @param {*} reason
- * @return {!angular.$q.Promise}
- */
-angular.$q.reject = function(reason) {};
-
-/**
- * @param {*} value
- * @return {!angular.$q.Promise}
- */
-angular.$q.when = function(value) {};
-
-/**
- * @typedef {{
- *   resolve: function(*=),
- *   reject: function(*=),
- *   notify: function(*=),
- *   promise: !angular.$q.Promise
- *   }}
- */
-angular.$q.Deferred;
-
-/** @param {*=} opt_value */
-angular.$q.Deferred.resolve = function(opt_value) {};
-
-/** @param {*=} opt_reason */
-angular.$q.Deferred.reject = function(opt_reason) {};
-
-/** @param {*=} opt_value */
-angular.$q.Deferred.notify = function(opt_value) {};
-
-/** @type {!angular.$q.Promise} */
-angular.$q.Deferred.promise;
-
-/**
- * @typedef {{
- *   then: function(?function(?), ?function(?)=, ?function(?)=):
- *       angular.$q.Promise,
- *   catch: function(?function(?)):angular.$q.Promise,
- *   finally: function(?function(?)):angular.$q.Promise
- * }}
- */
-angular.$q.Promise;
-
-/**
- * @param {?function(?)} successCallback
- * @param {?function(?)=} opt_errorCallback
- * @return {!angular.$q.Promise}
- */
-angular.$q.Promise.then = function(successCallback, opt_errorCallback) {};
-
-/**
- * @param {?function(?)} callback
- * @return {!angular.$q.Promise}
- */
-angular.$q.Promise.catch = function(callback) {};
-
-/**
- * @param {?function(?)} callback
- * @return {!angular.$q.Promise}
- */
-angular.$q.Promise.finally = function(callback) {};
 
 /******************************************************************************
  * $route Service

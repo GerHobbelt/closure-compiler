@@ -22,11 +22,13 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import com.google.common.reflect.TypeToken;
 import com.google.javascript.jscomp.CheckConformance.InvalidRequirementSpec;
 import com.google.javascript.jscomp.CheckConformance.Rule;
 import com.google.javascript.jscomp.Requirement.Type;
 import com.google.javascript.jscomp.parsing.JsDocInfoParser;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.FunctionType;
@@ -38,6 +40,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -751,7 +754,6 @@ public final class ConformanceRules {
     }
   }
 
-
   /**
    * A custom rule proxy, for rules that we load dynamically.
    */
@@ -836,4 +838,108 @@ public final class ConformanceRules {
     }
   }
 
+  /**
+   * Banned @expose
+   */
+  public static final class BanExpose extends AbstractRule {
+    public BanExpose(AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      JSDocInfo info = n.getJSDocInfo();
+      if (info != null && info.isExpose()) {
+        return ConformanceResult.VIOLATION;
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+  }
+
+  /**
+   * Banned throw of non-error object types.
+   */
+  public static final class BanThrowOfNonErrorTypes extends AbstractRule {
+    final JSType errorObjType;
+    public BanThrowOfNonErrorTypes(AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+      errorObjType = compiler.getTypeRegistry().getType("Error");
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      if (errorObjType != null && n.isThrow()) {
+        JSType thrown = n.getFirstChild().getJSType();
+        if (thrown != null) {
+          // Allow vague types, as is typical of re-throws of exceptions
+          if (!thrown.isUnknownType()
+              && !thrown.isAllType()
+              && !thrown.isEmptyType()
+              && !thrown.isSubtype(errorObjType)) {
+            return ConformanceResult.VIOLATION;
+          }
+        }
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+  }
+
+  /**
+   * Banned unknown "this" types.
+   */
+  public static final class BanUnknownThis extends AbstractRule {
+    private final Set<Node> reports = Sets.newIdentityHashSet();
+    public BanUnknownThis(AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      if (n.isThis() && !n.getParent().isCast()) {
+        JSType type = n.getJSType();
+        if (type != null && type.isUnknownType()) {
+          Node root = t.getScopeRoot();
+          if (!reports.contains(root)) {
+            reports.add(root);
+            return ConformanceResult.VIOLATION;
+          }
+        }
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+  }
+
+  /**
+   * Banned global var declarations.
+   */
+  public static final class BanGlobalVars extends AbstractRule {
+    public BanGlobalVars(AbstractCompiler compiler, Requirement requirement)
+        throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
+      if (t.inGlobalScope()
+          && isDeclaration(n)
+          && !n.getBooleanProp(Node.IS_NAMESPACE)
+          && !isWhitelisted(n)) {
+        return ConformanceResult.VIOLATION;
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+
+    private boolean isDeclaration(Node n) {
+      return NodeUtil.isNameDeclaration(n)
+          || NodeUtil.isFunctionDeclaration(n)
+          || NodeUtil.isClassDeclaration(n);
+    }
+
+    private boolean isWhitelisted(Node n) {
+      return n.isVar() && n.getFirstChild().getString().equals("$jscomp");
+    }
+  }
 }

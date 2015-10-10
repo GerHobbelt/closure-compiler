@@ -38,8 +38,16 @@ public class CheckConformanceTest extends CompilerTestCase {
       "/** @constructor */ var Arguments;\n" +
       "Arguments.prototype.callee;\n" +
       "Arguments.prototype.caller;\n" +
-      "/** @type {Arguments} */ var arguments;\n"
-      ;
+      "/** @type {Arguments} */ var arguments;\n" +
+      "/** @constructor \n" +
+      " * @param {*=} opt_message\n" +
+      " * @param {*=} opt_file\n" +
+      " * @param {*=} opt_line\n" +
+      " * @return {!Error} \n" +
+      "*/" +
+      "var Error;" +
+      "var alert;" +
+      "";
 
   private static final String DEFAULT_CONFORMANCE =
       "requirement: {\n" +
@@ -57,6 +65,8 @@ public class CheckConformanceTest extends CompilerTestCase {
   public CheckConformanceTest() {
     super(EXTERNS, true);
     enableNormalize();
+    enableClosurePass();
+    enableClosurePassForExpected();
   }
 
   @Override
@@ -174,7 +184,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "error_message: \"placeholder\"\n" +
         "whitelist_regexp: \"(\"\n" +
         "type: BANNED_NAME\n" +
-        "value: \"eval\"\n");
+        "value: \"eval\"\n",
+        true /* error */);
   }
 
   public void testViolationWhitelisted1() {
@@ -560,7 +571,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "Invalid requirement. Reason: missing java_class\n" +
         "Requirement spec:\n" +
         "error_message: \"placeholder\"\n" +
-        "type: CUSTOM\n");
+        "type: CUSTOM\n",
+        true /* error */);
   }
 
   public void testCustom2() {
@@ -580,7 +592,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "Requirement spec:\n" +
         "error_message: \"placeholder\"\n" +
         "type: CUSTOM\n" +
-        "java_class: \"MissingClass\"\n");
+        "java_class: \"MissingClass\"\n",
+        true /* error */);
   }
 
   public void testCustom3() {
@@ -601,7 +614,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "error_message: \"placeholder\"\n" +
         "type: CUSTOM\n" +
         "java_class: \"com.google.javascript.jscomp.CheckConformanceTest\"\n" +
-        "");
+        "",
+        true /* error */);
   }
 
   // A custom rule missing a callable constructor.
@@ -678,7 +692,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "type: CUSTOM\n" +
         "java_class: \"com.google.javascript.jscomp.CheckConformanceTest$" +
         "CustomRuleMissingPublicConstructor\"\n" +
-        "");
+        "",
+        true /* error */);
   }
 
 
@@ -700,7 +715,8 @@ public class CheckConformanceTest extends CompilerTestCase {
         "error_message: \"placeholder\"\n" +
         "type: CUSTOM\n" +
         "java_class: \"com.google.javascript.jscomp.CheckConformanceTest$CustomRule\"\n" +
-        "");
+        "",
+        true /* error */);
   }
 
   public void testCustom6() {
@@ -732,5 +748,120 @@ public class CheckConformanceTest extends CompilerTestCase {
         "anything;",
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: CustomRule Message");
+  }
+
+  public void testCustomBanExpose() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanExpose'\n" +
+        "  error_message: 'BanExpose Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "/** @expose */ var x;",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanExpose Message");
+  }
+
+  public void testCustomRestrictThrow1() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanThrowOfNonErrorTypes'\n" +
+        "  error_message: 'BanThrowOfNonErrorTypes Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "throw 'blah';",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanThrowOfNonErrorTypes Message");
+  }
+
+  public void testCustomRestrictThrow2() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanThrowOfNonErrorTypes'\n" +
+        "  error_message: 'BanThrowOfNonErrorTypes Message'\n" +
+        "}";
+
+    testSame("throw new Error('test');");
+  }
+
+  public void testCustomBanUnknownThis1() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanUnknownThis'\n" +
+        "  error_message: 'BanUnknownThis Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "function f() {alert(this);}",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanUnknownThis Message");
+  }
+
+  // TODO(johnlenz): add a unit test for templated "this" values.
+
+  public void testCustomBanUnknownThis2() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanUnknownThis'\n" +
+        "  error_message: 'BanUnknownThis Message'\n" +
+        "}";
+
+    testSame(
+        "/** @constructor */ function C() {alert(this);}");
+  }
+
+  public void testCustomBanUnknownThis3() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanUnknownThis'\n" +
+        "  error_message: 'BanUnknownThis Message'\n" +
+        "}";
+
+    testSame(
+        "function f() {alert(/** @type {Error} */(this));}");
+  }
+
+  public void testCustomBanGlobalVars1() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanGlobalVars'\n" +
+        "  error_message: 'BanGlobalVars Message'\n" +
+        "}";
+
+    testSame(
+        EXTERNS,
+        "var x;",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanGlobalVars Message");
+
+    testSame(
+        EXTERNS,
+        "function fn() {}",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanGlobalVars Message");
+
+    testSame(
+        "goog.provide('x');");
+
+
+    // TODO(johnlenz): This might be overly conservative but doing otherwise is more complicated
+    // so let see if we can get away with this.
+    testSame(
+        EXTERNS,
+        "goog.provide('x'); var x;",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanGlobalVars Message");
   }
 }

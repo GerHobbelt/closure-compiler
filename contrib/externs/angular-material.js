@@ -19,3 +19,98 @@
  * @fileoverview an @externs file for the Angular Material library
  *
  */
+
+
+/**
+ * @const {Object}
+ */
+var md = {};
+
+
+/******************************************************************************
+ * $dialog Service
+ *****************************************************************************/
+
+
+/** @constructor */
+md.$dialog = function() {};
+
+
+/**
+ * @typedef {{
+ *   templateUrl: (string|undefined),
+ *   template: (string|undefined),
+ *   targetEvent: (Object|undefined),
+ *   hasBackdrop: (boolean|undefined),
+ *   clickOutsideToClose: (boolean|undefined),
+ *   escapeToClose: (boolean|undefined),
+ *   controller: (Function|string|undefined),
+ *   locals: (Object|undefined),
+ *   resolve: (Object|undefined),
+ *   controllerAs: (string|undefined),
+ *   parent: (Element|undefined)
+ * }}
+ */
+md.$dialog.options;
+
+
+/**
+ * @param {md.$dialog.options} options
+ * @return {angular.$q.Promise}
+ */
+md.$dialog.prototype.show = function(options) {};
+
+
+/**
+ * @type {function(*)}
+ */
+md.$dialog.prototype.hide = function() {};
+
+
+/**
+ * @type {function(*)}
+ */
+md.$dialog.prototype.cancel = function() {};
+
+
+/******************************************************************************
+ * $toast Service
+ *****************************************************************************/
+
+
+/** @constructor */
+md.$toast = function() {};
+
+
+/**
+ * @typedef {{
+ *   templateUrl: (string|undefined),
+ *   template: (string|undefined),
+ *   hideDelay: (number|undefined),
+ *   position: (string|undefined),
+ *   controller: (Function|string|undefined),
+ *   locals: (Object|undefined),
+ *   resolve: (Object|undefined),
+ *   controllerAs: (string|undefined)
+ * }}
+ */
+md.$toast.options;
+
+
+/**
+ * @param {md.$toast.options} options
+ * @return {angular.$q.Promise}
+ */
+md.$toast.prototype.show = function(options) {};
+
+
+/**
+ * @type {function(*)}
+ */
+md.$toast.prototype.hide = function() {};
+
+
+/**
+ * @type {function(*)}
+ */
+md.$toast.prototype.cancel = function() {};

@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
@@ -58,6 +57,7 @@ public class ObjectType implements TypeWithProperties {
       ObjectKind objectKind) {
     Preconditions.checkArgument(fn == null || fn.isLoose() == isLoose,
         "isLoose: %s, fn: %s", isLoose, fn);
+    Preconditions.checkArgument(FunctionType.isInhabitable(fn));
     Preconditions.checkArgument(nominalType == null || !isLoose);
     Preconditions.checkArgument(nominalType == null || fn == null,
         "Cannot create object of %s that is callable", nominalType);
@@ -73,7 +73,7 @@ public class ObjectType implements TypeWithProperties {
       boolean isLoose, ObjectKind ok) {
     if (props == null) {
       props = PersistentMap.create();
-    } else if (containsBottomProp(props)) {
+    } else if (containsBottomProp(props) || !FunctionType.isInhabitable(fn)) {
       return BOTTOM_OBJECT;
     }
     return new ObjectType(nominalType, props, fn, isLoose, ok);
@@ -113,12 +113,7 @@ public class ObjectType implements TypeWithProperties {
         return true;
       }
     }
-    // TODO(dimvar): do we need a stricter check for functions?
     return false;
-  }
-
-  boolean isRecordType() {
-    return nominalType == null && fn == null && !isLoose;
   }
 
   boolean isStruct() {
@@ -542,6 +537,9 @@ public class ObjectType implements TypeWithProperties {
     NominalType resultNominalType =
         NominalType.pickSubclass(obj1.nominalType, obj2.nominalType);
     FunctionType fn = FunctionType.meet(obj1.fn, obj2.fn);
+    if (!FunctionType.isInhabitable(fn)) {
+      return BOTTOM_OBJECT;
+    }
     boolean isLoose = obj1.isLoose && obj2.isLoose ||
         fn != null && fn.isLoose();
     PersistentMap<String, Property> props;
@@ -633,18 +631,17 @@ public class ObjectType implements TypeWithProperties {
     return c1.isSubclassOf(c2) || c2.isSubclassOf(c1);
   }
 
+  // TODO(dimvar): handle greatest lower bound of interface types.
+  // If we do that, we need to normalize the output, otherwise it could contain
+  // two object types that are in a subtype relation, eg, see
+  // NewTypeInferenceTest#testDifficultObjectSpecialization.
   static ImmutableSet<ObjectType> meetSetsHelper(
       boolean specializeObjs1,
       Set<ObjectType> objs1, Set<ObjectType> objs2) {
-    // TODO(dimvar): handle greatest lower bound of interface types
     if (objs1 == null || objs2 == null) {
       return null;
     }
     ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
-    // This algorithm is a bit suspect since the behavior is not deterministic.
-    // e.g. The results for both of the following depend on iteration order:
-    // MEET[ {noNom1, Foo} ,  {noNom2, Bar} ]
-    // MEET[ {Super} ,  {Sub1, Sub2} ]
     for (ObjectType obj2 : objs2) {
       for (ObjectType obj1 : objs1) {
         // TODO(blickly): Add nominal type for functions (Function) and rethink
@@ -660,15 +657,12 @@ public class ObjectType implements TypeWithProperties {
             newObj = meet(obj1, obj2);
           }
           newObjs.add(newObj);
-          break;
         }
       }
     }
     return newObjs.build();
   }
 
-  // This is never called from NewTypeInferenceTest
-  @VisibleForTesting
   static ImmutableSet<ObjectType> meetSets(
       Set<ObjectType> objs1, Set<ObjectType> objs2) {
     return meetSetsHelper(false, objs1, objs2);

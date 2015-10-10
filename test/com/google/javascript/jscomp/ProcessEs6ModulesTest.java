@@ -23,6 +23,7 @@ import com.google.javascript.rhino.Node;
 /**
  * Unit tests for {@link ProcessEs6Modules}
  */
+
 public class ProcessEs6ModulesTest extends CompilerTestCase {
 
   public ProcessEs6ModulesTest() {
@@ -76,6 +77,11 @@ public class ProcessEs6ModulesTest extends CompilerTestCase {
         "goog.require('module$test.x');",
         "goog.require('module$test');"
     ));
+  }
+
+  public void testImportStar() {
+    test("import * as name from 'test'; use(name.foo);",
+        "goog.require('module$test'); use(module$test.foo)");
   }
 
   public void testExport() {

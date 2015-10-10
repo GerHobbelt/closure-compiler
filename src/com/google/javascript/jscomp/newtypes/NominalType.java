@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 
 import java.util.HashMap;
@@ -69,6 +70,10 @@ public class NominalType {
 
   public boolean isDict() {
     return rawType.isDict();
+  }
+
+  public boolean isUninstantiatedGenericType() {
+    return rawType.isGeneric() && typeMap.isEmpty();
   }
 
   NominalType instantiateGenerics(List<JSType> types) {
@@ -152,6 +157,15 @@ public class NominalType {
   }
 
   Property getProp(String pname) {
+    if (rawType.name.equals("Array")
+        && NUMERIC_PATTERN.matcher(pname).matches()) {
+      if (typeMap.isEmpty()) {
+        return Property.make(JSType.UNKNOWN, null);
+      }
+      Preconditions.checkState(typeMap.size() == 1);
+      JSType elmType = Iterables.getOnlyElement(typeMap.values());
+      return Property.make(elmType, null);
+    }
     Property p = rawType.getProp(pname);
     return p == null ? null : p.substituteGenerics(typeMap);
   }
@@ -197,19 +211,7 @@ public class NominalType {
     // interface <: interface
     if (rawType.isInterface && otherRawType.isInterface) {
       if (rawType.equals(otherRawType)) {
-        if (!typeMap.isEmpty()) {
-          for (String typeVar : rawType.getTypeParameters()) {
-            Preconditions.checkState(other.typeMap.containsKey(typeVar),
-                "Other (%s) doesn't contain mapping (%s->%s) from this (%s)",
-                other, typeVar, typeMap.get(typeVar), this);
-            if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
-              return false;
-            }
-          }
-        } else if (!other.typeMap.isEmpty()) {
-          return false;
-        }
-        return true;
+        return areTypeParametersSubtypes(other);
       } else if (rawType.interfaces == null) {
         return false;
       } else {
@@ -224,27 +226,51 @@ public class NominalType {
 
     // class <: class
     if (rawType.equals(otherRawType)) {
-      if (!typeMap.isEmpty()) {
-        for (String typeVar : rawType.getTypeParameters()) {
-          Preconditions.checkState(typeMap.containsKey(typeVar),
-              "Type variable %s not in the domain: %s",
-              typeVar, typeMap.keySet());
-          JSType otherType = other.typeMap.containsKey(typeVar)
-              ? other.typeMap.get(typeVar) : JSType.fromTypeVar(typeVar);
-          if (!typeMap.get(typeVar).isSubtypeOf(otherType)) {
-            return false;
-          }
-        }
-      } else if (!other.typeMap.isEmpty()) {
-        return false;
-      }
-      return true;
+      return areTypeParametersSubtypes(other);
     } else if (rawType.superClass == null) {
       return false;
     } else {
       return rawType.superClass.instantiateGenerics(typeMap)
           .isSubclassOf(other);
     }
+  }
+
+  private boolean areTypeParametersSubtypes(NominalType other) {
+    Preconditions.checkState(rawType.equals(other.rawType));
+    if (typeMap.isEmpty()) {
+      return other.instantiationIsUnknownOrIdentity();
+    }
+    if (other.typeMap.isEmpty()) {
+      return instantiationIsUnknownOrIdentity();
+    }
+    for (String typeVar : rawType.getTypeParameters()) {
+      Preconditions.checkState(typeMap.containsKey(typeVar),
+          "Type variable %s not in the domain: %s",
+          typeVar, typeMap.keySet());
+      Preconditions.checkState(other.typeMap.containsKey(typeVar),
+          "Other (%s) doesn't contain mapping (%s->%s) from this (%s)",
+          other, typeVar, typeMap.get(typeVar), this);
+      if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean instantiationIsUnknownOrIdentity() {
+    if (this.typeMap.isEmpty()) {
+      return true;
+    }
+    for (String typeVar : this.rawType.getTypeParameters()) {
+      Preconditions.checkState(this.typeMap.containsKey(typeVar),
+          "Type variable %s not in the domain: %s",
+          typeVar, this.typeMap.keySet());
+      JSType t = this.typeMap.get(typeVar);
+      if (!t.isUnknown() && !t.equals(JSType.fromTypeVar(typeVar))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // A special-case of join
@@ -497,16 +523,6 @@ public class NominalType {
       Property p = getOwnProp(pname);
       if (p != null) {
         return p;
-      } else if ("Array".equals(name)
-          && NUMERIC_PATTERN.matcher(pname).matches()) {
-        if (typeParameters.isEmpty()) {
-          // This case is only needed when the externs are not templated
-          return Property.make(JSType.UNKNOWN, null);
-        }
-        Preconditions.checkState(typeParameters.size() == 1);
-        Preconditions.checkState(typeParameters.get(0).equals("T"));
-        JSType arrayElementType = JSType.fromTypeVar("T");
-        return Property.make(arrayElementType, arrayElementType);
       }
       if (superClass != null) {
         p = superClass.getProp(pname);

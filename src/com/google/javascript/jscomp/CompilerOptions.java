@@ -375,6 +375,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Removes unused member properties */
   public boolean removeUnusedClassProperties;
 
+  /** Removes unused constructor properties */
+  boolean removeUnusedConstructorProperties;
+
   /** Removes unused variables */
   public boolean removeUnusedVars;
 
@@ -1004,6 +1007,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     removeUnusedPrototypeProperties = false;
     removeUnusedPrototypePropertiesInExterns = false;
     removeUnusedClassProperties = false;
+    removeUnusedConstructorProperties = false;
     removeUnusedVars = false;
     removeUnusedLocalVars = false;
     aliasExternals = false;
@@ -1116,6 +1120,21 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   public void setRemoveUnusedClassProperties(boolean removeUnusedClassProperties) {
     this.removeUnusedClassProperties = removeUnusedClassProperties;
+  }
+
+  /**
+   * @return Whether to attempt to remove unused constructor properties
+   */
+  public boolean isRemoveUnusedConstructorProperties() {
+    return removeUnusedConstructorProperties;
+  }
+
+  /**
+   * @param removeUnused Whether to attempt to remove
+   *      unused constructor properties
+   */
+  public void setRemoveUnusedConstructorProperties(boolean removeUnused) {
+    this.removeUnusedConstructorProperties = removeUnused;
   }
 
   /**

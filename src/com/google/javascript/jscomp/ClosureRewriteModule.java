@@ -152,8 +152,7 @@ public class ClosureRewriteModule
       return;
     }
 
-    Node replacement = NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(), namespace.getString());
+    Node replacement = NodeUtil.newQName(compiler, namespace.getString());
     replacement.srcrefTree(namespace);
 
     n.getParent().replaceChild(n, replacement);
@@ -208,6 +207,17 @@ public class ClosureRewriteModule
           current.moduleScope = t.getScope();
         }
         break;
+
+      case Token.EXPR_RESULT:
+        if (n.getFirstChild().isCall()) {
+          Node target = n.getFirstChild().getFirstChild();
+          if (target.matchesQualifiedName(
+              "goog.module.declareLegacyNamespace")) {
+            n.detachFromParent();
+          }
+        }
+        break;
+
       case Token.CALL:
         Node first = n.getFirstChild();
         if (first.matchesQualifiedName("goog.module")) {
@@ -221,8 +231,7 @@ public class ClosureRewriteModule
 
       case Token.NAME:
         if (n.getString().equals("exports")) {
-          Node replacement = NodeUtil.newQualifiedNameNode(
-              compiler.getCodingConvention(), current.moduleNamespace);
+          Node replacement = NodeUtil.newQName(compiler, current.moduleNamespace);
           replacement.srcrefTree(n);
           parent.replaceChild(n, replacement);
         }
@@ -289,9 +298,7 @@ public class ClosureRewriteModule
 
     // replace the goog.require statementment with a reference to the
     // namespace.
-    Node replacement = NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(), namespace)
-        .srcrefTree(call);
+    Node replacement = NodeUtil.newQName(compiler, namespace).srcrefTree(call);
     call.getParent().replaceChild(call, replacement);
 
     // readd the goog.require statement
@@ -405,6 +412,9 @@ public class ClosureRewriteModule
   }
 
   private boolean isHeaderNode(Node n) {
+    if (n.isEmpty()) {
+      return true;
+    }
     if (NodeUtil.isExprCall(n)) {
       Node target = n.getFirstChild().getFirstChild();
       return (

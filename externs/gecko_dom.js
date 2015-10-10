@@ -73,12 +73,6 @@ Window.prototype.dialogArguments;
 Window.prototype.directories;
 
 /**
- * @type {!Document}
- * @see https://developer.mozilla.org/en/DOM/window.document
- */
-Window.prototype.document;
-
-/**
  * @type {HTMLObjectElement|HTMLIFrameElement|null}
  * @see https://developer.mozilla.org/en/DOM/window.frameElement
  */
@@ -228,6 +222,7 @@ Window.prototype.alert = function(message) {};
  * Decodes a string of data which has been encoded using base-64 encoding.
  *
  * @param {string} encodedData
+ * @return {string}
  * @see https://developer.mozilla.org/en/DOM/window.atob
  * @nosideeffects
  */
@@ -249,18 +244,6 @@ Window.prototype.btoa = function(stringToEncode) {};
 
 /** @deprecated */
 Window.prototype.captureEvents;
-
-/**
- * @param {number|undefined?} intervalID
- * @see https://developer.mozilla.org/en/DOM/window.clearInterval
- */
-Window.prototype.clearInterval = function(intervalID) {};
-
-/**
- * @param {number|undefined?} timeoutID
- * @see https://developer.mozilla.org/en/DOM/window.clearTimeout
- */
-Window.prototype.clearTimeout = function(timeoutID) {};
 
 /** @see https://developer.mozilla.org/en/DOM/window.close */
 Window.prototype.close = function() {};

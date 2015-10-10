@@ -492,7 +492,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
           throw new FlagUsageException("Bundle files cannot be generated " +
               "when the input is from stdin.");
         }
-        inputs.add(SourceFile.fromInputStream("stdin", System.in));
+        inputs.add(SourceFile.fromInputStream("stdin", System.in, inputCharset));
         usingStdin = true;
       }
     }
@@ -826,6 +826,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       List<SourceFile> inputs = createSourceInputs(jsFiles);
       if (config.skipNormalOutputs) {
         compiler.init(externs, inputs, options);
+        compiler.hoistExterns();
       } else {
         result = compiler.compile(externs, inputs, options);
       }

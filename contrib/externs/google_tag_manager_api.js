@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 The Closure Compiler Authors.
+ * Copyright 2010 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,19 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.javascript.jscomp.parsing;
 
 /**
- * Represents a JavaScript comment.
+ * @fileoverview Externs used by Google Tag Manager which
+ * the Closure compiler needs to be aware of during minification.
  */
-public interface Comment {
-  public boolean isJsDoc();
 
-  public int getAbsolutePosition();
-
-  public int getLine();
-
-  public int getLength();
-
-  public String getText();
-}
+// Google Tag Manager
+var google_tag_manager;

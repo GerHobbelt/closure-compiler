@@ -253,17 +253,8 @@ public abstract class JSType {
     return getObjs() != null || EnumType.hasNonScalar(getEnums());
   }
 
-  public boolean isNullable() {
-    return (getMask() & NULL_MASK) != 0;
-  }
-
   boolean isTypeVariable() {
     return (getMask() & TYPEVAR_MASK) != 0 && (getMask() & ~TYPEVAR_MASK) == 0;
-  }
-
-  public boolean isRecordType() {
-    return getMask() == NON_SCALAR_MASK && getObjs().size() == 1
-        && Iterables.getOnlyElement(getObjs()).isRecordType();
   }
 
   public boolean isStruct() {
@@ -881,7 +872,8 @@ public abstract class JSType {
     if (isBottom() || isUnknown()) {
       return UNKNOWN;
     }
-    Preconditions.checkState(getObjs() != null || getEnums() != null);
+    Preconditions.checkState(getObjs() != null || getEnums() != null,
+        "Can't getProp of type %s", this);
     return nullAcceptingJoin(
         TypeWithPropertiesStatics.getProp(getObjs(), qname),
         TypeWithPropertiesStatics.getProp(getEnums(), qname));

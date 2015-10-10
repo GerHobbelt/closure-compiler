@@ -168,13 +168,8 @@ public class Parser {
 
   // ImportDeclaration
   // ExportDeclaration
-  // ModuleDeclaration
   // SourceElement
   private ParseTree parseScriptElement() {
-    if (peekModuleDeclaration()) {
-      return parseModuleDeclaration();
-    }
-
     if (peekImportDeclaration()) {
       return parseImportDeclaration();
     }
@@ -184,26 +179,6 @@ public class Parser {
     }
 
     return parseSourceElement();
-  }
-
-  // module [no LineTerminator here] indentifier from stringliteral ;
-  // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-imports
-  private boolean peekModuleDefinition() {
-    return peekPredefinedString(PredefinedName.MODULE)
-        && !peekImplicitSemiColon(1)
-        && peekId(1)
-        && peekPredefinedString(2, PredefinedName.FROM)
-        && peek(3, TokenType.STRING);
-  }
-
-  private ParseTree parseModuleDefinition() {
-    SourcePosition start = getTreeStartLocation();
-    eatPredefinedString(PredefinedName.MODULE);
-    IdentifierToken name = eatId();
-    eatPredefinedString(PredefinedName.FROM);
-    LiteralToken moduleSpecifier = eat(TokenType.STRING).asLiteral();
-    eatPossibleImplicitSemiColon();
-    return new ModuleImportTree(getTreeLocation(start), name, moduleSpecifier);
   }
 
   // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-imports
@@ -221,31 +196,47 @@ public class Parser {
       eatPossibleImplicitSemiColon();
 
       return new ImportDeclarationTree(
-          getTreeLocation(start), null, null, moduleSpecifier);
+          getTreeLocation(start), null, null, null, moduleSpecifier);
     }
 
-    // import DefaultBinding , ImportSpecifierSet from ModuleSpecifier ;
-    // import DefaultBinding from ModuleSpecifier ;
-    // import ImportSpecifierSet from ModuleSpecifier ;
+    // import ImportedDefaultBinding from ModuleSpecifier
+    // import NameSpaceImport from ModuleSpecifier
+    // import NamedImports from ModuleSpecifier ;
+    // import ImportedDefaultBinding , NameSpaceImport from ModuleSpecifier ;
+    // import ImportedDefaultBinding , NamedImports from ModuleSpecifier ;
     IdentifierToken defaultBindingIdentifier = null;
+    IdentifierToken nameSpaceImportIdentifier = null;
     ImmutableList<ParseTree> identifierSet = null;
+
+    boolean parseExplicitNames = true;
     if (peekId()) {
       defaultBindingIdentifier = eatId();
       if (peek(TokenType.COMMA)) {
         eat(TokenType.COMMA);
+      } else {
+        parseExplicitNames = false;
+      }
+    }
+
+    if (parseExplicitNames) {
+      if (peek(TokenType.STAR)) {
+        eat(TokenType.STAR);
+        eatPredefinedString(PredefinedName.AS);
+        nameSpaceImportIdentifier = eatId();
+      } else {
         identifierSet = parseImportSpecifierSet();
       }
-    } else if (peek(TokenType.OPEN_CURLY)) {
-      identifierSet = parseImportSpecifierSet();
     }
 
     eatPredefinedString(PredefinedName.FROM);
-    LiteralToken moduleSpecifier = eat(TokenType.STRING).asLiteral();
+    Token moduleStr = eat(TokenType.STRING);
+    LiteralToken moduleSpecifier = (moduleStr == null)
+        ? null : moduleStr.asLiteral();
     eatPossibleImplicitSemiColon();
 
     return new ImportDeclarationTree(
         getTreeLocation(start),
-        defaultBindingIdentifier, identifierSet, moduleSpecifier);
+        defaultBindingIdentifier, identifierSet, nameSpaceImportIdentifier, moduleSpecifier);
   }
 
   //  ImportSpecifierSet ::= '{' (ImportSpecifier (',' ImportSpecifier)* (,)? )?  '}'
@@ -384,15 +375,6 @@ public class Parser {
     }
     return new ExportSpecifierTree(
         getTreeLocation(start), importedName, destinationName);
-  }
-
-  // ModuleDefinition
-  private boolean peekModuleDeclaration() {
-    return peekModuleDefinition();
-  }
-
-  private ParseTree parseModuleDeclaration() {
-    return parseModuleDefinition();
   }
 
   private boolean peekClassDeclaration() {
@@ -1050,8 +1032,8 @@ public class Parser {
 
   /** Checks variable declaration in variable and for statements. */
   private void checkInitializers(VariableDeclarationListTree variables) {
-    if (variables.declarationType == TokenType.LET ||
-        variables.declarationType == TokenType.CONST) {
+    if (variables.declarationType == TokenType.LET
+        || variables.declarationType == TokenType.CONST) {
       for (VariableDeclarationTree declaration : variables.declarations) {
         if (declaration.initializer == null) {
           reportError("let/const in for statement must have an initializer");
@@ -1219,7 +1201,9 @@ public class Parser {
     SourcePosition start = getTreeStartLocation();
     eat(TokenType.THROW);
     ParseTree value = null;
-    if (!peekImplicitSemiColon()) {
+    if (peekImplicitSemiColon()) {
+      reportError("semicolon/newline not allowed after 'throw'");
+    } else {
       value = parseExpression();
     }
     eatPossibleImplicitSemiColon();
@@ -2265,25 +2249,8 @@ public class Parser {
     return parseAssignmentExpression();
   }
 
-  // Destructuring; see
+  // Destructuring (aka pattern matching); see
   // http://wiki.ecmascript.org/doku.php?id=harmony:destructuring
-  //
-  // SpiderMonkey is much more liberal in where it allows
-  // parenthesized patterns, for example, it allows [x, ([y, z])] but
-  // those inner parentheses aren't allowed in the grammar on the ES
-  // wiki. This implementation conservatively only allows parentheses
-  // at the top-level of assignment statements.
-  //
-  // Rhino has some destructuring support, but it lags SpiderMonkey;
-  // for example, Rhino crashes parsing ({x: f().foo}) = {x: 123}.
-
-  // TODO: implement numbers and strings as labels in object destructuring
-  // TODO: implement destructuring bind in formal parameter lists
-  // TODO: implement destructuring bind in catch headers
-  // TODO: implement destructuring bind in for-in when iterators are
-  // supported
-  // TODO: implement destructuring bind in let bindings when let
-  // bindings are supported
 
   // Kinds of destructuring patterns
   private enum PatternKind {
@@ -2555,19 +2522,6 @@ public class Parser {
         || peek(TokenType.SEMI_COLON)
         || peek(TokenType.CLOSE_CURLY)
         || peek(TokenType.END_OF_FILE);
-  }
-
-  /**
-   * Returns true if an implicit or explicit semi colon is at the current location.
-   */
-  private boolean peekImplicitSemiColon(int lookahead) {
-    int last = (lookahead == 0) ? getLastLine() :
-      peekToken(lookahead - 1).location.end.line;
-    int next = peekToken(lookahead).location.start.line;
-    return next > last
-        || peek(lookahead, TokenType.SEMI_COLON)
-        || peek(lookahead, TokenType.CLOSE_CURLY)
-        || peek(lookahead, TokenType.END_OF_FILE);
   }
 
   /**

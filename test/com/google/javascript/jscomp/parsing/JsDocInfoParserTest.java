@@ -22,7 +22,6 @@ import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.ParserRunner.ParseResult;
-import com.google.javascript.jscomp.testing.TestErrorReporter;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfo.Marker;
@@ -36,6 +35,7 @@ import com.google.javascript.rhino.jstype.SimpleSourceFile;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 import com.google.javascript.rhino.jstype.TemplateType;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
+import com.google.javascript.rhino.testing.TestErrorReporter;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -248,6 +248,12 @@ public class JsDocInfoParserTest extends BaseJSTypeTestCase {
 
   public void testParseUndefinedType3() throws Exception {
     assertTypeEquals(VOID_TYPE, parse("@type {void}*/").getType());
+  }
+
+  public void testParseTemplatizedTypeAlternateSyntax() throws Exception {
+    JSDocInfo info = parse("@type !Array<number> */");
+    assertTypeEquals(
+        createTemplatizedType(ARRAY_TYPE, NUMBER_TYPE), info.getType());
   }
 
   public void testParseTemplatizedType1() throws Exception {
@@ -1310,7 +1316,7 @@ public class JsDocInfoParserTest extends BaseJSTypeTestCase {
   public void testParseDesc9() throws Exception {
     String comment = "@desc\n.\n,\n{\n)\n}\n|\n.<\n>\n<\n?\n~\n+\n-\n;\n:\n*/";
 
-    assertEquals(". , { ) } | .< > < ? ~ + - ; :",
+    assertEquals(". , { ) } | < > < ? ~ + - ; :",
         parse(comment).getDescription());
   }
 
@@ -2822,6 +2828,26 @@ public class JsDocInfoParserTest extends BaseJSTypeTestCase {
   public void testConstType() throws Exception {
     JSDocInfo jsdoc = parse("@const {string} */");
     assertTypeEquals(STRING_TYPE, jsdoc.getType());
+  }
+
+  public void testExportType() throws Exception {
+    JSDocInfo jsdoc = parse("@export {string} descr\n next line */", true);
+    assertTypeEquals(STRING_TYPE, jsdoc.getType());
+
+    assertTrue(jsdoc.isExport());
+
+    Marker defineMarker = jsdoc.getMarkers().iterator().next();
+    assertEquals("export", defineMarker.getAnnotation().getItem());
+    assertTrue(defineMarker.getDescription().getItem().contains("descr"));
+    assertTrue(defineMarker.getDescription().getItem().contains("next line"));
+  }
+
+  public void testMixedVisibility() throws Exception {
+    parse("@public @private */", "extra visibility tag");
+    parse("@public @protected */", "extra visibility tag");
+    parse("@export @protected */", "extra visibility tag");
+    parse("@export {string}\n * @private */", "extra visibility tag");
+    parse("@export {string}\n * @public */", "extra visibility tag");
   }
 
   public void testStableIdGeneratorConflict() throws Exception {

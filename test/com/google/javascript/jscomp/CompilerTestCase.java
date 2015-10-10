@@ -64,6 +64,9 @@ public abstract class CompilerTestCase extends TestCase  {
   /** True iff closure pass runs before pass being tested. */
   private boolean closurePassEnabled = false;
 
+  /** Whether the closure pass is run on the expected JS. */
+  private boolean closurePassEnabledForExpected = false;
+
   /** True iff type checking pass runs before pass being tested. */
   private boolean typeCheckEnabled = false;
 
@@ -303,6 +306,10 @@ public abstract class CompilerTestCase extends TestCase  {
   // TODO(nicksantos): Fix other passes to use this when appropriate.
   void enableClosurePass() {
     closurePassEnabled = true;
+  }
+
+  void enableClosurePassForExpected() {
+    closurePassEnabledForExpected = true;
   }
 
   /**
@@ -817,9 +824,29 @@ public abstract class CompilerTestCase extends TestCase  {
    */
   public void testSame(String externs, String js, DiagnosticType warning,
                        String description) {
+    testSame(externs, js, warning, description, false);
+  }
+
+  /**
+   * Verifies that the compiler pass's JS output is the same as its input
+   * and (optionally) that an expected warning and description is issued.
+   *
+   * @param externs Externs input
+   * @param js Input and output
+   * @param warning Expected warning, or null if no warning is expected
+   * @param description The description of the expected warning,
+   *      or null if no warning is expected or if the warning's description
+   *      should not be examined
+   */
+  public void testSame(String externs, String js, DiagnosticType type,
+                       String description, boolean error) {
     List<SourceFile> externsInputs = ImmutableList.of(
         SourceFile.fromCode("externs", externs));
-    test(externsInputs, js, js, null, warning, description);
+    if (error) {
+      test(externsInputs, js, js, type, null, description);
+    } else {
+      test(externsInputs, js, js, null, type, description);
+    }
   }
 
   /**
@@ -1249,6 +1276,11 @@ public abstract class CompilerTestCase extends TestCase  {
     if (normalizeEnabled && normalizeExpected && !compiler.hasErrors()) {
       Normalize normalize = new Normalize(compiler, false);
       normalize.process(externsRoot, mainRoot);
+    }
+
+    if (closurePassEnabled && closurePassEnabledForExpected && !compiler.hasErrors()) {
+      new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
+          .process(null, mainRoot);
     }
     return mainRoot;
   }

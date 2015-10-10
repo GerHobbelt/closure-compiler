@@ -67,7 +67,8 @@ public final class RefasterJsScanner extends Scanner {
   public void loadRefasterJsTemplate(String refasterjsTemplate) throws IOException  {
     Preconditions.checkState(
         templateJs == null, "Can't load RefasterJs template since a template is already loaded.");
-    this.templateJs = RefasterJsScanner.class.getResource(refasterjsTemplate) != null
+    this.templateJs =
+        Thread.currentThread().getContextClassLoader().getResource(refasterjsTemplate) != null
         ? Resources.toString(Resources.getResource(refasterjsTemplate), UTF_8)
         : Files.toString(new File(refasterjsTemplate), UTF_8);
   }
@@ -167,7 +168,8 @@ public final class RefasterJsScanner extends Scanner {
   void initialize(AbstractCompiler compiler) throws Exception {
     Preconditions.checkState(
         !Strings.isNullOrEmpty(templateJs),
-        "The template JS must be loaded before the scanner is used.");
+        "The template JS must be loaded before the scanner is used. "
+        + "Make sure that the template file is not empty.");
     Node scriptRoot = new JsAst(SourceFile.fromCode(
         "template", templateJs)).getAstRoot(compiler);
 
@@ -197,13 +199,15 @@ public final class RefasterJsScanner extends Scanner {
 
     Preconditions.checkState(
         !beforeTemplates.isEmpty(),
-        "Did not find any RefasterJs templates!");
+        "Did not find any RefasterJs templates! Make sure that there are 2 functions defined "
+        + "with the same name, one with a \"before_\" prefix and one with a \"after_\" prefix");
 
     ImmutableList.Builder<RefasterJsTemplate> builder = ImmutableList.builder();
     for (String templateName : beforeTemplates.keySet()) {
       Preconditions.checkState(
           afterTemplates.containsKey(templateName),
-          "Found before template without a corresponding after template: %s", templateName);
+          "Found before template without a corresponding after template. Make sure there is an "
+          + "after_%s function defined.", templateName);
       builder.add(new RefasterJsTemplate(compiler,
           beforeTemplates.get(templateName), afterTemplates.get(templateName)));
     }

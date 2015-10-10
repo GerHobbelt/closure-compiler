@@ -1160,6 +1160,161 @@ chrome.commands.onCommand;
 
 
 /**
+ * @see https://developer.chrome.com/apps/copresence
+ * @const
+ */
+chrome.copresence = {};
+
+
+/**
+ * @typedef {?{
+ *   lowPower: (boolean|undefined),
+ *   onlyBroadcast: (boolean|undefined),
+ *   onlyScan: (boolean|undefined),
+ *   audible: (boolean|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-Strategy
+ */
+chrome.copresence.Strategy;
+
+
+/**
+ * @typedef {?{
+ *   type: string,
+ *   payload: ArrayBuffer
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-Message
+ */
+chrome.copresence.Message;
+
+
+/**
+ * @typedef {?{
+ *   onlyEarshot: (boolean|undefined)
+ * }}
+ * https://developer.chrome.com/apps/copresence#type-AccessPolicy
+ */
+chrome.copresence.AccessPolicy;
+
+
+/**
+ * @typedef {?{
+ *   id: string,
+ *   message: !chrome.copresence.Message,
+ *   timeToLiveMillis: (number|undefined),
+ *   policy: (!chrome.copresence.AccessPolicy|undefined),
+ *   strategies: (!chrome.copresence.Strategy|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-PublishOperation
+ */
+chrome.copresence.PublishOperation;
+
+
+/** @typedef {?{type: string}} */
+chrome.copresence.SubscriptionFilter;
+
+
+/**
+ * @typedef {?{
+ *   id: string,
+ *   filter: !chrome.copresence.SubscriptionFilter,
+ *   timeToLiveMillis: (number|undefined),
+ *   strategies: (!chrome.copresence.Strategy|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-SubscribeOperation
+ */
+chrome.copresence.SubscribeOperation;
+
+
+/**
+ * @typedef {?{
+ *   unpublishId: string
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-UnpublishOperation
+ */
+chrome.copresence.UnpublishOperation;
+
+
+/**
+ * @typedef {?{
+ *   unsubscribeId: string
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-UnsubscribeOperation
+ */
+chrome.copresence.UnsubscribeOperation;
+
+
+/**
+ * @typedef {?{
+ *   publish: (!chrome.copresence.PublishOperation|undefined),
+ *   subscribe: (!chrome.copresence.SubscribeOperation|undefined),
+ *   unpublish: (!chrome.copresence.UnpublishOperation|undefined),
+ *   unsubscribe: (!chrome.copresence.UnsubscribeOperation|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/copresence#type-Operation
+ */
+chrome.copresence.Operation;
+
+
+/**
+ * @param {!Array.<!chrome.copresence.Operation>} operations
+ * @param {function(string): void} callback
+ * @see https://developer.chrome.com/apps/copresence#method-execute
+ */
+chrome.copresence.execute = function(operations, callback) {};
+
+
+
+/**
+ * Event whose listeners take a subscription id and received messages as a
+ * parameter.
+ * @constructor
+ * @see https://developer.chrome.com/apps/copresence#event-onMessagesReceived
+ */
+chrome.copresence.MessagesReceivedEvent = function() {};
+
+
+/**
+ * @param {function(string, !Array.<!chrome.copresence.Message>): void} callback
+ */
+chrome.copresence.MessagesReceivedEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(string, !Array.<!chrome.copresence.Message>): void} callback
+ */
+chrome.copresence.MessagesReceivedEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(string, !Array.<!chrome.copresence.Message>): void} callback
+ * @return {boolean}
+ */
+chrome.copresence.MessagesReceivedEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.copresence.MessagesReceivedEvent.prototype.hasListeners = function() {};
+
+
+/**
+ * @type {!chrome.copresence.MessagesReceivedEvent}
+ * @see https://developer.chrome.com/apps/copresence#event-onMessagesReceived
+ */
+chrome.copresence.onMessagesReceived;
+
+
+/**
+ * @type {!ChromeStringEvent}
+ * @see https://developer.chrome.com/apps/copresence#event-onStatusUpdated
+ */
+chrome.copresence.onStatusUpdated;
+
+
+/**
  * @see https://developer.chrome.com/extensions/extension.html
  * @const
  */
@@ -2175,7 +2330,7 @@ chrome.bookmarks = {};
 
 /**
  * @typedef {?{
- *   pareintId: (string|undefined),
+ *   parentId: (string|undefined),
  *   index: (number|undefined),
  *   url: (string|undefined),
  *   title: (string|undefined)
@@ -2183,6 +2338,17 @@ chrome.bookmarks = {};
  * @see https://developer.chrome.com/extensions/bookmarks#method-create
  */
 chrome.bookmarks.CreateDetails;
+
+
+/**
+ * @typedef {?{
+ *   query: (string|undefined),
+ *   url: (string|undefined),
+ *   title: (string|undefined)
+ * }}
+ * @see https://developer.chrome.com/extensions/bookmarks#method-search
+ */
+chrome.bookmarks.SearchDetails;
 
 
 /**
@@ -2230,7 +2396,7 @@ chrome.bookmarks.getSubTree = function(id, callback) {};
 
 
 /**
- * @param {string} query
+ * @param {string|!chrome.bookmarks.SearchDetails} query
  * @param {function(Array.<BookmarkTreeNode>): void} callback
  * @return {Array.<BookmarkTreeNode>}
  */
@@ -3043,6 +3209,8 @@ chrome.history.onVisited;
 /**
  * @const
  * @see http://developer.chrome.com/apps/identity.html
+ * TODO: replace TokenDetails, InvalidTokenDetails and
+ *     WebAuthFlowDetails with Object.
  */
 chrome.identity = {};
 
@@ -3081,6 +3249,10 @@ chrome.identity.launchWebAuthFlow = function(details, callback) {};
 
 /** @typedef {{url: string, interactive: (boolean|undefined)}} */
 chrome.identity.WebAuthFlowDetails;
+
+
+/** @param {!function(!Object=):void} callback */
+chrome.identity.getProfileUserInfo = function(callback) {};
 
 
 /** @type {!ChromeEvent} */
@@ -5892,14 +6064,6 @@ chrome.notifications.NotificationOptions;
 
 
 /**
- * @typedef {function(string): void}
- * @see http://developer.chrome.com/extensions/notifications.html#method-create
- * @see http://developer.chrome.com/extensions/notifications.html#event-onClicked
- */
-chrome.notifications.StringCallback;
-
-
-/**
  * @typedef {function(boolean): void}
  * @see http://developer.chrome.com/extensions/notifications.html#method-update
  * @see http://developer.chrome.com/extensions/notifications.html#method-clear
@@ -5931,7 +6095,7 @@ chrome.notifications.ButtonCallback;
 /**
  * @param {string} notificationId
  * @param {!chrome.notifications.NotificationOptions} options
- * @param {!chrome.notifications.StringCallback} callback
+ * @param {function(string): void} callback
  * @see http://developer.chrome.com/extensions/notifications.html#method-create
  */
 chrome.notifications.create = function(notificationId, options, callback) {};
@@ -5963,7 +6127,7 @@ chrome.notifications.getAll = function(callback) {};
 
 /**
  * @see http://developer.chrome.com/extensions/notifications.html#method-getPermissionLevel
- * @param {function(string)} callback takes 'granted' or 'denied'
+ * @param {function(string): void} callback takes 'granted' or 'denied'
  */
 chrome.notifications.getPermissionLevel = function(callback) {};
 
@@ -5976,7 +6140,9 @@ chrome.notifications.onClosed;
 
 
 /**
- * @type {!chrome.notifications.ClickedEvent}
+ * The user clicked a non-button area of the notification. Callback receives a
+ * notificationId.
+ * @type {!ChromeStringEvent}
  * @see http://developer.chrome.com/extensions/notifications.html#event-onClicked
  */
 chrome.notifications.onClicked;
@@ -5987,6 +6153,22 @@ chrome.notifications.onClicked;
  * @see http://developer.chrome.com/extensions/notifications.html#event-onButtonClicked
  */
 chrome.notifications.onButtonClicked;
+
+
+/**
+ * Indicates permission level change. Callback should expect 'granted' or
+ * 'denied'.
+ * @type {!ChromeStringEvent}
+ * @see http://developer.chrome.com/extensions/notifications.html#event-onPermissionLevelChanged
+ */
+chrome.notifications.onPermissionLevelChanged;
+
+
+/**
+ * @type {!ChromeEvent}
+ * @see http://developer.chrome.com/extensions/notifications.html#event-onShowSettings
+ */
+chrome.notifications.onShowSettings;
 
 
 
@@ -6021,40 +6203,6 @@ chrome.notifications.ClosedEvent.prototype.hasListener = function(callback) {};
  * @return {boolean}
  */
 chrome.notifications.ClosedEvent.prototype.hasListeners = function() {};
-
-
-
-/**
- * @interface
- * @see http://developer.chrome.com/extensions/notifications.html#event-onClicked
- */
-chrome.notifications.ClickedEvent = function() {};
-
-
-/**
- * @param {!chrome.notifications.StringCallback} callback
- */
-chrome.notifications.ClickedEvent.prototype.addListener = function(callback) {};
-
-
-/**
- * @param {!chrome.notifications.StringCallback} callback
- */
-chrome.notifications.ClickedEvent.prototype.removeListener =
-    function(callback) {};
-
-
-/**
- * @param {!chrome.notifications.StringCallback} callback
- * @return {boolean}
- */
-chrome.notifications.ClickedEvent.prototype.hasListener = function(callback) {};
-
-
-/**
- * @return {boolean}
- */
-chrome.notifications.ClickedEvent.prototype.hasListeners = function() {};
 
 
 

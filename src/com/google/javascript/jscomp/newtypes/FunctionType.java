@@ -24,6 +24,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -149,15 +150,17 @@ public class FunctionType {
   // We can't represent the theoretical top function, so we special-case
   // TOP_FUNCTION below. However, the outcome is the same; if our top function
   // is ever called, a warning is inevitable.
-  public static final FunctionType TOP_FUNCTION = new FunctionType(
+  static final FunctionType TOP_FUNCTION = new FunctionType(
       // Call the constructor directly to set fields to null
       null, null, null, null, null, null, null, null, false);
-  public static final FunctionType LOOSE_TOP_FUNCTION = new FunctionType(
+  private static final FunctionType LOOSE_TOP_FUNCTION = new FunctionType(
       // Call the constructor directly to set fields to null
       null, null, null, null, null, null, null, null, true);
   // Corresponds to Function, which is a subtype and supertype of all functions.
   static final FunctionType QMARK_FUNCTION = FunctionType.normalized(null,
       null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, null, false);
+  private static final FunctionType BOTTOM_FUNCTION = FunctionType.normalized(
+      null, null, null, JSType.BOTTOM, null, null, null, null, false);
 
   public boolean isTopFunction() {
     if (requiredFormals == null) {
@@ -177,6 +180,10 @@ public class FunctionType {
 
   public boolean isQmarkFunction() {
     return this == QMARK_FUNCTION;
+  }
+
+  static boolean isInhabitable(FunctionType f) {
+    return f != BOTTOM_FUNCTION;
   }
 
   // 0-indexed
@@ -311,18 +318,15 @@ public class FunctionType {
     // us so we can handle looseness correctly.
     Preconditions.checkState(!isLoose && !other.isLoose);
     if (this.isGeneric()) {
-      // This can only happen when typechecking an assignment that "defines" a
-      // polymorphic function, eg,
-      // /**
-      //  * @template {T}
-      //  * @param {T} x
-      //  */
-      // Foo.prototype.method = function(x) {};
-
-      // TODO(dimvar): This also comes up in inheritance of classes with
-      // polymorphic methods; fix for that.
-      return true;
+      if (this.equals(other)) {
+        return true;
+      }
+      // NOTE(dimvar): This is a bug. The code that triggers this should be rare
+      // and the fix is not trivial, so for now we decided to not fix.
+      // See unit tests in NewTypeInferenceTest#testGenericsSubtyping
+      return instantiateGenericsWithUnknown(this).isSubtypeOf(other);
     }
+
     // The subtype must have an equal or smaller number of required formals
     if (requiredFormals.size() > other.requiredFormals.size()) {
       return false;
@@ -422,13 +426,12 @@ public class FunctionType {
     if (other == null ||
         !this.isLoose() && other.isLoose()) {
       return this;
-    } else {
-      FunctionType result = FunctionType.meet(this, other);
-      if (this.isLoose && !result.isLoose()) {
-        result = result.withLoose();
-      }
-      return result;
     }
+    FunctionType result = FunctionType.meet(this, other);
+    if (this.isLoose && !result.isLoose()) {
+      result = result.withLoose();
+    }
+    return result;
   }
 
   static FunctionType meet(FunctionType f1, FunctionType f2) {
@@ -443,6 +446,20 @@ public class FunctionType {
     // War is peace, freedom is slavery, meet is join
     if (f1.isLoose() || f2.isLoose()) {
       return FunctionType.looseJoin(f1, f2);
+    }
+
+    if (f1.isGeneric() && f1.isSubtypeOf(f2)) {
+      return f1;
+    } else if (f2.isGeneric() && f2.isSubtypeOf(f1)) {
+      return f2;
+    }
+
+    // We lose precision for generic funs that are not in a subtype relation.
+    if (f1.isGeneric()) {
+      f1 = instantiateGenericsWithUnknown(f1);
+    }
+    if (f2.isGeneric()) {
+      f2 = instantiateGenericsWithUnknown(f2);
     }
 
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
@@ -463,7 +480,11 @@ public class FunctionType {
       builder.addRestFormals(
           JSType.nullAcceptingJoin(f1.restFormals, f2.restFormals));
     }
-    builder.addRetType(JSType.meet(f1.returnType, f2.returnType));
+    JSType retType = JSType.meet(f1.returnType, f2.returnType);
+    if (retType.isBottom()) {
+      return BOTTOM_FUNCTION;
+    }
+    builder.addRetType(retType);
     // TODO(dimvar): these two are not correct. We should be picking the
     // greatest lower bound of the types if they are incomparable.
     // Eg, this case arises when an interface extends multiple interfaces.
@@ -570,6 +591,17 @@ public class FunctionType {
     }
 
     return returnType.unifyWith(other.returnType, typeParameters, typeMultimap);
+  }
+
+  private static FunctionType instantiateGenericsWithUnknown(FunctionType f) {
+    if (!f.isGeneric()) {
+      return f;
+    }
+    HashMap<String, JSType> tmpTypeMap = new HashMap<>();
+    for (String typeParam : f.typeParameters) {
+      tmpTypeMap.put(typeParam, JSType.UNKNOWN);
+    }
+    return f.instantiateGenerics(tmpTypeMap);
   }
 
   /**
@@ -700,9 +732,10 @@ public class FunctionType {
     Map<String, JSType> typeMap = concreteTypes;
     if (typeParameters != null) {
       ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
-      for (Map.Entry<String, JSType> concreteTypeEntry : concreteTypes.entrySet()) {
+      for (Map.Entry<String, JSType> concreteTypeEntry
+               : concreteTypes.entrySet()) {
         if (!typeParameters.contains(concreteTypeEntry.getKey())) {
-          builder.put(concreteTypeEntry.getKey(), concreteTypeEntry.getValue());
+          builder.put(concreteTypeEntry);
         }
       }
       typeMap = builder.build();
@@ -717,8 +750,11 @@ public class FunctionType {
     return applyInstantiation(false, typeMap);
   }
 
-  public FunctionType instantiateGenericsFromArgumentList(
+  public FunctionType instantiateGenericsFromArgumentTypes(
       List<JSType> argTypes) {
+    if (argTypes.size() < getMinArity() || argTypes.size() > getMaxArity()) {
+      return null;
+    }
     Multimap<String, JSType> typeMultimap = HashMultimap.create();
     for (int i = 0, size = argTypes.size(); i < size; i++) {
       if (!this.getFormalType(i)

@@ -50,7 +50,6 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -100,10 +99,6 @@ class GlobalTypeInfo implements CompilerPass {
       "JSC_UNRECOGNIZED_TYPE_NAME",
       "Type annotation references non-existent type {0}.");
 
-  static final DiagnosticType INTERFACE_WITH_A_BODY = DiagnosticType.warning(
-      "JSC_INTERFACE_WITH_A_BODY",
-      "Interface definitions should have an empty body.");
-
   static final DiagnosticType INHERITANCE_CYCLE = DiagnosticType.warning(
       "JSC_INHERITANCE_CYCLE",
       "Cycle detected in inheritance chain of type {0}");
@@ -112,9 +107,17 @@ class GlobalTypeInfo implements CompilerPass {
       "JSC_DICT_IMPLEMENTS_INTERF",
       "Class {0} is a dict. Dicts can't implement interfaces.");
 
-  static final DiagnosticType CONSTRUCTOR_REQUIRED = DiagnosticType.warning(
-      "JSC_CONSTRUCTOR_REQUIRED",
+  static final DiagnosticType STRUCTDICT_WITHOUT_CTOR = DiagnosticType.warning(
+      "JSC_STRUCTDICT_WITHOUT_CTOR",
       "{0} used without @constructor.");
+
+  static final DiagnosticType EXPECTED_CONSTRUCTOR = DiagnosticType.warning(
+      "JSC_EXPECTED_CONSTRUCTOR",
+      "Expected constructor name but found {0}.");
+
+  static final DiagnosticType EXPECTED_INTERFACE = DiagnosticType.warning(
+      "JSC_EXPECTED_INTERFACE",
+      "Expected interface name but found {0}.");
 
   static final DiagnosticType INEXISTENT_PARAM = DiagnosticType.warning(
       "JSC_INEXISTENT_PARAM",
@@ -133,8 +136,8 @@ class GlobalTypeInfo implements CompilerPass {
   static final DiagnosticType COULD_NOT_INFER_CONST_TYPE =
       DiagnosticType.warning(
           "JSC_COULD_NOT_INFER_CONST_TYPE",
-          "All constants must be typed. The compiler could not infer the type " +
-          "of this constant. Please use an explicit type annotation.");
+          "All constants must be typed. The compiler could not infer the type "
+          + "of this constant. Please use an explicit type annotation.");
 
   static final DiagnosticType MISPLACED_CONST_ANNOTATION =
       DiagnosticType.warning(
@@ -186,24 +189,25 @@ class GlobalTypeInfo implements CompilerPass {
       ANONYMOUS_NOMINAL_TYPE,
       CANNOT_INIT_TYPEDEF,
       CANNOT_OVERRIDE_FINAL_METHOD,
-      CONSTRUCTOR_REQUIRED,
       CONST_WITHOUT_INITIALIZER,
       COULD_NOT_INFER_CONST_TYPE,
       CTOR_IN_DIFFERENT_SCOPE,
       DICT_IMPLEMENTS_INTERF,
       DUPLICATE_JSDOC,
       DUPLICATE_PROP_IN_ENUM,
+      EXPECTED_CONSTRUCTOR,
+      EXPECTED_INTERFACE,
       EXTENDS_NON_OBJECT,
       EXTENDS_NOT_ON_CTOR_OR_INTERF,
       REDECLARED_PROPERTY,
       IMPLEMENTS_WITHOUT_CONSTRUCTOR,
       INEXISTENT_PARAM,
       INHERITANCE_CYCLE,
-      INTERFACE_WITH_A_BODY,
       INVALID_PROP_OVERRIDE,
       LENDS_ON_BAD_TYPE,
       MALFORMED_ENUM,
       MISPLACED_CONST_ANNOTATION,
+      STRUCTDICT_WITHOUT_CTOR,
       UNDECLARED_NAMESPACE,
       UNRECOGNIZED_TYPE_NAME,
       RhinoErrorReporter.BAD_JSDOC_ANNOTATION,
@@ -232,6 +236,7 @@ class GlobalTypeInfo implements CompilerPass {
   private final Map<Node, String> anonFunNames = new HashMap<>();
   private static final String ANON_FUN_PREFIX = "%anon_fun";
   private int freshId = 1;
+  // Only for original definitions, not for aliased constructors
   private Map<Node, RawNominalType> nominaltypesByNode = new HashMap<>();
   // Keyed on RawNominalTypes and property names
   private HashBasedTable<RawNominalType, String, PropertyDef> propertyDefs =
@@ -242,7 +247,7 @@ class GlobalTypeInfo implements CompilerPass {
 
   // Type inference needs to know about the Array and RegExp types,
   // in order to handle array and regexp literals.
-  // This info should comes from externs, and will be set to ? if not present.
+  // This info should come from externs, and will be set to ? if not present.
   private JSType arrayType, regexpType;
 
   // GlobalTypeInfo needs to know about the nominal type "Object" in order
@@ -260,10 +265,6 @@ class GlobalTypeInfo implements CompilerPass {
     return scopes;
   }
 
-  Scope getGlobalScope() {
-    return globalScope;
-  }
-
   JSType getCastType(Node n) {
     JSType t = castTypes.get(n);
     Preconditions.checkNotNull(t);
@@ -275,7 +276,7 @@ class GlobalTypeInfo implements CompilerPass {
   }
 
   JSType getArrayType() {
-    return getArrayType(JSType.TOP);
+    return getArrayType(JSType.UNKNOWN);
   }
 
   JSType getArrayType(JSType t) {
@@ -286,6 +287,7 @@ class GlobalTypeInfo implements CompilerPass {
       }
       arrayType = arrayCtor.getFunType().getReturnType();
     }
+    // Kind of ugly that we have hard-coded "T" here. Alternatives?
     return arrayType.substituteGenerics(ImmutableMap.of("T", t));
   }
 
@@ -302,7 +304,8 @@ class GlobalTypeInfo implements CompilerPass {
 
   private NominalType getObjectNominalType() {
     if (objectNominalType == null) {
-      RawNominalType rawNominal = globalScope.getNominalType(new QualifiedName("Object"));
+      RawNominalType rawNominal =
+          globalScope.getNominalType(new QualifiedName("Object"));
       if (rawNominal != null) {
         objectNominalType = rawNominal.getAsNominalType();
       }
@@ -318,7 +321,8 @@ class GlobalTypeInfo implements CompilerPass {
     }
     Node fnNameNode = NodeUtil.getFunctionNameNode(n);
     // We don't want to use qualified names here
-    Preconditions.checkState(fnNameNode != null && fnNameNode.isName());
+    Preconditions.checkState(fnNameNode != null);
+    Preconditions.checkState(fnNameNode.isName());
     return fnNameNode.getString();
   }
 
@@ -596,7 +600,7 @@ class GlobalTypeInfo implements CompilerPass {
   }
 
   /**
-   * Collects names of classes, interfaces and typedefs.
+   * Collects names of classes, interfaces, namespaces, typedefs and enums.
    * This way, if a type name appears before its declaration, we know what
    * it refers to.
    */
@@ -610,7 +614,8 @@ class GlobalTypeInfo implements CompilerPass {
     private void processQualifiedDefinition(Node qnameNode) {
       Preconditions.checkArgument(qnameNode.isGetProp());
       Preconditions.checkArgument(qnameNode.isQualifiedName());
-      if (!currentScope.isNamespace(qnameNode.getFirstChild())) {
+      Node recv = qnameNode.getFirstChild();
+      if (!currentScope.isNamespace(recv)) {
         return;
       }
       if (NodeUtil.isNamespaceDecl(qnameNode)) {
@@ -619,6 +624,18 @@ class GlobalTypeInfo implements CompilerPass {
         visitTypedef(qnameNode);
       } else if (NodeUtil.isEnumDecl(qnameNode)) {
         visitEnum(qnameNode);
+      } else if (NodeUtil.isAliasedNominalTypeDecl(qnameNode)) {
+        maybeRecordAliasedNominalType(qnameNode);
+      } else if (!currentScope.isDefined(qnameNode)) {
+        Namespace ns = currentScope.getNamespace(QualifiedName.fromNode(recv));
+        String pname = qnameNode.getLastChild().getString();
+        // A program can have an error where a namespace property is defined
+        // twice: the first time with a non-namespace type and the second time
+        // as a namespace.
+        // Adding the non-namespace property here as undeclared prevents us
+        // from mistakenly using the second definition later. We use ? for now,
+        // but may find a better type in ProcessScope.
+        ns.addUndeclaredProperty(pname, JSType.UNKNOWN, /* isConst */ false);
       }
     }
 
@@ -637,24 +654,36 @@ class GlobalTypeInfo implements CompilerPass {
             visitTypedef(nameNode);
           } else if (NodeUtil.isEnumDecl(nameNode)) {
             visitEnum(nameNode);
+          } else if (NodeUtil.isAliasedNominalTypeDecl(nameNode)) {
+            maybeRecordAliasedNominalType(nameNode);
           }
           break;
         }
         case Token.EXPR_RESULT: {
           Node expr = n.getFirstChild();
-          if (expr.isGetProp()
-              || expr.isAssign() && expr.getFirstChild().isGetProp()) {
-            Node getProp = expr.isGetProp() ? expr : expr.getFirstChild();
-            if (isPrototypeProperty(getProp)
-                || NodeUtil.referencesThis(getProp)
-                || !getProp.isQualifiedName()) {
-              // Class or prototype properties are handled later in ProcessScope
-              return;
-            }
-            if (NodeUtil.isNamespaceDecl(getProp)
-                || NodeUtil.isTypedefDecl(getProp)
-                || NodeUtil.isEnumDecl(getProp)) {
-              processQualifiedDefinition(getProp);
+          switch (expr.getType()) {
+            case Token.ASSIGN:
+              if (!expr.getFirstChild().isGetProp()) {
+                return;
+              }
+              expr = expr.getFirstChild();
+              // fall through
+            case Token.GETPROP:
+              if (isPrototypeProperty(expr)
+                  || NodeUtil.referencesThis(expr)
+                  || !expr.isQualifiedName()) {
+                // Class or prototype properties are handled later in ProcessScope
+                return;
+              }
+              processQualifiedDefinition(expr);
+              break;
+            case Token.CALL: {
+              List<String> decls = convention.identifyTypeDeclarationCall(expr);
+              if (decls == null || decls.isEmpty()) {
+                return;
+              }
+              currentScope.addUnknownTypeNames(decls);
+              break;
             }
           }
           break;
@@ -707,11 +736,21 @@ class GlobalTypeInfo implements CompilerPass {
         return;
       }
       Node init = NodeUtil.getInitializer(qnameNode);
+      // First check if the definition is an alias of a previous enum.
+      if (init != null && init.isQualifiedName()) {
+        EnumType et = currentScope.getEnum(init.getQualifiedName());
+        if (et != null) {
+          currentScope.addEnum(qnameNode, et);
+          return;
+        }
+      }
+      // Then check if the enum initializer is an object literal.
       if (init == null || !init.isObjectLit() ||
           init.getFirstChild() == null) {
         warnings.add(JSError.make(qnameNode, MALFORMED_ENUM));
         return;
       }
+      // Last, read the object-literal properties and create the EnumType.
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(qnameNode);
       Set<String> propNames = new HashSet<>();
       for (Node prop : init.children()) {
@@ -732,10 +771,24 @@ class GlobalTypeInfo implements CompilerPass {
               ImmutableSet.copyOf(propNames)));
     }
 
-    private void createFunctionScope(
-        Node fn, ArrayList<String> formals, Node nameNode) {
-      Scope fnScope = new Scope(fn, currentScope, formals);
-      scopes.add(fnScope);
+    private void visitFunctionEarly(Node fn) {
+      JSDocInfo fnDoc = NodeUtil.getFunctionJSDocInfo(fn);
+      Node nameNode = NodeUtil.getFunctionNameNode(fn);
+      String internalName = createFunctionInternalName(fn, nameNode);
+      boolean isRedeclaration;
+      if (nameNode == null || !nameNode.isQualifiedName()) {
+        isRedeclaration = false;
+      } else if (nameNode.isName()) {
+        isRedeclaration = currentScope.isDefinedLocally(nameNode.getString());
+      } else {
+        isRedeclaration = currentScope.isDefined(nameNode);
+      }
+      ArrayList<String> formals = collectFormals(fn, fnDoc);
+      createFunctionScope(fn, formals, internalName);
+      maybeRecordNominalType(fn, nameNode, fnDoc, isRedeclaration);
+    }
+
+    private String createFunctionInternalName(Node fn, Node nameNode) {
       String internalName = null;
       if (nameNode == null || !nameNode.isName()) {
         // Anonymous and qualified names need gensymed names.
@@ -755,20 +808,20 @@ class GlobalTypeInfo implements CompilerPass {
         // fnNameNode is undefined simple name
         internalName = nameNode.getString();
       }
+      return internalName;
+    }
+
+    private void createFunctionScope(
+        Node fn, ArrayList<String> formals, String internalName) {
+      Scope fnScope = new Scope(fn, currentScope, formals);
+      if (!fn.isFromExterns()) {
+        scopes.add(fnScope);
+      }
       currentScope.addLocalFunDef(internalName, fnScope);
     }
 
-    private void visitFunctionEarly(Node fn) {
-      JSDocInfo fnDoc = NodeUtil.getFunctionJSDocInfo(fn);
-      Node nameNode = NodeUtil.getFunctionNameNode(fn);
-      boolean isRedeclaration;
-      if (nameNode == null || !nameNode.isQualifiedName()) {
-        isRedeclaration = false;
-      } else if (nameNode.isName()) {
-        isRedeclaration = currentScope.isDefinedLocally(nameNode.getString());
-      } else {
-        isRedeclaration = currentScope.isDefined(nameNode);
-      }
+    private ArrayList<String> collectFormals(Node fn, JSDocInfo fnDoc) {
+      Preconditions.checkArgument(fn.isFunction());
       // Collect the names of the formals.
       // If a formal is a placeholder for variable arity, eg,
       // /** @param {...?} var_args */ function f(var_args) { ... }
@@ -789,17 +842,21 @@ class GlobalTypeInfo implements CompilerPass {
         }
         param = param.getNext();
       }
-      createFunctionScope(fn, formals, nameNode);
       if (fnDoc != null) {
         for (String formalInJsdoc : fnDoc.getParameterNames()) {
           if (!formals.contains(formalInJsdoc) &&
               !tmpRestFormals.contains(formalInJsdoc)) {
-            String functionName = getFunInternalName(fn);
+            String functionName = NodeUtil.getFunctionName(fn);
             warnings.add(JSError.make(
                 fn, INEXISTENT_PARAM, formalInJsdoc, functionName));
           }
         }
       }
+      return formals;
+    }
+
+    private void maybeRecordNominalType(
+        Node fn, Node nameNode, JSDocInfo fnDoc, boolean isRedeclaration) {
       if (fnDoc != null && (fnDoc.isConstructor() || fnDoc.isInterface())) {
         QualifiedName qname = QualifiedName.fromNode(nameNode);
         if (qname == null) {
@@ -833,16 +890,37 @@ class GlobalTypeInfo implements CompilerPass {
         }
       } else if (fnDoc != null) {
         if (fnDoc.makesStructs()) {
-          warnings.add(JSError.make(fn, CONSTRUCTOR_REQUIRED, "@struct"));
+          warnings.add(JSError.make(fn, STRUCTDICT_WITHOUT_CTOR, "@struct"));
         } else if (fnDoc.makesDicts()) {
-          warnings.add(JSError.make(fn, CONSTRUCTOR_REQUIRED, "@dict"));
+          warnings.add(JSError.make(fn, STRUCTDICT_WITHOUT_CTOR, "@dict"));
         }
       }
     }
-  }
 
-  private JSType getTypeDeclarationFromJsdoc(JSDocInfo jsdoc, Scope s) {
-    return typeParser.getNodeTypeDeclaration(jsdoc, null, s);
+    private void maybeRecordAliasedNominalType(Node nameNode) {
+      Preconditions.checkArgument(nameNode.isQualifiedName());
+      Node aliasedDef = nameNode.getParent();
+      Preconditions.checkState(aliasedDef.isVar() || aliasedDef.isAssign());
+      JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(aliasedDef);
+      Node init = NodeUtil.getInitializer(nameNode);
+      RawNominalType rawType =
+          currentScope.getNominalType(QualifiedName.fromNode(init));
+      String initQname = init.getQualifiedName();
+      if (jsdoc.isConstructor()) {
+        if (rawType == null || rawType.isInterface()) {
+          warnings.add(JSError.make(init, EXPECTED_CONSTRUCTOR, initQname));
+          return;
+        }
+      } else if (jsdoc.isInterface()) {
+        if (rawType == null || !rawType.isInterface()) {
+          warnings.add(JSError.make(init, EXPECTED_INTERFACE, initQname));
+          return;
+        }
+      }
+      // TODO(dimvar): If init is an unknown type name, we shouldn't warn;
+      // Also, associate nameNode with an unknown type name when returning early
+      currentScope.addNominalType(nameNode, rawType);
+    }
   }
 
   private class ProcessScope extends AbstractShallowCallback {
@@ -960,7 +1038,8 @@ class GlobalTypeInfo implements CompilerPass {
                 || NodeUtil.isEnumDecl(n)) {
                 if (!currentScope.isDefinedLocally(name)) {
                   // Malformed enum or typedef
-                  currentScope.addLocal(name, JSType.UNKNOWN, false);
+                  currentScope.addLocal(
+                      name, JSType.UNKNOWN, false, n.isFromExterns());
                 }
               break;
             }
@@ -977,14 +1056,16 @@ class GlobalTypeInfo implements CompilerPass {
               // }
               undeclaredVars.removeAll(name);
               if (parent.isCatch()) {
-                currentScope.addLocal(name, JSType.UNKNOWN, false);
+                currentScope.addLocal(
+                    name, JSType.UNKNOWN, false, n.isFromExterns());
               } else {
-                boolean isConst = NodeUtil.hasConstAnnotation(parent);
+                boolean isConst = isConst(parent);
                 JSType declType = getVarTypeFromAnnotation(n);
                 if (isConst && !mayWarnAboutNoInit(n) && declType == null) {
                   declType = inferConstTypeFromRhs(n);
                 }
-                currentScope.addLocal(name, declType, isConst);
+                currentScope.addLocal(
+                    name, declType, isConst, n.isFromExterns());
               }
             }
           } else if (currentScope.isOuterVarEarly(name)) {
@@ -1022,11 +1103,12 @@ class GlobalTypeInfo implements CompilerPass {
           if (jsdoc != null && jsdoc.getLendsName() != null) {
             lendsObjlits.add(n);
           }
-          Node reciever = parent.isAssign() ? parent.getFirstChild() : parent;
-          if (isNamespaceDecl(reciever)) {
+          Node receiver = parent.isAssign() ? parent.getFirstChild() : parent;
+          if (NodeUtil.isNamespaceDecl(receiver)
+              && currentScope.isNamespace(receiver)) {
             for (Node prop : n.children()) {
               visitNamespacePropertyDeclaration(
-                  prop, reciever, prop.getString());
+                  prop, receiver, prop.getString());
             }
           } else {
             for (Node prop : n.children()) {
@@ -1035,7 +1117,7 @@ class GlobalTypeInfo implements CompilerPass {
                     getTypeDeclarationFromJsdoc(
                         prop.getJSDocInfo(), currentScope));
               }
-              if (NodeUtil.hasConstAnnotation(prop)) {
+              if (isAnnotatedAsConst(prop)) {
                 warnings.add(JSError.make(prop, MISPLACED_CONST_ANNOTATION));
               }
             }
@@ -1045,21 +1127,10 @@ class GlobalTypeInfo implements CompilerPass {
       }
     }
 
-    private boolean isNamespaceDecl(Node n) {
-      if (!n.isQualifiedName() && !n.isStringKey()) {
-        return false;
-      }
-      if (n.isGetProp() && !currentScope.isNamespace(n.getFirstChild())) {
-        return false;
-      }
-      return NodeUtil.isNamespaceDecl(n);
-    }
-
     private void visitPropertyDeclaration(Node getProp) {
       // Class property
       if (isClassPropAccess(getProp, currentScope)) {
-        if (NodeUtil.hasConstAnnotation(getProp) &&
-            currentScope.isPrototypeMethod()) {
+        if (isAnnotatedAsConst(getProp) && currentScope.isPrototypeMethod()) {
           warnings.add(JSError.make(getProp, MISPLACED_CONST_ANNOTATION));
         }
         visitClassPropertyDeclaration(getProp);
@@ -1083,9 +1154,22 @@ class GlobalTypeInfo implements CompilerPass {
         return;
       }
       // Other property
-      if (NodeUtil.hasConstAnnotation(getProp)) {
+      if (isAnnotatedAsConst(getProp)) {
         warnings.add(JSError.make(getProp, MISPLACED_CONST_ANNOTATION));
       }
+    }
+
+    private boolean isStaticCtorProp(Node getProp, Scope s) {
+      Preconditions.checkArgument(getProp.isGetProp());
+      if (!getProp.isQualifiedName()) {
+        return false;
+      }
+      Node receiverObj = getProp.getFirstChild();
+      if (!s.isLocalFunDef(receiverObj.getQualifiedName())) {
+        return false;
+      }
+      return null != currentScope.getNominalType(
+          QualifiedName.fromNode(receiverObj));
     }
 
     /** Returns the newly created scope for this function */
@@ -1132,6 +1216,10 @@ class GlobalTypeInfo implements CompilerPass {
 
     private void visitConstructorPropertyDeclaration(Node getProp) {
       Preconditions.checkArgument(getProp.isGetProp());
+      // Named types have already been crawled in CollectNamedTypes
+      if (isNamedType(getProp)) {
+        return;
+      }
       String ctorName = getProp.getFirstChild().getQualifiedName();
       QualifiedName ctorQname = QualifiedName.fromNode(getProp.getFirstChild());
       Preconditions.checkState(currentScope.isLocalFunDef(ctorName));
@@ -1139,7 +1227,7 @@ class GlobalTypeInfo implements CompilerPass {
       String pname = getProp.getLastChild().getString();
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(getProp);
       JSType propDeclType = getTypeAtPropDeclNode(getProp, jsdoc);
-      boolean isConst = NodeUtil.hasConstAnnotation(getProp);
+      boolean isConst = isConst(getProp);
       if (propDeclType != null || isConst) {
         JSType previousPropType = classType.getCtorPropDeclaredType(pname);
         if (classType.hasCtorProp(pname) &&
@@ -1154,6 +1242,9 @@ class GlobalTypeInfo implements CompilerPass {
         }
         classType.addCtorProperty(pname, propDeclType, isConst);
         getProp.putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+        if (isConst) {
+          getProp.putBooleanProp(Node.CONSTANT_PROPERTY_DEF, true);
+        }
       } else {
         classType.addUndeclaredCtorProperty(pname);
       }
@@ -1161,12 +1252,10 @@ class GlobalTypeInfo implements CompilerPass {
 
     private void visitNamespacePropertyDeclaration(Node getProp) {
       Preconditions.checkArgument(getProp.isGetProp());
-      if (currentScope.isNamespace(getProp)
-          || NodeUtil.isTypedefDecl(getProp)) {
-        // Named types have already been crawled in CollectNamedTypes
+      // Named types have already been crawled in CollectNamedTypes
+      if (isNamedType(getProp)) {
         return;
       }
-      JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(getProp);
       Node recv = getProp.getFirstChild();
       String pname = getProp.getLastChild().getString();
       visitNamespacePropertyDeclaration(getProp, recv, pname);
@@ -1177,10 +1266,16 @@ class GlobalTypeInfo implements CompilerPass {
       Preconditions.checkArgument(
           declNode.isGetProp() || declNode.isStringKey());
       Preconditions.checkArgument(currentScope.isNamespace(recv));
+      EnumType et = currentScope.getEnum(recv.getQualifiedName());
+      // If there is a reassignment to one of the enum's members, don't consider
+      // that a definition of a new property.
+      if (et != null && et.enumLiteralHasKey(pname)) {
+        return;
+      }
       Namespace ns = currentScope.getNamespace(QualifiedName.fromNode(recv));
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(declNode);
       JSType propDeclType = getTypeAtPropDeclNode(declNode, jsdoc);
-      boolean isConst = NodeUtil.hasConstAnnotation(declNode);
+      boolean isConst = isConst(declNode);
       if (propDeclType != null || isConst) {
         JSType previousPropType = ns.getPropDeclaredType(pname);
         if (ns.hasProp(pname) &&
@@ -1195,14 +1290,18 @@ class GlobalTypeInfo implements CompilerPass {
         }
         ns.addProperty(pname, propDeclType, isConst);
         declNode.putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+        if (declNode.isGetProp() && isConst) {
+          declNode.putBooleanProp(Node.CONSTANT_PROPERTY_DEF, true);
+        }
       } else {
         // Try to infer the prop type, but don't say that the prop is declared.
         Node initializer = NodeUtil.getInitializer(declNode);
-        JSType t = initializer == null ? null : simpleInferExprType(initializer);
+        JSType t = initializer == null
+            ? null : simpleInferExprType(initializer);
         if (t == null) {
           t = JSType.UNKNOWN;
         }
-        ns.addUndeclaredProperty(pname, t, isConst);
+        ns.addUndeclaredProperty(pname, t, false);
       }
     }
 
@@ -1218,7 +1317,7 @@ class GlobalTypeInfo implements CompilerPass {
       // TODO(blickly): Support @param, @return style fun declarations here.
       JSType declType = getTypeDeclarationFromJsdoc(
           NodeUtil.getBestJSDocInfo(getProp), currentScope);
-      boolean isConst = NodeUtil.hasConstAnnotation(getProp);
+      boolean isConst = isConst(getProp);
       if (declType != null || isConst) {
         mayWarnAboutExistingProp(rawNominalType, pname, getProp, declType);
         // Intentionally, we keep going even if we warned for redeclared prop.
@@ -1230,6 +1329,9 @@ class GlobalTypeInfo implements CompilerPass {
         if (mayAddPropToType(getProp, rawNominalType)) {
           rawNominalType.addClassProperty(pname, declType, isConst);
         }
+        if (isConst) {
+          getProp.putBooleanProp(Node.CONSTANT_PROPERTY_DEF, true);
+        }
       } else if (mayAddPropToType(getProp, rawNominalType)) {
         rawNominalType.addUndeclaredClassProperty(pname);
       }
@@ -1238,6 +1340,7 @@ class GlobalTypeInfo implements CompilerPass {
     }
 
     private JSType getTypeAtPropDeclNode(Node declNode, JSDocInfo jsdoc) {
+      Preconditions.checkArgument(!currentScope.isNamespace(declNode));
       Node initializer = NodeUtil.getInitializer(declNode);
       if (initializer != null && initializer.isFunction()) {
         return JSType.fromFunctionType(
@@ -1299,51 +1402,24 @@ class GlobalTypeInfo implements CompilerPass {
           }
           return getArrayType(arrayType);
         }
-        case Token.BITAND:
-        case Token.BITNOT:
-        case Token.BITOR:
-        case Token.BITXOR:
-        case Token.DEC:
-        case Token.DIV:
-        case Token.INC:
-        case Token.LSH:
-        case Token.MOD:
-        case Token.MUL:
-        case Token.NEG:
-        case Token.NUMBER:
-        case Token.POS:
-        case Token.RSH:
-        case Token.SUB:
-        case Token.URSH:
-          return JSType.NUMBER;
-        case Token.STRING:
-        case Token.TYPEOF:
-          return JSType.STRING;
         case Token.TRUE:
           return JSType.TRUE_TYPE;
         case Token.FALSE:
           return JSType.FALSE_TYPE;
-        case Token.EQ:
-        case Token.GE:
-        case Token.GT:
-        case Token.IN:
-        case Token.INSTANCEOF:
-        case Token.LE:
-        case Token.LT:
-        case Token.NE:
-        case Token.NOT:
-        case Token.SHEQ:
-        case Token.SHNE:
-          return JSType.BOOLEAN;
-        case Token.NULL:
-          return JSType.NULL;
-        case Token.VOID:
-          return JSType.UNDEFINED;
         case Token.NAME: {
           String varName = n.getString();
           if (varName.equals("undefined")) {
             return JSType.UNDEFINED;
           } else if (currentScope.isNamespaceLiteral(varName)) {
+            // Namespaces (literals, enums, constructors) get populated during
+            // ProcessScope, so it's NOT safe to convert them to jstypes until
+            // after ProcessScope is done. So, we don't try to do sth clever
+            // here to find the type of a namespace property.
+            // However, in the GETPROP case, we special-case for enum
+            // properties, because enums get resolved right after
+            // CollectNamedTypes, so we know the enumerated type.
+            // (But we still don't know the types of enum properties outside
+            // the object-literal declaration.)
             return null;
           }
           return currentScope.getDeclaredTypeOf(varName);
@@ -1362,8 +1438,16 @@ class GlobalTypeInfo implements CompilerPass {
           return objLitType;
         }
         case Token.GETPROP:
-          JSType recvType = simpleInferExprType(n.getFirstChild());
+          Node recv = n.getFirstChild();
+          JSType recvType = simpleInferExprType(recv);
           if (recvType == null) {
+            EnumType et = currentScope.getEnum(recv.getQualifiedName());
+            if (et == null) {
+              return null;
+            }
+            if (et.enumLiteralHasKey(n.getLastChild().getString())) {
+              return et.getEnumeratedType();
+            }
             return null;
           }
           QualifiedName qname = new QualifiedName(n.getLastChild().getString());
@@ -1396,14 +1480,28 @@ class GlobalTypeInfo implements CompilerPass {
               argTypes.add(t);
             }
             funType = funType
-                .instantiateGenericsFromArgumentList(argTypes.build());
+                .instantiateGenericsFromArgumentTypes(argTypes.build());
             if (funType == null) {
               return null;
             }
           }
           return funType.getReturnType();
         default:
-          return null;
+          switch (NodeUtil.getKnownValueType(n)) {
+            case NULL:
+              return JSType.NULL;
+            case VOID:
+              return JSType.UNDEFINED;
+            case NUMBER:
+              return JSType.NUMBER;
+            case STRING:
+              return JSType.STRING;
+            case BOOLEAN:
+              return JSType.BOOLEAN;
+            case UNDETERMINED:
+            default:
+              return null;
+          }
       }
     }
 
@@ -1494,8 +1592,7 @@ class GlobalTypeInfo implements CompilerPass {
 
       // Look at other annotations, eg, @constructor
       if (fnDoc != null) {
-        NominalType parentClass =
-            "Object".equals(functionName) ? null : getObjectNominalType();
+        NominalType parentClass = null;
         if (fnDoc.hasBaseType()) {
           if (!fnDoc.isConstructor()) {
             warnings.add(JSError.make(
@@ -1531,6 +1628,9 @@ class GlobalTypeInfo implements CompilerPass {
           return builder.buildDeclaration();
         } else if (fnDoc.isConstructor()) {
           String className = ctorType.toString();
+          if (parentClass == null && !"Object".equals(functionName)) {
+            parentClass = getObjectNominalType();
+          }
           if (parentClass != null) {
             if (!ctorType.addSuperClass(parentClass)) {
               warnings.add(JSError.make(
@@ -1555,10 +1655,6 @@ class GlobalTypeInfo implements CompilerPass {
           Preconditions.checkState(noCycles);
           builder.addNominalType(ctorType.getAsNominalType());
         } else if (fnDoc.isInterface()) {
-          if (declNode.isFunction() &&
-              !NodeUtil.isEmptyBlock(NodeUtil.getFunctionBody(declNode))) {
-            warnings.add(JSError.make(declNode, INTERFACE_WITH_A_BODY));
-          }
           if (!implementedIntfs.isEmpty()) {
             warnings.add(JSError.make(declNode,
                 TypeCheck.CONFLICTING_IMPLEMENTED_TYPE, functionName));
@@ -1663,6 +1759,11 @@ class GlobalTypeInfo implements CompilerPass {
 
       // Find the declared type of the property.
       if (initializer != null && initializer.isFunction()) {
+        if (initializer.getLastChild().hasChildren() && rawType.isInterface()) {
+          warnings.add(JSError.make(
+              initializer.getLastChild(), TypeCheck.INTERFACE_METHOD_NOT_EMPTY));
+        }
+
         // TODO(dimvar): we must do this for any function "defined" as the rhs
         // of an assignment to a property, not just when the property is a
         // prototype property.
@@ -1693,7 +1794,7 @@ class GlobalTypeInfo implements CompilerPass {
           rawType, pname, new PropertyDef(defSite, methodType, methodScope));
 
       // Add the property to the class with the appropriate type.
-      boolean isConst = NodeUtil.hasConstAnnotation(defSite);
+      boolean isConst = isConst(defSite);
       if (propDeclType != null || isConst) {
         if (mayWarnAboutExistingProp(rawType, pname, defSite, propDeclType)) {
           return;
@@ -1705,11 +1806,23 @@ class GlobalTypeInfo implements CompilerPass {
         rawType.addProtoProperty(pname, propDeclType, isConst);
         if (defSite.isGetProp()) { // Don't bother saving for @lends
           defSite.putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+          if (isConst) {
+            defSite.putBooleanProp(Node.CONSTANT_PROPERTY_DEF, true);
+          }
         }
       } else {
         rawType.addUndeclaredProtoProperty(pname);
       }
     }
+
+    private boolean isNamedType(Node getProp) {
+      return currentScope.isNamespace(getProp)
+          || NodeUtil.isTypedefDecl(getProp);
+    }
+  }
+
+  private JSType getTypeDeclarationFromJsdoc(JSDocInfo jsdoc, Scope s) {
+    return typeParser.getNodeTypeDeclaration(jsdoc, null, s);
   }
 
   private FunctionType getDeclaredFunctionTypeOfCalleeIfAny(
@@ -1739,25 +1852,9 @@ class GlobalTypeInfo implements CompilerPass {
     return type == null ? null : type.getFunType();
   }
 
-  // TODO(blickly): Move to NodeUtil
   private static boolean isClassPropAccess(Node n, Scope s) {
     return n.isGetProp() && n.getFirstChild().isThis() &&
         (s.isConstructor() || s.isPrototypeMethod());
-  }
-
-  // TODO(blickly): Move to NodeUtil
-  private static boolean isStaticCtorProp(Node getProp, Scope s) {
-    Preconditions.checkArgument(getProp.isGetProp());
-    if (!getProp.isQualifiedName()) {
-      return false;
-    }
-    String receiverObjName = getProp.getFirstChild().getQualifiedName();
-    if (!s.isLocalFunDef(receiverObjName)) {
-      return false;
-    }
-    DeclaredFunctionType ctorType =
-        s.getScope(receiverObjName).getDeclaredType();
-    return ctorType != null && ctorType.getNominalType() != null;
   }
 
   // TODO(blickly): Move to NodeUtil
@@ -1782,6 +1879,31 @@ class GlobalTypeInfo implements CompilerPass {
   private static boolean isPrototypePropertyDeclaration(Node n) {
     return NodeUtil.isExprAssign(n)
         && isPrototypeProperty(n.getFirstChild().getFirstChild());
+  }
+
+  private static boolean isAnnotatedAsConst(Node defSite) {
+    return NodeUtil.hasConstAnnotation(defSite)
+        && !NodeUtil.getBestJSDocInfo(defSite).isConstructor();
+  }
+
+  private static Node fromDefsiteToName(Node defSite) {
+    if (defSite.isVar()) {
+      return defSite.getFirstChild();
+    }
+    if (defSite.isGetProp()) {
+      return defSite.getLastChild();
+    }
+    if (defSite.isStringKey()) {
+      return defSite;
+    }
+    throw new RuntimeException("Unknown defsite: "
+        + Token.name(defSite.getType()));
+  }
+
+  private boolean isConst(Node defSite) {
+    return isAnnotatedAsConst(defSite)
+        || NodeUtil.isConstantByConvention(
+            this.convention, fromDefsiteToName(defSite));
   }
 
   private static class PropertyDef {
@@ -1814,12 +1936,14 @@ class GlobalTypeInfo implements CompilerPass {
 
     // A local w/out declared type is mapped to null, not to JSType.UNKNOWN.
     private final Map<String, JSType> locals = new HashMap<>();
+    private final Map<String, JSType> externs;
     private final Set<String> constVars = new HashSet<>();
     private final List<String> formals;
     // outerVars are the variables that appear free in this scope
     // and are defined in an enclosing scope.
     private final Set<String> outerVars = new HashSet<>();
     private final Map<String, Scope> localFunDefs = new HashMap<>();
+    private Set<String> unknownTypeNames = new HashSet<>();
     private Map<String, RawNominalType> localClassDefs = new HashMap<>();
     private Map<String, Typedef> localTypedefs = new HashMap<>();
     private Map<String, EnumType> localEnums = new HashMap<>();
@@ -1835,9 +1959,11 @@ class GlobalTypeInfo implements CompilerPass {
     private Scope(Node root, Scope parent, List<String> formals) {
       if (parent == null) {
         this.name = null;
+        this.externs = new HashMap<>();
       } else {
         String nameOnAst = root.getFirstChild().getString();
         this.name = nameOnAst.isEmpty() ? null : nameOnAst;
+        this.externs = ImmutableMap.of();
       }
       this.root = root;
       this.parent = parent;
@@ -1856,7 +1982,7 @@ class GlobalTypeInfo implements CompilerPass {
     /** Used only for error messages; null for top scope */
     String getReadableName() {
       // TODO(dimvar): don't return null for anonymous functions
-      return parent == null ? null : NodeUtil.getFunctionName(root);
+      return isTopLevel() ? null : NodeUtil.getFunctionName(root);
     }
 
     String getName() {
@@ -1875,6 +2001,10 @@ class GlobalTypeInfo implements CompilerPass {
       return root.isFunction();
     }
 
+    private boolean isTopLevel() {
+      return parent == null;
+    }
+
     private boolean isConstructor() {
       if (!root.isFunction()) {
         return false;
@@ -1886,6 +2016,11 @@ class GlobalTypeInfo implements CompilerPass {
     private boolean isPrototypeMethod() {
       Preconditions.checkArgument(root != null);
       return NodeUtil.isPrototypeMethod(root);
+    }
+
+    private void addUnknownTypeNames(List<String> names) {
+      Preconditions.checkState(this.isTopLevel());
+      unknownTypeNames.addAll(names);
     }
 
     private void addLocalFunDef(String name, Scope scope) {
@@ -1903,6 +2038,10 @@ class GlobalTypeInfo implements CompilerPass {
       return locals.containsKey(name);
     }
 
+    boolean isLocalExtern(String name) {
+      return externs.containsKey(name);
+    }
+
     boolean isLocalFunDef(String name) {
       return localFunDefs.containsKey(name);
     }
@@ -1916,6 +2055,7 @@ class GlobalTypeInfo implements CompilerPass {
       Preconditions.checkState(!name.contains("."));
       return locals.containsKey(name) || formals.contains(name)
           || localFunDefs.containsKey(name) || "this".equals(name)
+          || externs.containsKey(name)
           || localNamespaces != null && localNamespaces.containsKey(name)
           || localTypedefs != null && localTypedefs.containsKey(name)
           || localEnums != null && localEnums.containsKey(name);
@@ -2039,18 +2179,17 @@ class GlobalTypeInfo implements CompilerPass {
         QualifiedName qname = QualifiedName.fromQname(name);
         Namespace ns = getNamespace(qname.getLeftmostName());
         if (ns == null) {
-          return null;
+          return getUnresolvedTypeByName(name);
         }
         RawNominalType rawType = ns.getNominalType(qname.getAllButLeftmost());
         if (rawType == null) {
-          return null;
+          return getUnresolvedTypeByName(name);
         }
         return rawType.getInstanceAsJSType();
       }
 
       // First see if it's a type variable
-      if (declaredType != null && declaredType.isGeneric() &&
-          declaredType.getTypeParameters().contains(name)) {
+      if (declaredType != null && declaredType.isTypeVariableInScope(name)) {
         return JSType.fromTypeVar(name);
       }
       // Then if it's a class/interface name
@@ -2058,8 +2197,19 @@ class GlobalTypeInfo implements CompilerPass {
       if (rawNominalType != null) {
         return rawNominalType.getInstanceAsJSType();
       }
+      JSType t = getUnresolvedTypeByName(name);
+      if (t != null) {
+        return t;
+      }
       // O/w keep looking in the parent scope
       return parent == null ? null : parent.lookupTypeByName(name);
+    }
+
+    JSType getUnresolvedTypeByName(String name) {
+      if (unknownTypeNames.contains(name)) {
+        return JSType.UNKNOWN;
+      }
+      return null;
     }
 
     JSType getDeclaredTypeOf(String name) {
@@ -2081,8 +2231,13 @@ class GlobalTypeInfo implements CompilerPass {
       }
       JSType localType = locals.get(name);
       if (localType != null) {
-        Preconditions.checkState(!localType.isBottom());
+        Preconditions.checkState(!localType.isBottom(), name + " was bottom");
         return localType;
+      }
+      JSType externType = externs.get(name);
+      if (externType != null) {
+        Preconditions.checkState(!externType.isBottom());
+        return externType;
       }
       Scope s = localFunDefs.get(name);
       if (s != null && s.getDeclaredType() != null) {
@@ -2136,6 +2291,11 @@ class GlobalTypeInfo implements CompilerPass {
       return getScopeHelper(fnName) != null;
     }
 
+    boolean isExternalFunction(String fnName) {
+      Scope s = Preconditions.checkNotNull(getScopeHelper(fnName));
+      return s.root.isFromExterns();
+    }
+
     Scope getScope(String fnName) {
       Scope s = getScopeHelper(fnName);
       Preconditions.checkState(s != null);
@@ -2146,12 +2306,21 @@ class GlobalTypeInfo implements CompilerPass {
       return ImmutableSet.copyOf(locals.keySet());
     }
 
-    private void addLocal(String name, JSType declType, boolean isConstant) {
+    Set<String> getExterns() {
+      return ImmutableSet.copyOf(externs.keySet());
+    }
+
+    private void addLocal(String name, JSType declType,
+        boolean isConstant, boolean isFromExterns) {
       Preconditions.checkArgument(!isDefinedLocally(name));
       if (isConstant) {
         constVars.add(name);
       }
-      locals.put(name, declType);
+      if (isFromExterns) {
+        externs.put(name, declType);
+      } else {
+        locals.put(name, declType);
+      }
     }
 
     private void addNamespace(Node qnameNode) {
@@ -2241,6 +2410,9 @@ class GlobalTypeInfo implements CompilerPass {
 
     @Override
     public EnumType getEnum(String name) {
+      if (name == null) {
+        return null;
+      }
       if (!name.contains(".")) {
         if (isDefinedLocally(name)) {
           return localEnums.get(name);
@@ -2304,14 +2476,7 @@ class GlobalTypeInfo implements CompilerPass {
     }
 
     private void removeTmpData() {
-      Iterator<String> it = localFunDefs.keySet().iterator();
-      while (it.hasNext()) {
-        String name = it.next();
-        if (name.contains(".")) {
-          it.remove();
-        }
-      }
-
+      unknownTypeNames = null;
       // For now, we put types of namespaces directly into the locals.
       // Alternatively, we could move this into NewTypeInference.initEdgeEnvs
       for (Map.Entry<String, NamespaceLit> entry : localNamespaces.entrySet()) {
@@ -2329,7 +2494,7 @@ class GlobalTypeInfo implements CompilerPass {
     @Override
     public String toString() {
       StringBuilder sb = new StringBuilder();
-      if (!root.isFunction()) {
+      if (isTopLevel()) {
         sb.append("<TOP SCOPE>");
       } else {
         sb.append(getReadableName());

@@ -221,9 +221,11 @@ public class Es6RewriteGenerators implements NodeTraversal.Callback, HotSwapComp
   private void visitYieldFor(Node n, Node parent) {
     Node enclosingStatement = NodeUtil.getEnclosingStatement(n);
 
-    Node generator = IR.var(IR.name(GENERATOR_YIELD_ALL_NAME),
-        IR.call(NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(), Es6ToEs3Converter.MAKE_ITER), n.removeFirstChild()));
+    Node generator = IR.var(
+        IR.name(GENERATOR_YIELD_ALL_NAME),
+        IR.call(
+            NodeUtil.newQName(compiler, Es6ToEs3Converter.MAKE_ITER),
+            n.removeFirstChild()));
     Node entryDecl = IR.var(IR.name(GENERATOR_YIELD_ALL_ENTRY));
 
     Node assignIterResult = IR.assign(
@@ -267,7 +269,7 @@ public class Es6RewriteGenerators implements NodeTraversal.Callback, HotSwapComp
   private void visitGenerator(Node n, Node parent) {
     hasTranslatedTry = false;
     Node genBlock = compiler.parseSyntheticCode(Joiner.on('\n').join(
-      "{",
+      "function generatorBody() {",
       "  var " + GENERATOR_STATE + " = " + generatorCaseCount + ";",
       "  function $jscomp$generator$impl(" + GENERATOR_NEXT_ARG + ", ",
       "      " + GENERATOR_THROW_ARG + ") {",
@@ -283,7 +285,7 @@ public class Es6RewriteGenerators implements NodeTraversal.Callback, HotSwapComp
       "    throw: function(arg){ return $jscomp$generator$impl(undefined, arg); },",
       "  }",
       "}"
-    )).removeFirstChild();
+    )).getFirstChild().getLastChild().detachFromParent();
     generatorCaseCount++;
 
     originalGeneratorBody = n.getLastChild();

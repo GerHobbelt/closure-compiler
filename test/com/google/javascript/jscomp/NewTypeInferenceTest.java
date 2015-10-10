@@ -145,7 +145,43 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
 
   public void testExterns() {
     typeCheck(
-        "/** @param {Array.<string>} x */ function f(x) {}; f([5]);",
+        "/** @param {Array<string>} x */ function f(x) {}; f([5]);",
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+  }
+
+  public void testVarDefinitionsInExterns() {
+    checkNoWarnings("var undecl = {};", "if (undecl) { undecl.x = 7 };");
+
+    checkNoWarnings(
+        "var undecl = {};",
+        "function f() { if (undecl) { undecl.x = 7 }; }");
+
+    checkNoWarnings("var undecl;", "undecl(5);");
+
+    checkNoWarnings("/** @type {number} */ var num;", "num - 5;");
+
+    checkNoWarnings("var maybeStr; /** @type {string} */ var maybeStr;",
+        "maybeStr - 5;");
+
+    typeCheck("/** @type {string} */ var str;", "str - 5;",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    // TODO(blickly): Warn if function in externs has body
+    checkNoWarnings(
+        "function f() {/** @type {string} */ var invisible;}",
+        "invisible - 5;");
+//         VarCheck.UNDEFINED_VAR_ERROR);
+
+    typeCheck("/** @type {number} */ var num;",
+        "/** @type {undefined} */ var x = num;",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck("var untypedNum;",
+        "function f(x) {\n" +
+        " x < untypedNum;\n" +
+        " untypedNum - 5;\n" +
+        "}\n" +
+        "f('asdf');",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
   }
 
@@ -224,11 +260,11 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo(x) {}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {function(this:Foo.<T>)} fun\n" +
+        " * @param {function(this:Foo<T>)} fun\n" +
         " */\n" +
         "function f(fun) { return fun; }\n" +
-        "var /** function(this:Foo.<string>) */ x =\n" +
-        "    f(/** @type {function(this:Foo.<number>)} */ (function() {}));",
+        "var /** function(this:Foo<string>) */ x =\n" +
+        "    f(/** @type {function(this:Foo<number>)} */ (function() {}));",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
@@ -264,12 +300,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo(x) {}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {function(new:Foo.<T>)} fun\n" +
+        " * @param {function(new:Foo<T>)} fun\n" +
         " */\n" +
         "function f(fun) { return fun; }\n" +
-        "/** @type {function(new:Foo.<number>)} */\n" +
+        "/** @type {function(new:Foo<number>)} */\n" +
         "function f2() {}\n" +
-        "var /** function(new:Foo.<string>) */ x = f(f2);",
+        "var /** function(new:Foo<string>) */ x = f(f2);",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     checkNoWarnings(
@@ -1332,6 +1368,88 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "}\n" +
         "f('str');",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    checkNoWarnings(
+        "/** @const */ var goog = {};\n" +
+        "/** @type {!Function} */ goog.abstractMethod = function(){};\n" +
+        "/** @constructor */ function Foo(){};\n" +
+        "/** @return {!Foo} */ Foo.prototype.clone = goog.abstractMethod;\n" +
+        "/** @constructor @extends {Foo} */\n" +
+        "function Bar() {}\n" +
+        "/** @return {!Bar} */ Bar.prototype.clone = goog.abstractMethod;");
+
+    typeCheck(
+        "/** @const */ var goog = {};\n" +
+        "/** @type {!Function} */ goog.abstractMethod = function(){};\n" +
+        "/** @constructor */ function Foo(){};\n" +
+        "/** @return {!Foo} */ Foo.prototype.clone = goog.abstractMethod;\n" +
+        "/** @constructor @extends {Foo} */\n" +
+        "function Bar() {}\n" +
+        "/** @return {!Bar} */ Bar.prototype.clone = goog.abstractMethod;\n" +
+        "var /** null */ n = (new Bar).clone();",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testDifficultObjectSpecialization() {
+    checkNoWarnings(
+        "/** @constructor */\n" +
+        "function X() { this.p = 1; }\n" +
+        "/** @constructor */\n" +
+        "function Y() { this.p = 2; }\n" +
+        "/** @param {(!X|!Y)} a */\n" +
+        "function fn(a) {\n" +
+        "  a.p;\n" +
+        "  /** @type {!X} */ (a);\n" +
+        "}");
+
+    // Currently, two types that have a common subtype specialize to bottom
+    // instead of to the common subtype. If we change that, then this test will
+    // have no warnings.
+    typeCheck(
+        "/** @interface */\n" +
+        "function High1() {}\n" +
+        "/** @interface */\n" +
+        "function High2() {}\n" +
+        "/**\n" +
+        " * @constructor\n" +
+        " * @implements {High1}\n" +
+        " * @implements {High2}\n" +
+        " */\n" +
+        "function Low() {}\n" +
+        "function f(x) {\n" +
+        "  var /** !High1 */ v1 = x;\n" +
+        "  var /** !High2 */ v2 = x;\n" +
+        "}",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    // Currently, two types that have a common subtype specialize to bottom
+    // instead of to the common subtype. If we change that, then this test will
+    // have no warnings, and the type of x will be !Low.
+    // (We must normalize the output of specialize to avoid getting (!Med|!Low))
+    typeCheck(
+        "/** @interface */\n" +
+        "function High1() {}\n" +
+        "/** @interface */\n" +
+        "function High2() {}\n" +
+        "/** @interface */\n" +
+        "function High3() {}\n" +
+        "/**\n" +
+        " * @interface\n" +
+        " * @extends {High1}\n" +
+        " * @extends {High2}\n" +
+        " */\n" +
+        "function Mid() {}\n" +
+        "/**\n" +
+        " * @interface\n" +
+        " * @extends {Mid}\n" +
+        " * @extends {High3}\n" +
+        " */\n" +
+        "function Low() {}\n" +
+        "function f(x) {\n" +
+        "  var /** !High1 */ v1 = x;\n" +
+        "  var /** (!High2|!High3) */ v2 = x;\n" +
+        "}",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testLooseConstructors() {
@@ -1985,6 +2103,14 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function f(obj) { obj.a.num - 5; }\n" +
         "function g(obj) {\n" +
         "  obj.a.str < 'str';\n" +
+        "  f(obj);\n" +
+        "}");
+
+    // A loose object is a subtype of Array even if it has a dotted property
+    checkNoWarnings(
+        "function f(/** Array<?> */ x) {}\n" +
+        "function g(obj) {\n" +
+        "  obj.x = 123;\n" +
         "  f(obj);\n" +
         "}");
   }
@@ -3180,7 +3306,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @template T\n" +
         " */\n" +
         "function Foo() {}\n" +
-        "function f(/** !Foo.<number> */ x, /** !Foo.<string> */ y) { x = y; }",
+        "function f(/** !Foo<number> */ x, /** !Foo<string> */ y) { x = y; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
@@ -3191,10 +3317,10 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo() {}\n" +
         "/**\n" +
         " * @constructor\n" +
-        " * @implements {Foo.<number>}\n" +
+        " * @implements {Foo<number>}\n" +
         " */\n" +
         "function Bar() {}\n" +
-        "function f(/** !Foo.<string> */ x, /** Bar */ y) { x = y; }",
+        "function f(/** !Foo<string> */ x, /** Bar */ y) { x = y; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
@@ -3206,10 +3332,10 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/**\n" +
         " * @constructor\n" +
         " * @template T\n" +
-        " * @implements {Foo.<T>}\n" +
+        " * @implements {Foo<T>}\n" +
         " */\n" +
         "function Bar() {}\n" +
-        "function f(/** !Foo.<string> */ x, /** !Bar.<number> */ y) { x = y; }",
+        "function f(/** !Foo<string> */ x, /** !Bar<number> */ y) { x = y; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     checkNoWarnings(
@@ -3221,10 +3347,10 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/**\n" +
         " * @constructor\n" +
         " * @template T\n" +
-        " * @implements {Foo.<T>}\n" +
+        " * @implements {Foo<T>}\n" +
         " */\n" +
         "function Bar() {}\n" +
-        "function f(/** !Foo.<string> */ x, /** !Bar.<string> */ y) {\n" +
+        "function f(/** !Foo<string> */ x, /** !Bar<string> */ y) {\n" +
         "  x = y;\n" +
         "}");
 
@@ -3237,13 +3363,13 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/**\n" +
         " * @constructor\n" +
         " * @template T\n" +
-        " * @implements {Foo.<T>}\n" +
+        " * @implements {Foo<T>}\n" +
         " */\n" +
         "function Bar() {}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {!Foo.<T>} x\n" +
-        " * @param {!Bar.<number>} y\n" +
+        " * @param {!Foo<T>} x\n" +
+        " * @param {!Bar<number>} y\n" +
         " */\n" +
         "function f(x, y) { x = y; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
@@ -3513,10 +3639,10 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         GlobalTypeInfo.INHERITANCE_CYCLE);
   }
 
-  public void testInterfacesWithBody() {
-    typeCheck(
-        "/** @interface */ function I() { var x = 123; }",
-        GlobalTypeInfo.INTERFACE_WITH_A_BODY);
+  public void testInterfaceNonEmptyFunction() throws Exception {
+    typeCheck("/** @interface */ function T() {};\n" +
+        "T.prototype.x = function() { return 'foo'; }",
+        TypeCheck.INTERFACE_METHOD_NOT_EMPTY);
   }
 
   public void testInterfaceMistypedProp() {
@@ -3689,7 +3815,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         NewTypeInference.INVALID_ARGUMENT_TYPE);
   }
 
-  public void testExtendedInterfacePropertiesCompatibility1() {
+  public void testExtendedInterfacePropertiesCompatibility() {
     typeCheck(
         "/** @interface */function Int0() {};" +
         "/** @interface */function Int1() {};" +
@@ -3699,6 +3825,42 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "Int1.prototype.foo;" +
         "/** @interface \n @extends {Int0} \n @extends {Int1} */" +
         "function Int2() {};",
+        TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE);
+
+    typeCheck(
+        "/** @interface */\n" +
+        "function Parent1() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " * @return {number}\n" +
+        " */\n" +
+        "Parent1.prototype.method = function(x) {};\n" +
+        "/** @interface */\n" +
+        "function Parent2() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " * @return {string}\n" +
+        " */\n" +
+        "Parent2.prototype.method = function(x) {};\n" +
+        "/** @interface @extends {Parent1} @extends {Parent2} */\n" +
+        "function Child() {}",
+        TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE);
+
+    typeCheck(
+        "/** @constructor */ function Foo() {}\n" +
+        "/** @constructor */ function Bar() {}\n" +
+        "/** @interface */\n" +
+        "function Parent1() {}\n" +
+        "/** @type {!Foo} */\n" +
+        "Parent1.prototype.obj;\n" +
+        "/** @interface */\n" +
+        "function Parent2() {}\n" +
+        "/** @type {!Bar} */\n" +
+        "Parent2.prototype.obj;\n" +
+        "/** @interface @extends {Parent1} @extends {Parent2} */\n" +
+        "function Child() {}",
         TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE);
   }
 
@@ -3967,11 +4129,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
   // }
 
   public void testNestedNamespaces() {
-    // ns.subns is not @const annotated, but we still get good checking for its
-    // properties. This is the same behavior as the previous type inference.
+    // In the previous type inference, ns.subns did not need a
+    // @const annotation, but we require it.
     typeCheck(
         "/** @const */\n" +
         "var ns = {};\n" +
+        "/** @const */\n" +
         "ns.subns = {};\n" +
         "/** @type {string} */\n" +
         "ns.subns.n = 'str';\n" +
@@ -3988,6 +4151,44 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function setObj() {\n" +
         "  ns.obj = {};\n" +
         "}");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @type {Object} */\n" +
+        "ns.obj = null;\n" +
+        "function setObj() {\n" +
+        "  ns.obj = {};\n" +
+        "  ns.obj.str = 'str';\n" +
+        "}");
+
+    typeCheck(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @type {Object} */\n" +
+        "ns.obj = null;\n" +
+        "ns.obj = {};\n" +
+        "ns.obj.x = 'str';\n" +
+        "ns.obj.x - 5;",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @type {Object} */\n" +
+        "ns.obj = null;\n" +
+        "ns.obj = { x : 1, y : 5};\n" +
+        "ns.obj.x = 'str';");
+
+    typeCheck(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @type {Object} */\n" +
+        "ns.obj = null;\n" +
+        "ns.obj = { x : 1, y : 5};\n" +
+        "ns.obj.x = 'str';\n" +
+        "ns.obj.x - 5;",
+        NewTypeInference.INVALID_OPERAND_TYPE);
   }
 
   public void testNamespacedObjectsDontCrash() {
@@ -4573,7 +4774,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         NewTypeInference.NON_NUMERIC_ARRAY_INDEX);
 
     typeCheck(
-        "function f(/** !Array.<number> */ arr, i) {\n" +
+        "function f(/** !Array<number> */ arr, i) {\n" +
         "  arr[i];\n" +
         "}\n" +
         "f([1, 2, 3], 'str');",
@@ -4639,7 +4840,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @template T\n" +
         " * @constructor\n" +
         " * @param {T} x\n" +
-        " * @extends {Bar.<T>} // error, Bar is not templatized \n" +
+        " * @extends {Bar<T>} // error, Bar is not templatized \n" +
         " */\n" +
         "function Foo(x) {}\n" +
         "/** @constructor */\n" +
@@ -4653,15 +4854,15 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @param {T} x\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @param {Foo.<number, string>} x */\n" +
+        "/** @param {Foo<number, string>} x */\n" +
         "function f(x) {}",
         RhinoErrorReporter.BAD_JSDOC_ANNOTATION);
 
     checkNoWarnings(
-        "/** @type {Array.<number>} */ var x;");
+        "/** @type {Array<number>} */ var x;");
 
     checkNoWarnings(
-        "/** @type {Object.<number>} */ var x;");
+        "/** @type {Object<number>} */ var x;");
   }
 
   public void testPolymorphicFunctionInstantiation() {
@@ -4936,7 +5137,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo() {}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {Foo.<T>} x\n" +
+        " * @param {Foo<T>} x\n" +
         " */\n" +
         "function takesFoo(x) {}\n" +
         "takesFoo(undefined);",
@@ -5423,7 +5624,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @type {function(this:Foo.<T>, T)} */\n" +
+        "/** @type {function(this:Foo<T>, T)} */\n" +
         "Foo.prototype.bar = function(x) { this.x = x; };\n" +
         "new Foo('str').bar(5)",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
@@ -5435,7 +5636,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @param {!Foo.<number>} x */\n" +
+        "/** @param {!Foo<number>} x */\n" +
         "function f(x) {}\n" +
         "f(new Foo(7));");
 
@@ -5446,7 +5647,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @param {Foo.<number>} x */\n" +
+        "/** @param {Foo<number>} x */\n" +
         "function f(x) {}\n" +
         "f(new Foo('str'));",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
@@ -5460,7 +5661,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo(x) {}\n" +
         "/** @param {T} x */\n" +
         "Foo.prototype.method = function(x) {};\n" +
-        "/** @param {!Foo.<number>} x */\n" +
+        "/** @param {!Foo<number>} x */\n" +
         "function f(x) { x.method('asdf'); }",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
@@ -5472,7 +5673,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo() {}\n" +
         "/** @param {T} x */\n" +
         "Foo.prototype.method = function(x) {};\n" +
-        "var /** @type {Foo.<string>} */ foo = null;\n" +
+        "var /** @type {Foo<string>} */ foo = null;\n" +
         "foo.method('asdf');",
         NewTypeInference.PROPERTY_ACCESS_ON_NONOBJECT);
   }
@@ -5520,13 +5721,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
-        "/** @constructor @implements {I.<number>} */\n" +
+        "/** @constructor @implements {I<number>} */\n" +
         "function Foo() {}\n" +
         "Foo.prototype.bar = function(x) {};\n" +
         "(new Foo).bar('str');",
@@ -5535,13 +5735,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
-        "/** @constructor @implements {I.<number>} */\n" +
+        "/** @constructor @implements {I<number>} */\n" +
         "function Foo() {}\n" +
         "/** @override */\n" +
         "Foo.prototype.bar = function(x) {};\n" +
@@ -5551,16 +5750,15 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
         "/**\n" +
         " * @template U\n" +
         " * @constructor\n" +
-        " * @implements {I.<U>}\n" +
+        " * @implements {I<U>}\n" +
         " * @param {U} x\n" +
         " */\n" +
         "function Foo(x) {}\n" +
@@ -5571,29 +5769,27 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
-        "/** @constructor @implements {I.<number>} */\n" +
+        "/** @constructor @implements {I<number>} */\n" +
         "function Foo() {}\n" +
         "Foo.prototype.bar = function(x) {};\n" +
-        "/** @param {I.<string>} x */ function f(x) {};\n" +
+        "/** @param {I<string>} x */ function f(x) {};\n" +
         "f(new Foo());",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
-        "/** @constructor @implements {I.<number>} */\n" +
+        "/** @constructor @implements {I<number>} */\n" +
         "function Foo() {}\n" +
         "/** @param {string} x */\n" +
         "Foo.prototype.bar = function(x) {};",
@@ -5602,16 +5798,15 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/**\n" +
         " * @template T\n" +
-        " * @param {T} x\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/** @param {T} x */\n" +
         "I.prototype.bar = function(x) {};\n" +
         "/**\n" +
         " * @template T\n" +
         " * @param {T} x\n" +
-        " * @constructor @implements {I.<number>}\n" +
+        " * @constructor @implements {I<number>}\n" +
         " */\n" +
         "function Foo(x) {}\n" +
         "/** @param {T} x */\n" +
@@ -5629,7 +5824,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/**\n" +
         " * @template T\n" +
         " * @constructor\n" +
-        " * @extends {Foo.<T>}\n" +
+        " * @extends {Foo<T>}\n" +
         " * @param {T} x\n" +
         " */\n" +
         "function Bar(x) {}\n" +
@@ -5643,12 +5838,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function High() {}\n" +
-        "/** @param {Low.<T>} x */\n" +
+        "/** @param {Low<T>} x */\n" +
         "High.prototype.method = function(x) {};\n" +
         "/**\n" +
         " * @template T\n" +
         " * @constructor\n" +
-        " * @extends {High.<T>}\n" +
+        " * @extends {High<T>}\n" +
         " */\n" +
         "function Low() {}");
 
@@ -5658,12 +5853,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function High() {}\n" +
-        "/** @param {Low.<number>} x */\n" +
+        "/** @param {Low<number>} x */\n" +
         "High.prototype.method = function(x) {};\n" +
         "/**\n" +
         " * @template T\n" +
         " * @constructor\n" +
-        " * @extends {High.<T>}\n" +
+        " * @extends {High<T>}\n" +
         " */\n" +
         "function Low() {}");
 
@@ -5673,11 +5868,11 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @constructor\n" +
         " */\n" +
         "function High() {}\n" +
-        "/** @param {Low.<T>} x */ // error, low is not templatized\n" +
+        "/** @param {Low<T>} x */ // error, low is not templatized\n" +
         "High.prototype.method = function(x) {};\n" +
         "/**\n" +
         " * @constructor\n" +
-        " * @extends {High.<number>}\n" +
+        " * @extends {High<number>}\n" +
         " */\n" +
         "function Low() {}",
         RhinoErrorReporter.BAD_JSDOC_ANNOTATION);
@@ -5689,17 +5884,17 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @template T\n" +
         " * @interface\n" +
         " */\n" +
-        "function I(x) {}\n" +
+        "function I() {}\n" +
         "/**\n" +
         " * @template T\n" +
         " * @constructor\n" +
-        " * @implements {I.<T>}\n" +
+        " * @implements {I<T>}\n" +
         " * @extends {Bar}\n" +
         " */\n" +
         "function Foo(x) {}\n" +
         "/**\n" +
         " * @constructor\n" +
-        " * @implements {I.<number>}\n" +
+        " * @implements {I<number>}\n" +
         " */\n" +
         "function Bar(x) {}");
 
@@ -5709,12 +5904,12 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @template T\n" +
         " */\n" +
         "function Foo() {}\n" +
-        "/** @constructor @implements {Foo.<number>} */\n" +
+        "/** @constructor @implements {Foo<number>} */\n" +
         "function A() {}\n" +
-        "var /** Foo.<number> */ x = new A();");
+        "var /** Foo<number> */ x = new A();");
   }
 
-  public void testGenericsSubtyping1() {
+  public void testGenericsSubtyping() {
     typeCheck(
         "/** @interface */ function Parent() {}\n" +
         "/**\n" +
@@ -5748,9 +5943,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " */\n" +
         "Child.prototype.method = function(x, y){};",
         GlobalTypeInfo.INVALID_PROP_OVERRIDE);
-  }
 
-  public void testGenericsSubtyping2() {
     checkNoWarnings(
         "/** @interface */ function Parent() {}\n" +
         "/**\n" +
@@ -5782,9 +5975,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @param {?} y\n" +
         " */\n" +
         "Child.prototype.method = function(x, y){};");
-  }
 
-  public void testGenericsSubtyping3() {
     checkNoWarnings(
         "/** @interface */ function Parent() {}\n" +
         "/**\n" +
@@ -5816,9 +6007,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @return {?}\n" +
         " */\n" +
         "Child.prototype.method = function(x){ return x; };");
-  }
 
-  public void testGenericsSubtyping4() {
     typeCheck(
         "/** @interface */ function Parent() {}\n" +
         "/**\n" +
@@ -5869,12 +6058,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " */\n" +
         "Child.prototype.method = function(x){ return x; };",
         GlobalTypeInfo.INVALID_PROP_OVERRIDE);
-  }
 
-  public void testGenericsSubtyping5() {
-    // This is probably an uncommon case, but technically it is valid, and
-    // should not cause an error.
-    // TODO(blickly): Make this a checkNoWarnings
     typeCheck(
         "/** @interface */ function Parent() {}\n" +
         "/**\n" +
@@ -5889,6 +6073,150 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " */\n" +
         "Child.prototype.method = function(x){ return x; };",
         GlobalTypeInfo.INVALID_PROP_OVERRIDE);
+
+    checkNoWarnings(
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "function f(x) {}\n" +
+        "/** @param {function(number, number)} x */\n" +
+        "function g(x) {}\n" +
+        "g(f);");
+
+    typeCheck(
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "function f(x) {}\n" +
+        "/** @param {function()} x */\n" +
+        "function g(x) {}\n" +
+        "g(f);",
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    checkNoWarnings(
+        "/** @interface */\n" +
+        "function Parent() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "Parent.prototype.method = function(x) {};\n" +
+        "/**\n" +
+        " * @constructor\n" +
+        " * @implements {Parent}\n" +
+        " */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template U\n" +
+        " * @param {U} x\n" +
+        " */\n" +
+        "Child.prototype.method = function(x) {};");
+
+    checkNoWarnings(
+        "/** @interface */ function Parent() {}\n" +
+        "/** @param {string} x */\n" +
+        "Parent.prototype.method = function(x){};\n" +
+        "/** @constructor @implements {Parent} */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "Child.prototype.method = function(x){};");
+
+    checkNoWarnings(
+        "/** @interface */ function Parent() {}\n" +
+        "/** @param {*} x */\n" +
+        "Parent.prototype.method = function(x){};\n" +
+        "/** @constructor @implements {Parent} */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "Child.prototype.method = function(x){};");
+
+    checkNoWarnings(
+        "/** @interface */ function Parent() {}\n" +
+        "/** @param {?} x */\n" +
+        "Parent.prototype.method = function(x){};\n" +
+        "/** @constructor @implements {Parent} */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " */\n" +
+        "Child.prototype.method = function(x){};");
+
+    // This shows a bug in subtyping of generic functions.
+    // We don't catch the invalid prop override.
+    checkNoWarnings(
+        "/** @interface */ function Parent() {}\n" +
+        "/**\n" +
+        " * @param {string} x\n" +
+        " * @param {number} y\n" +
+        " */\n" +
+        "Parent.prototype.method = function(x, y){};\n" +
+        "/** @constructor @implements {Parent} */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " * @param {T} y\n" +
+        " */\n" +
+        "Child.prototype.method = function(x, y){};");
+
+    // This shows a bug in subtyping of generic functions.
+    // We don't catch the invalid prop override.
+    checkNoWarnings(
+        "/** @interface */ function Parent() {}\n" +
+        "/**\n" +
+        " * @template A, B\n" +
+        " * @param {A} x\n" +
+        " * @param {B} y\n" +
+        " * @return {A}\n" +
+        " */\n" +
+        "Parent.prototype.method = function(x, y){};\n" +
+        "/** @constructor @implements {Parent} */\n" +
+        "function Child() {}\n" +
+        "/**\n" +
+        " * @template A, B\n" +
+        " * @param {A} x\n" +
+        " * @param {B} y\n" +
+        " * @return {B}\n" +
+        " */\n" +
+        "Child.prototype.method = function(x, y){ return y; };");
+  }
+
+  public void testGenericsVariance() {
+    // Array generic parameter is co-variant
+    checkNoWarnings(
+        "/** @constructor */ function Foo() {}\n" +
+        "/** @constructor @extends {Foo} */ function Bar() {}\n" +
+        "var /** Array<Foo> */ a = [new Bar];");
+
+    typeCheck(
+        "/** @constructor */ function Foo() {}\n" +
+        "/** @constructor @extends {Foo} */ function Bar() {}\n" +
+        "var /** Array<Bar> */ a = [new Foo];",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    // TODO(blickly): Make other generics invariant to match old type inference
+    checkNoWarnings(
+        "/** @constructor @param {T} x @template T */ function Gen(x){}\n" +
+        "/** @constructor */ function Foo() {}\n" +
+        "/** @constructor @extends {Foo} */ function Bar() {}\n" +
+        "var /** Gen<Foo> */ a = new Gen(new Bar);");
+
+    typeCheck(
+        "/** @constructor @param {T} x @template T */ function Gen(x){}\n" +
+        "/** @constructor */ function Foo() {}\n" +
+        "/** @constructor @extends {Foo} */ function Bar() {}\n" +
+        "var /** Gen<Bar> */ a = new Gen(new Foo);",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
   }
 
   public void testInferredArrayGenerics() {
@@ -5907,50 +6235,50 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
 
     typeCheck(
-        "var /** Array.<string> */ a = [1, 2];",
+        "var /** Array<string> */ a = [1, 2];",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     checkNoWarnings(
         "var arr = [];\n" +
-        "var /** Array.<string> */ as = arr;");
+        "var /** Array<string> */ as = arr;");
 
     typeCheck(
         "var arr = [1, 2, 3];\n" +
-        "var /** Array.<string> */ as = arr;",
+        "var /** Array<string> */ as = arr;",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
         "/** @constructor */ function Foo() {}\n" +
-        "var /** Array.<string> */ a = [new Foo, new Foo];",
+        "var /** Array<string> */ a = [new Foo, new Foo];",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     checkNoWarnings(
         "/** @constructor */ function Foo() {}\n" +
         "/** @constructor @extends {Foo} */ function Bar() {}\n" +
-        "var /** Array.<Foo> */ a = [new Foo, new Bar];");
+        "var /** Array<Foo> */ a = [new Foo, new Bar];");
 
     typeCheck(
         "/** @constructor */ function Foo() {}\n" +
         "/** @constructor @extends {Foo} */ function Bar() {}\n" +
-        "var /** Array.<Bar> */ a = [new Foo, new Bar];",
+        "var /** Array<Bar> */ a = [new Foo, new Bar];",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
         "/** @const */ var x = [1, 2, 3];\n" +
-        "function g() { var /** Array.<string> */ a = x; }",
+        "function g() { var /** Array<string> */ a = x; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
         "/** @constructor */ function Foo() {}\n" +
         "/** @constructor @extends {Foo} */ function Bar() {}\n" +
         "/** @const */ var x = [new Foo, new Foo];\n" +
-        "function g() { var /** Array.<Bar> */ a = x; }",
+        "function g() { var /** Array<Bar> */ a = x; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testDeclaredGenericArrayTypes() {
     typeCheck(
-        "/** @type {Array.<string>} */\n" +
+        "/** @type {Array<string>} */\n" +
         "var arr = ['str'];\n" +
         "arr[0]++;",
         NewTypeInference.INVALID_OPERAND_TYPE);
@@ -5961,22 +6289,40 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         NewTypeInference.INVALID_OPERAND_TYPE);
 
     typeCheck(
-        "function foo (/** Array.<string> */ a) {}\n" +
-        "/** @type {Array.<number>} */\n" +
+        "function foo (/** Array<string> */ a) {}\n" +
+        "/** @type {Array<number>} */\n" +
         "var b = [1];\n" +
         "foo(b);",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
     typeCheck(
-        "function foo (/** Array.<string> */ a) {}\n" +
+        "function foo (/** Array<string> */ a) {}\n" +
         "foo([1]);",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
     typeCheck(
-        "/** @type {Array.<number>} */\n" +
+        "/** @type {!Array<number>} */\n" +
         "var arr = [1, 2, 3];\n" +
         "arr[0] = 'str';",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    checkNoWarnings(
+        "/** @type {!Array<number>} */\n" +
+        "var arr = [1, 2, 3];\n" +
+        "arr['0'] = 'str';");
+
+    // We warn here even though the declared type of the lvalue includes null.
+    typeCheck(
+        "/** @type {Array<number>} */\n" +
+        "var arr = [1, 2, 3];\n" +
+        "arr[0] = 'str';",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(
+        "function f(/** Array<number> */ arr) {\n" +
+        "  arr[0] = 'str';\n" +
+        "}",
+        NewTypeInference.PROPERTY_ACCESS_ON_NONOBJECT);
 
     typeCheck(
         "/** @const */\n" +
@@ -5984,25 +6330,28 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "arr[0] = 'str';",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
-    // TODO(blickly): Distinguish between declared and inferred
-    // array types so that this test has no warnings
-    typeCheck(
+    checkNoWarnings(
         "var arr = [1, 2, 3];\n" +
+        "arr[0] = 'str';");
+
+    checkNoWarnings(
+        "/** @constructor */ function Super(){}\n" +
+        "/** @constructor @extends {Super} */ function Sub(){}\n" +
+        "/** @type {!Array<Super>} */ var arr = [new Sub];\n" +
+        "arr[0] = new Super;");
+
+    typeCheck(
+        "/** @type {Array<number>} */ var arr = [];\n" +
         "arr[0] = 'str';",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
-        "/** @type {Array.<number>} */ var arr = [];\n" +
-        "arr[0] = 'str';",
-        NewTypeInference.MISTYPED_ASSIGN_RHS);
-
-    typeCheck(
-        "/** @type {Array.<number>} */ var arr = [];\n" +
-        "(function (/** Array.<string> */ x){})(arr);",
+        "/** @type {Array<number>} */ var arr = [];\n" +
+        "(function (/** Array<string> */ x){})(arr);",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
     typeCheck(
-        "function /** string */ f(/** !Array.<number> */ arr) {\n" +
+        "function /** string */ f(/** !Array<number> */ arr) {\n" +
         "  return arr[0];\n" +
         "}",
         NewTypeInference.RETURN_NONDECLARED_TYPE);
@@ -6011,7 +6360,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     checkNoWarnings(
         "var arr = [];\n" +
         "arr[0] = 5;\n" +
-        "var /** Array.<string> */ as = arr;");
+        "var /** Array<string> */ as = arr;");
   }
 
   public void testInferConstTypeFromGenerics() {
@@ -6034,7 +6383,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " */\n" +
         "function Foo(x) {}\n" +
         "/** @const */ var foo_str = new Foo('str');\n" +
-        "function g() { var /** !Foo.<number> */ foo_num = foo_str; }",
+        "function g() { var /** !Foo<number> */ foo_num = foo_str; }",
         NewTypeInference.MISTYPED_ASSIGN_RHS);
 
     typeCheck(
@@ -6060,6 +6409,32 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         ImmutableList.of(
             GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE,
             NewTypeInference.NOT_UNIQUE_INSTANTIATION));
+
+    typeCheck(
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " * @return {T}\n" +
+        " */\n" +
+        "function f(x) { return x; }\n" +
+        "/** @const */\n" +
+        "var y = f(1, 2);",
+        ImmutableList.of(
+            GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE,
+            TypeCheck.WRONG_ARGUMENT_COUNT));
+
+    typeCheck(
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {T} x\n" +
+        " * @return {T}\n" +
+        " */\n" +
+        "function f(x) { return x; }\n" +
+        "/** @const */\n" +
+        "var y = f();",
+        ImmutableList.of(
+            GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE,
+            TypeCheck.WRONG_ARGUMENT_COUNT));
   }
 
   public void testDifficultClassGenericsInstantiation() {
@@ -6070,7 +6445,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @param {T} x\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @param {Bar.<T>} x */\n" +
+        "/** @param {Bar<T>} x */\n" +
         "Foo.prototype.method = function(x) {};\n" +
         "/**\n" +
         " * @template T\n" +
@@ -6078,7 +6453,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @param {T} x\n" +
         " */\n" +
         "function Bar(x) {}\n" +
-        "/** @param {Foo.<T>} x */\n" +
+        "/** @param {Foo<T>} x */\n" +
         "Bar.prototype.method = function(x) {};\n" +
         "(new Foo(123)).method(new Bar('asdf'));",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
@@ -6090,7 +6465,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         " * @param {T} x\n" +
         " */\n" +
         "function Foo(x) {}\n" +
-        "/** @param {Foo.<Foo.<T>>} x */\n" +
+        "/** @param {Foo<Foo<T>>} x */\n" +
         "Foo.prototype.method = function(x) {};\n" +
         "(new Foo(123)).method(new Foo(new Foo('asdf')));",
         NewTypeInference.INVALID_ARGUMENT_TYPE);
@@ -6098,8 +6473,8 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/** @interface\n @template T */function A() {};" +
         "/** @return {T} */A.prototype.foo = function() {};" +
-        "/** @interface\n @template U\n @extends {A.<U>} */function B() {};" +
-        "/** @constructor\n @implements {B.<string>} */function C() {};" +
+        "/** @interface\n @template U\n @extends {A<U>} */function B() {};" +
+        "/** @constructor\n @implements {B<string>} */function C() {};" +
         "/** @return {string}\n @override */\n" +
         "C.prototype.foo = function() { return 123; };",
         NewTypeInference.RETURN_NONDECLARED_TYPE);
@@ -6133,7 +6508,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     //     "/**\n" +
     //     " * @template T\n" +
     //     " * @constructor\n" +
-    //     " * @extends {Foo.<T>}\n" +
+    //     " * @extends {Foo<T>}\n" +
     //     " * @param {T} x\n" +
     //     " */\n" +
     //     "function Bar(x) {}\n" +
@@ -6141,7 +6516,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     //     "/** @param {number} x */\n" +
     //     "Bar.prototype.method = function(x) {};\n" +
     //     "\n" +
-    //     "/** @param {!Foo.<string>} x */\n" +
+    //     "/** @param {!Foo<string>} x */\n" +
     //     "function f(x) { x.method('sadf'); };\n" +
     //     "f(new Bar('asdf'));",
     //     NewTypeInference.FAILED_TO_UNIFY);
@@ -6157,11 +6532,11 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "function Foo(x) {}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {!Foo.<T>} x\n" +
+        " * @param {!Foo<T>} x\n" +
         " */\n" +
         "function fn(x) {}\n" +
         "fn(new Foo('asdf'));",
-        // {!Foo.<T>} is instantiating only the 1st template var of Foo
+        // {!Foo<T>} is instantiating only the 1st template var of Foo
         RhinoErrorReporter.BAD_JSDOC_ANNOTATION);
 
     typeCheck(
@@ -6175,13 +6550,13 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "}\n" +
         "/**\n" +
         " * @template T\n" +
-        " * @param {!Foo.<T>} x\n" +
+        " * @param {!Foo<T>} x\n" +
         " * @return {T}\n" +
         " */\n" +
         "function fn(x) { return x.prop; }\n" +
         "fn(new Foo('asdf')) - 5;",
         ImmutableList.of(
-            // {!Foo.<T>} is instantiating only the 1st template var of Foo
+            // {!Foo<T>} is instantiating only the 1st template var of Foo
             RhinoErrorReporter.BAD_JSDOC_ANNOTATION,
             NewTypeInference.INVALID_OPERAND_TYPE));
   }
@@ -6261,6 +6636,9 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
 
     checkNoWarnings(
         "function f(/** !Function */ fun) { return new fun(1, 2); }");
+
+    checkNoWarnings(
+        "function f(/** !Function */ fun) { [] instanceof fun; }");
   }
 
   public void testConditionalExBranch() {
@@ -6279,12 +6657,22 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         RhinoErrorReporter.BAD_JSDOC_ANNOTATION);
   }
 
-  public void testImplentsGenericInterfaceDoesntCrash() {
+  public void testGenericInterfaceDoesntCrash() {
+    checkNoWarnings(
+        "/** @const */ var ns = {};\n" +
+        "/** @interface @template T */\n" +
+        "ns.Interface = function(){}");
+  }
+
+  public void testImplementsGenericInterfaceDoesntCrash() {
     checkNoWarnings(
         "/** @interface @template Z */\n" +
         "function Foo(){}\n" +
         "Foo.prototype.getCount = function /** number */ (){};\n" +
-        "/** @constructor @implements {Foo.<T>} @template T */\n" +
+        "/**\n" +
+        " * @constructor @implements {Foo<T>}\n" +
+        " * @template T\n" +
+        " */\n" +
         "function Bar(){}\n" +
         "Bar.prototype.getCount = function /** number */ (){};");
   }
@@ -6387,7 +6775,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     //     VarCheck.UNDEFINED_VAR_ERROR);
   }
 
-  public void testUnparametrizedArrayDefinitionDoesntCrash() {
+  public void testUnparameterizedArrayDefinitionDoesntCrash() {
     checkNoWarnings(
         "/** @constructor */ function Array(){}",
         "function f(/** !Array */ arr) {\n" +
@@ -6400,14 +6788,28 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
   public void testInstanceofGenericTypeDoesntCrash() {
     checkNoWarnings(
         "/** @constructor @template T */ function Foo(){}",
-        "function f(/** !Foo.<?> */ f) {\n" +
+        "function f(/** !Foo<?> */ f) {\n" +
         "  if (f instanceof Foo) return true;\n" +
         "};");
   }
 
+  public void testRedeclarationOfFunctionAsNamespaceDoesntCrash() {
+    checkNoWarnings("",
+        "/** @const */ var ns = ns || {};\n" +
+        "ns.fun = function(name) {};\n" +
+        "ns.fun = ns.fun || {};\n" +
+        "ns.fun.get = function(/** string */ name) {};");
+
+    checkNoWarnings("",
+        "/** @const */ var ns = ns || {};\n" +
+        "ns.fun = function(name) {};\n" +
+        "ns.fun.get = function(/** string */ name) {};\n" +
+        "ns.fun = ns.fun || {};");
+  }
+
   public void testInvalidEnumDoesntCrash() {
     typeCheck(
-        "/** @enum {Array.<number>} */\n" +
+        "/** @enum {Array<number>} */\n" +
         "var FooEnum = {\n" +
         "  BAR: [5]\n" +
         "};\n" +
@@ -6416,6 +6818,13 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "    var y = x[0];\n" +
         "};",
         RhinoErrorReporter.BAD_JSDOC_ANNOTATION);
+
+    typeCheck(
+        "var ns = {};\n" +
+        "function f() {\n" +
+        "  /** @enum {number} */ var EnumType = ns;\n" +
+        "}",
+        GlobalTypeInfo.MALFORMED_ENUM);
   }
 
   public void testRemoveNonexistentPropDoesntCrash() {
@@ -6506,15 +6915,6 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
   //           VarCheck.UNDEFINED_VAR_ERROR));
   // }
 
-  public void testInvalidEnumDeclarationDoesntCrash() {
-    typeCheck(
-        "var ns = {};\n" +
-        "function f() {\n" +
-        "  /** @enum {number} */ var EnumType = ns;\n" +
-        "}",
-        GlobalTypeInfo.MALFORMED_ENUM);
-  }
-
   public void testUninhabitableObjectTypeDoesntCrash() {
     checkNoWarnings(
         "function f(/** number */ n) {\n" +
@@ -6539,7 +6939,11 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
 
   public void testArrayLiteralUsedGenericallyDoesntCrash() {
     checkNoWarnings(
-        "/** @param {!Array.<T>} arr @return {T} @template T */\n" +
+        "/**\n" +
+        " * @template T\n" +
+        " * @param {!Array<T>} arr\n" +
+        " * @return {T}\n" +
+        " */\n" +
         "function f(arr) { return arr[0]; }\n" +
         "f([1,2,3]);");
   }
@@ -6573,6 +6977,16 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "};");
   }
 
+  public void testCtorManipulationDoesntCrash() {
+    checkNoWarnings(
+        "/** @constructor */ var X = function() {};\n" +
+        "var f = function(ctor) {\n" +
+        "  /** @type {function(new: X)} */\n" +
+        "  function InstantiableCtor() {};\n" +
+        "  InstantiableCtor.prototype = ctor.prototype;\n" +
+        "}");
+  }
+
   public void testAbstractMethodOverrides() {
     checkNoWarnings(
         "/** @type {!Function} */ function abstractMethod(){}\n" +
@@ -6589,16 +7003,23 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "}");
   }
 
-  public void testThisReferenceUsedGenericallyDoesntCrash() {
+  public void testThisReferenceUsedGenerically() {
     checkNoWarnings(
         "/** @constructor @template T */\n" +
         "var Foo = function(t) {\n" +
-        "  /** @type {Foo.<T>} */\n" +
+        "  /** @type {Foo<T>} */\n" +
         "  this.parent_ = null;\n" +
         "}\n" +
         "Foo.prototype.method = function() {\n" +
         "  var p = this;\n" +
         "  while (p != null) p = p.parent_;\n" +
+        "}");
+
+    checkNoWarnings(
+        "/** @constructor @template T */\n" +
+        "var Foo = function(t) {\n" +
+        "  /** @type {Foo<T>} */\n" +
+        "  var p = this;\n" +
         "}");
   }
 
@@ -6606,7 +7027,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     checkNoWarnings(
         "/** @constructor @template VALUE */\n" +
         "var Grandparent = function() {};\n" +
-        "/** @constructor @extends {Grandparent.<number>} */\n" +
+        "/** @constructor @extends {Grandparent<number>} */\n" +
         "var Parent = function(){};\n" +
         "/** @constructor @extends {Parent} */ function Child(){}");
 
@@ -7096,10 +7517,10 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
   public void testMisplacedStructDictAnnotation() {
     typeCheck(
         "/** @struct */ function Struct1() {}",
-        GlobalTypeInfo.CONSTRUCTOR_REQUIRED);
+        GlobalTypeInfo.STRUCTDICT_WITHOUT_CTOR);
     typeCheck(
         "/** @dict */ function Dict() {}",
-        GlobalTypeInfo.CONSTRUCTOR_REQUIRED);
+        GlobalTypeInfo.STRUCTDICT_WITHOUT_CTOR);
   }
 
   // public void testGlobalVariableInJoin() {
@@ -7295,6 +7716,17 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "  /** @const */ this.prop = 1;\n" +
         "}",
         GlobalTypeInfo.MISPLACED_CONST_ANNOTATION);
+
+    // A final constructor isn't the same as a @const property
+    checkNoWarnings(
+        "/** @constructor */\n" +
+        "function Foo() {\n" +
+        "  /**\n" +
+        "   * @constructor\n" +
+        "   * @final\n" +
+        "   */\n" +
+        "  this.Bar = function() {};\n" +
+        "}");
   }
 
   public void testConstVarsDontReassign() {
@@ -7429,6 +7861,21 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         NewTypeInference.CONST_REASSIGNED);
   }
 
+  public void testConstantByConvention() {
+    typeCheck(
+        "var ABC = 123;\n" +
+        "ABC = 321;",
+        NewTypeInference.CONST_REASSIGNED);
+
+    typeCheck(
+        "/** @constructor */\n" +
+        "function Foo() {\n" +
+        "  this.ABC = 123;\n" +
+        "}\n" +
+        "(new Foo).ABC = 321;",
+        NewTypeInference.CONST_REASSIGNED);
+  }
+
   public void testDontOverrideFinalMethods() {
     typeCheck(
         "/** @constructor */\n" +
@@ -7512,6 +7959,31 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/** @const */ var o = (0,{});\n" +
         "function g() { return o.prop; }",
         TypeCheck.INEXISTENT_PROPERTY);
+
+    typeCheck(
+        "/** @const */ var s = true ? null : null;\n" +
+        "function g() { s - 5; }",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    typeCheck(
+        "/** @const */ var s = true ? void 0 : undefined;\n" +
+        "function g() { s - 5; }",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    typeCheck(
+        "/** @const */ var b = true ? (1<2) : ('' in {});\n" +
+        "function g() { b - 5; }",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    typeCheck(
+        "/** @const */ var n = 0 || 6;\n" +
+        "function g() { n < 'str'; }",
+        NewTypeInference.INVALID_OPERAND_TYPE);
+
+    typeCheck(
+        "/** @const */ var s = 'str' + 5;\n" +
+        "function g() { s - 5; }",
+        NewTypeInference.INVALID_OPERAND_TYPE);
 
     // TODO(dimvar): must fix externs initialization
     // typeCheck(
@@ -7655,6 +8127,35 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "var n2 = n1;\n" +
         "function g() { n2 < 'str'; }",
         NewTypeInference.INVALID_OPERAND_TYPE);
+
+    // Don't treat aliased constructors as if they were const variables.
+    checkNoWarnings(
+        "/** @constructor */ function Bar() {}\n" +
+        "/**\n" +
+        " * @constructor\n" +
+        " * @final\n" +
+        " */\n" +
+        "var Foo = Bar;");
+
+    checkNoWarnings(
+        "/** @constructor */ function Bar() {}\n" +
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/**\n" +
+        " * @constructor\n" +
+        " * @final\n" +
+        " */\n" +
+        "ns.Foo = Bar;");
+
+    // (Counterintuitive) On a constructor, @final means don't subclass, not
+    // that it's a const. We don't warn about reassignment.
+    checkNoWarnings(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @final\n" +
+        " */\n" +
+        "var Foo = function() {};\n" +
+        "Foo = /** @type {?} */ (function() {});");
   }
 
   public void testSuppressions() {
@@ -7868,6 +8369,7 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
     typeCheck(
         "/** @const */\n" +
         "var ns = {};\n" +
+        "/** @const */\n" +
         "ns.subns = {};\n" +
         "(/** @lends {ns.subns} */ { prop: 1 });\n" +
         "var /** string */ s = ns.subns.prop;",
@@ -8332,6 +8834,95 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         NewTypeInference.CALL_FUNCTION_WITH_BOTTOM_FORMAL);
   }
 
+  public void testEnumAliasing() {
+    checkNoWarnings(
+        "/** @enum {number} */\n" +
+        "var e1 = { A: 1 };\n" +
+        "/** @enum {number} */\n" +
+        "var e2 = e1;");
+
+    typeCheck(
+        "var x;\n" +
+        "/** @enum {number} */\n" +
+        "var e1 = { A: 1 };\n" +
+        "/** @enum {number} */\n" +
+        "var e2 = x;",
+        GlobalTypeInfo.MALFORMED_ENUM);
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns1 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns1.e1 = { A: 1 };\n" +
+        "/** @const */\n" +
+        "var ns2 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns2.e2 = ns1.e1;");
+
+    checkNoWarnings(
+        "/** @enum {number} */\n" +
+        "var e1 = { A: 1 };\n" +
+        "/** @enum {number} */\n" +
+        "var e2 = e1;\n" +
+        "function f(/** e2 */ x) {}\n" +
+        "f(e1.A);");
+
+    checkNoWarnings(
+        "/** @enum {number} */\n" +
+        "var e1 = { A: 1 };\n" +
+        "/** @enum {number} */\n" +
+        "var e2 = e1;\n" +
+        "function f(/** e2 */ x) {}\n" +
+        "f(e2.A);");
+
+    typeCheck(
+        "/** @enum {number} */\n" +
+        "var e1 = { A: 1 };\n" +
+        "/** @enum {number} */\n" +
+        "var e2 = e1;\n" +
+        "function f(/** e2 */ x) {}\n" +
+        "f('asdf');",
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns1 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns1.e1 = { A: 1 };\n" +
+        "/** @const */\n" +
+        "var ns2 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns2.e2 = ns1.e1;\n" +
+        "function f(/** ns2.e2 */ x) {}\n" +
+        "f(ns1.e1.A);");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns1 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns1.e1 = { A: 1 };\n" +
+        "/** @const */\n" +
+        "var ns2 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns2.e2 = ns1.e1;\n" +
+        "function f(/** ns1.e1 */ x) {}\n" +
+        "f(ns2.e2.A);");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns1 = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns1.e1 = { A: 1 };\n" +
+        "function g() {\n" +
+        "  /** @const */\n" +
+        "  var ns2 = {};\n" +
+        "  /** @enum {number} */\n" +
+        "  ns2.e2 = ns1.e1;\n" +
+        "  function f(/** ns1.e1 */ x) {}\n" +
+        "  f(ns2.e2.A);\n" +
+        "}");
+  }
+
   public void testNoDoubleWarnings() {
     typeCheck(
         "if ((4 - 'str') && true) { 4 + 5; }",
@@ -8405,8 +8996,8 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
 
     typeCheck(
         CLOSURE_BASE +
-        "function f(/** (Array.<number>|number) */ x) {\n" +
-        "  var /** Array.<number> */ a;\n" +
+        "function f(/** (Array<number>|number) */ x) {\n" +
+        "  var /** Array<number> */ a;\n" +
         "  if (goog.isArray(x)) {\n" +
         "    a = x;\n" +
         "  }\n" +
@@ -8528,9 +9119,17 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
 
     checkNoWarnings(
         CLOSURE_BASE +
-        "function f(/** (number|!Array.<number>) */ x) {\n" +
+        "function f(/** (number|!Array<number>) */ x) {\n" +
         "  if (!goog.isArray(x)) {\n" +
         "    x - 5;\n" +
+        "  }\n" +
+        "}");
+
+    checkNoWarnings(
+        CLOSURE_BASE +
+        "function f(x) {\n" +
+        "  if (goog.isArray(x)) {\n" +
+        "    return x[0] - 5;\n" +
         "  }\n" +
         "}");
 
@@ -8709,6 +9308,24 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
         "/** @constructor */\n" +
         "E.Foo = function(x) {};\n" +
         "var /** E */ x = E.A;");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns.E = { A: 1 };\n" +
+        "/** @constructor */\n" +
+        "ns.E.Foo = function(x) {};");
+
+    typeCheck(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @enum {number} */\n" +
+        "ns.E = { A: 1 };\n" +
+        "/** @constructor */\n" +
+        "ns.E.Foo = function(x) {};\n" +
+        "function f() { ns.E.Foo(); }",
+        TypeCheck.CONSTRUCTOR_NOT_CALLABLE);
   }
 
   public void testStringMethods() {
@@ -8856,41 +9473,311 @@ public class NewTypeInferenceTest extends CompilerTypeTestCase {
   }
 
   public void testNamespacesWithNonEmptyObjectLiteral() {
-    checkNoWarnings("/** @const */ var o = { /** @const */ PROP: 5};");
+    checkNoWarnings("/** @const */ var o = { /** @const */ PROP: 5 };");
 
     checkNoWarnings(
-        "var x = 5; /** @const */ var o = { /** @const {number} */ PROP: x};");
+        "var x = 5; /** @const */ var o = { /** @const {number} */ PROP: x };");
 
     typeCheck(
         "var x = 'str';\n" +
-        "/** @const */ var o = { /** @const {string} */ PROP: x};\n" +
+        "/** @const */ var o = { /** @const {string} */ PROP: x };\n" +
         "function g() { o.PROP - 5; }",
         NewTypeInference.INVALID_OPERAND_TYPE);
 
     checkNoWarnings(
-        "/** @const */ var ns = {}; ns.o = { /** @const */ PROP: 5};");
+        "/** @const */ var ns = {};\n" +
+        "/** @const */ ns.o = { /** @const */ PROP: 5 };");
 
     checkNoWarnings(
         "/** @const */ var ns = {};\n" +
         "var x = 5;\n" +
-        "/** @const */ ns.o = { /** @const {number} */ PROP: x};");
+        "/** @const */ ns.o = { /** @const {number} */ PROP: x };");
 
     typeCheck(
         "/** @const */ var ns = {};\n" +
         "var x = 'str';\n" +
-        "/** @const */ ns.o = { /** @const {string} */ PROP: x};\n" +
+        "/** @const */ ns.o = { /** @const {string} */ PROP: x };\n" +
         "function g() { ns.o.PROP - 5; }",
         NewTypeInference.INVALID_OPERAND_TYPE);
 
     // These declarations are not considered namespaces
     typeCheck(
-        "(function(){ return {}; })().ns = { /** @const */ PROP: 5};",
+        "(function(){ return {}; })().ns = { /** @const */ PROP: 5 };",
         GlobalTypeInfo.MISPLACED_CONST_ANNOTATION);
 
     typeCheck(
         "function f(/** { x : string } */ obj) {\n" +
-        "  obj.ns = { /** @const */ PROP: 5};\n" +
+        "  obj.ns = { /** @const */ PROP: 5 };\n" +
         "}",
         GlobalTypeInfo.MISPLACED_CONST_ANNOTATION);
+  }
+
+  // TODO(dimvar): fix
+  public void testAllTestsShouldHaveDupPropWarnings() {
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @const */\n" +
+        "ns.Foo = {};\n" +
+        "ns.Foo = { a: 123 };");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @const */\n" +
+        "ns.Foo = {};\n" +
+        "/** @const */\n" +
+        "ns.Foo = { a: 123 };");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @const */\n" +
+        "ns.Foo = {};\n" +
+        "/**\n" +
+        " * @const\n" +
+        // @suppress is ignored here b/c there is no @type in the jsdoc.
+        " * @suppress {duplicate}\n" +
+        " */\n" +
+        "ns.Foo = { a: 123 };");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @const */\n" +
+        "ns.Foo = {};\n" +
+        "/** @type {number} */\n" +
+        "ns.Foo = 123;");
+
+    checkNoWarnings(
+        "/** @enum {number} */\n" +
+        "var en = { A: 5 };\n" +
+        "/** @const */\n" +
+        "en.Foo = {};\n" +
+        "/** @type {number} */\n" +
+        "en.Foo = 123;");
+
+    checkNoWarnings(
+        "/** @constructor */\n" +
+        "function Foo() {}\n" +
+        "/** @const */\n" +
+        "Foo.ns = {};\n" +
+        "/** @const */\n" +
+        "Foo.ns = {};");
+  }
+
+  public void testNominalTypeAliasing() {
+    checkNoWarnings(
+        "/** @constructor */\n" +
+        "function Foo() {}\n" +
+        "/** @constructor */\n" +
+        "var Bar = Foo;\n" +
+        "var /** !Bar */ x = new Foo();");
+
+    checkNoWarnings(
+        "/** @const */\n" +
+        "var ns = {};\n" +
+        "/** @constructor */\n" +
+        "ns.Foo = function() {};\n" +
+        "/** @constructor */\n" +
+        "ns.Bar = ns.Foo;\n" +
+        "function g() {\n" +
+        "  var /** !ns.Bar */ x = new ns.Foo();\n" +
+        "  var /** !ns.Bar */ y = new ns.Bar();\n" +
+        "}");
+
+    typeCheck(
+        "/** @type {number} */\n" +
+        "var n = 123;\n" +
+        "/** @constructor */\n" +
+        "var Foo = n;",
+        GlobalTypeInfo.EXPECTED_CONSTRUCTOR);
+
+    typeCheck(
+        "/** @type {number} */\n" +
+        "var n = 123;\n" +
+        "/** @interface */\n" +
+        "var Foo = n;",
+        GlobalTypeInfo.EXPECTED_INTERFACE);
+
+    typeCheck(
+        "/** @interface */\n" +
+        "function Foo() {}\n" +
+        "/** @constructor */\n" +
+        "var Bar = Foo;",
+        GlobalTypeInfo.EXPECTED_CONSTRUCTOR);
+
+    typeCheck(
+        "/** @constructor */\n" +
+        "function Foo() {}\n" +
+        "/** @interface */\n" +
+        "var Bar = Foo;",
+        GlobalTypeInfo.EXPECTED_INTERFACE);
+
+    // TODO(dimvar): When we allow unknown type names, eg, for fwd-declared
+    // types, then we can also fix this.
+    // Currently, the type checker doesn't know what !Foo is.
+    typeCheck(
+        "var Bar;",
+        "/**\n" +
+        " * @constructor\n" +
+        " * @final\n" +
+        " */\n" +
+        "var Foo = Bar;\n" +
+        "var /** !Foo */ x;",
+        ImmutableList.of(
+            GlobalTypeInfo.EXPECTED_CONSTRUCTOR,
+            GlobalTypeInfo.UNRECOGNIZED_TYPE_NAME));
+  }
+
+  public void testTypeVariablesVisibleInPrototypeMethods() {
+    typeCheck(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function Foo() {}\n" +
+        "Foo.prototype.method = function() {\n" +
+        "  /** @type {T} */\n" +
+        "  this.prop = 123;\n" +
+        "}",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function Foo() {}\n" +
+        "/** @param {T} x */" +
+        "Foo.prototype.method = function(x) {\n" +
+        "  x = 123;\n" +
+        "}",
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    checkNoWarnings(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function Foo() {}\n" +
+        "/** @param {T} x */" +
+        "Foo.prototype.method = function(x) {\n" +
+        "  this.prop = x;\n" +
+        "}");
+
+    typeCheck(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function Foo() {}\n" +
+        "/** @param {T} x */" +
+        "Foo.prototype.method = function(x) {\n" +
+        "  /** @const */\n" +
+        "  this.prop = x;\n" +
+        "}",
+        GlobalTypeInfo.MISPLACED_CONST_ANNOTATION);
+
+    typeCheck(
+        "/**\n" +
+        " * @constructor\n" +
+        " * @template T\n" +
+        " */\n" +
+        "function Parent() {}\n" +
+        "/**\n" +
+        " * @constructor\n" +
+        " * @extends {Parent<string>}\n" +
+        " */\n" +
+        "function Child() {}\n" +
+        "Child.prototype.method = function() {\n" +
+        "  /** @type {T} */\n" +
+        "  this.prop = 123;\n" +
+        "}",
+        GlobalTypeInfo.UNRECOGNIZED_TYPE_NAME);
+  }
+
+  public void testInferConstTypeFromEnumProps() {
+    checkNoWarnings(
+        "/** @enum */\n" +
+        "var e = { A: 1 };\n" +
+        "/** @const */\n" +
+        "var numarr = [ e.A ];");
+
+    typeCheck(
+        "/** @enum */\n" +
+        "var e = { A: 1 };\n" +
+        "/** @type {number} */\n" +
+        "e.prop = 123;\n" +
+        "/** @const */\n" +
+        "var x = e.prop;",
+        GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
+  }
+
+  public void testForwardDeclarations() {
+    final String DEFINITIONS =
+        "/** @const */ var goog = {};\n" +
+        "goog.addDependency = function(file, provides, requires){};\n" +
+        "goog.forwardDeclare = function(name){};";
+
+    checkNoWarnings(DEFINITIONS +
+        "goog.addDependency('', ['Foo'], []);\n" +
+        "goog.forwardDeclare('Bar');\n" +
+        "function f(/** !Foo */ x) {}\n" +
+        "function g(/** !Bar */ y) {}");
+
+    checkNoWarnings(DEFINITIONS +
+        "/** @const */ var ns = {};\n" +
+        "goog.addDependency('', ['ns.Foo'], []);\n" +
+        "goog.forwardDeclare('ns.Bar');\n" +
+        "function f(/** !ns.Foo */ x) {}\n" +
+        "function g(/** !ns.Bar */ y) {}");
+
+    // TODO(blickly): Allow forward declared names that are used in code.
+//     checkNoWarnings(DEFINITIONS +
+//         "goog.addDependency('', ['Foo'], []);\n" +
+//         "goog.forwardDeclare('Bar');\n" +
+//         "var f = new Foo;\n" +
+//         "var b = new Bar;");
+//
+//     checkNoWarnings(DEFINITIONS +
+//         "/** @const */ var ns = {};\n" +
+//         "goog.addDependency('', ['ns.Foo'], []);\n" +
+//         "goog.forwardDeclare('ns.Bar');\n" +
+//         "var f = new ns.Foo;\n" +
+//         "var b = new ns.Bar;");
+//
+//     checkNoWarnings(DEFINITIONS +
+//         "/** @const */ var ns = {};\n" +
+//         "goog.addDependency('', ['ns.subns.Foo'], []);\n" +
+//         "goog.forwardDeclare('ns.subns.Bar');\n" +
+//         "var f = new ns.subns.Foo;\n" +
+//         "var b = new ns.subns.Bar;");
+//
+//     checkNoWarnings(DEFINITIONS +
+//         "goog.addDependency('', ['ns.subns.Foo'], []);\n" +
+//         "goog.forwardDeclare('ns.subns.Bar');\n" +
+//         "var f = new ns.subns.Foo;\n" +
+//         "var b = new ns.subns.Bar;");
+//
+//     checkNoWarnings(DEFINITIONS +
+//         "goog.forwardDeclare('ns.subns');\n" +
+//         "goog.forwardDeclare('ns.subns.Bar');\n" +
+//         "var b = new ns.subns.Bar;");
+
+    // In the following cases the old type inference warned about arg type,
+    // but we allow rather than create synthetic named type
+    checkNoWarnings(DEFINITIONS +
+        "goog.forwardDeclare('Foo');\n" +
+        "function f(/** !Foo */ x) {}\n" +
+        "/** @constructor */ function Bar(){}\n" +
+        "f(new Bar);");
+
+    checkNoWarnings(DEFINITIONS +
+        "/** @const */ var ns = {};\n" +
+        "goog.forwardDeclare('ns.Foo');\n" +
+        "function f(/** !ns.Foo */ x) {}\n" +
+        "/** @constructor */ function Bar(){}\n" +
+        "f(new Bar);");
   }
 }
