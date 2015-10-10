@@ -42,6 +42,7 @@ import javax.annotation.Nullable;
  * goog.require has a corresponding goog.provide and some closure specific
  * simplifications.
  *
+ * @author chrisn@google.com (Chris Nokleberg)
  */
 class ProcessClosurePrimitives extends AbstractPostOrderCallback
     implements HotSwapCompilerPass {
@@ -657,7 +658,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       Node enclosingParent = enclosingFnNameNode.getParent();
       Node maybeInheritsExpr = (enclosingParent.isAssign() ?
           enclosingParent.getParent() : enclosingParent).getNext();
-      while (maybeInheritsExpr.isEmpty()) {
+      while (maybeInheritsExpr != null && maybeInheritsExpr.isEmpty()) {
         maybeInheritsExpr = maybeInheritsExpr.getNext();
       }
       Node baseClassNode = null;

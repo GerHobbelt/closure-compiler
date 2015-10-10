@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -136,8 +137,9 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
         sourceRoot = sourceMapRoot.getString("sourceRoot");
       }
 
-      for (Object objkey : Lists.newArrayList(sourceMapRoot.keys())) {
-        String key = (String) objkey;
+      @SuppressWarnings("unchecked")
+      Iterator<String> keys = sourceMapRoot.keys();
+      for (String key : Lists.newArrayList(keys)) {
         if (key.startsWith("x_")) {
           extensions.put(key, sourceMapRoot.get(key));
         }
@@ -376,7 +378,8 @@ public class SourceMapConsumerV3 implements SourceMapConsumer,
      * Sanity check the entry.
      */
     private void validateEntry(Entry entry) {
-      Preconditions.checkState((lineCount < 0) || (line < lineCount));
+      Preconditions.checkState((lineCount < 0) || (line < lineCount),
+          "line=%s, lineCount=%s", line, lineCount);
       Preconditions.checkState(entry.getSourceFileId() == UNMAPPED
           || entry.getSourceFileId() < sources.length);
       Preconditions.checkState(entry.getNameId() == UNMAPPED

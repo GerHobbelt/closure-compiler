@@ -20,8 +20,6 @@
  * TODO: Mocks.
  * TODO: Remaining Services:
  *     $compileProvider
- *     $controller
- *     $controllerProvider
  *     $cookies
  *     $cookieStore
  *     $document
@@ -356,7 +354,7 @@ angular.LinkingFunctions.post = function(scope, iElement, iAttrs, controller) {
  * @typedef {{
  *   compile: (function(
  *       !angular.JQLite=, !angular.Attributes=, Function=)|undefined),
- *   controller: (Function|undefined),
+ *   controller: (Function|string|undefined),
  *   controllerAs: (string|undefined),
  *   link: (function(
  *       !angular.Scope=, !angular.JQLite=, !angular.Attributes=,
@@ -467,7 +465,7 @@ angular.Directive.transclude;
  *   clone: function(): !angular.JQLite,
  *   contents: function(): !angular.JQLite,
  *   controller: function(string=): Object,
- *   css: function(string, string=): (!angular.JQLite|string),
+ *   css: function((string|!Object), string=): (!angular.JQLite|string),
  *   data: function(string=, *=): *,
  *   empty: function(): !angular.JQLite,
  *   eq: function(number): !angular.JQLite,
@@ -556,11 +554,11 @@ angular.JQLite.contents = function() {};
 angular.JQLite.controller = function(opt_name) {};
 
 /**
- * @param {string} name
+ * @param {(string|!Object)} nameOrObject
  * @param {string=} opt_value
  * @return {!angular.JQLite|string}
  */
-angular.JQLite.css = function(name, opt_value) {};
+angular.JQLite.css = function(nameOrObject, opt_value) {};
 
 /**
  * @param {string=} opt_key
@@ -1074,6 +1072,27 @@ angular.$animate.prototype.removeClass = function(
 angular.$animate.prototype.enabled = function(opt_value, opt_element) {};
 
 /******************************************************************************
+ * $animateProvider Service
+ *****************************************************************************/
+
+/**
+ * @constructor
+ */
+angular.$animateProvider;
+
+/**
+ * @param {string} name
+ * @param {Function} factory
+ */
+angular.$animateProvider.prototype.register = function(name, factory) {};
+
+/**
+ * @param {RegExp=} opt_expression
+ */
+angular.$animateProvider.prototype.classNameFilter = function(
+    opt_expression) {};
+
+/******************************************************************************
  * $compile Service
  *****************************************************************************/
 
@@ -1145,6 +1164,26 @@ angular.$cacheFactory.Cache.prototype.destroy = function() {};
  *   }}
  */
 angular.$cacheFactory.Cache.Info;
+
+/******************************************************************************
+ * $controller Service
+ *****************************************************************************/
+
+/**
+ * @typedef {function((Function|string), Object):Object}
+ */
+angular.$controller;
+
+/******************************************************************************
+ * $controllerProvider Service
+ *****************************************************************************/
+
+/**
+ * @typedef {{
+ *   register: function((string|Object), (Function|Array))
+ *   }}
+ */
+angular.$controllerProvider;
 
 /******************************************************************************
  * $exceptionHandler Service
@@ -2325,7 +2364,7 @@ angular.$timeout;
 angular.$timeout_;
 
 /**
- * @type {function(!angular.$q.Promise):boolean}
+ * @type {function(angular.$q.Promise=):boolean}
  */
 angular.$timeout_.cancel = function(promise) {};
 

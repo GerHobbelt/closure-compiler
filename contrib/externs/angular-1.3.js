@@ -20,8 +20,6 @@
  * TODO: Mocks.
  * TODO: Remaining Services:
  *     $compileProvider
- *     $controller
- *     $controllerProvider
  *     $cookies
  *     $cookieStore
  *     $document
@@ -354,9 +352,10 @@ angular.LinkingFunctions.post = function(scope, iElement, iAttrs, controller) {
 
 /**
  * @typedef {{
+ *   bindToController: (boolean|undefined),
  *   compile: (function(
  *       !angular.JQLite=, !angular.Attributes=, Function=)|undefined),
- *   controller: (Function|undefined),
+ *   controller: (Function|string|undefined),
  *   controllerAs: (string|undefined),
  *   link: (function(
  *       !angular.Scope=, !angular.JQLite=, !angular.Attributes=,
@@ -467,7 +466,7 @@ angular.Directive.transclude;
  *   clone: function(): !angular.JQLite,
  *   contents: function(): !angular.JQLite,
  *   controller: function(string=): Object,
- *   css: function(string, string=): (!angular.JQLite|string),
+ *   css: function((string|!Object), string=): (!angular.JQLite|string),
  *   data: function(string=, *=): *,
  *   empty: function(): !angular.JQLite,
  *   eq: function(number): !angular.JQLite,
@@ -556,11 +555,11 @@ angular.JQLite.contents = function() {};
 angular.JQLite.controller = function(opt_name) {};
 
 /**
- * @param {string} name
+ * @param {(string|!Object)} nameOrObject
  * @param {string=} opt_value
  * @return {!angular.JQLite|string}
  */
-angular.JQLite.css = function(name, opt_value) {};
+angular.JQLite.css = function(nameOrObject, opt_value) {};
 
 /**
  * @param {string=} opt_key
@@ -855,7 +854,9 @@ angular.Module.requires;
  *   $watch: function(
  *       (string|Function), (string|Function)=, boolean=):function(),
  *   $watchCollection: function(
- *       (string|Function), (string|Function)=):function()
+ *       (string|Function), (string|Function)=):function(),
+ *   $watchGroup: function(
+ *       Array.<string|Function>, (string|Function)=):function()
  *   }}
  */
 angular.Scope;
@@ -1074,6 +1075,27 @@ angular.$animate.prototype.removeClass = function(
 angular.$animate.prototype.enabled = function(opt_value, opt_element) {};
 
 /******************************************************************************
+ * $animateProvider Service
+ *****************************************************************************/
+
+/**
+ * @constructor
+ */
+angular.$animateProvider;
+
+/**
+ * @param {string} name
+ * @param {Function} factory
+ */
+angular.$animateProvider.prototype.register = function(name, factory) {};
+
+/**
+ * @param {RegExp=} opt_expression
+ */
+angular.$animateProvider.prototype.classNameFilter = function(
+    opt_expression) {};
+
+/******************************************************************************
  * $compile Service
  *****************************************************************************/
 
@@ -1140,6 +1162,27 @@ angular.$cacheFactory.Cache.prototype.destroy = function() {};
  *   }}
  */
 angular.$cacheFactory.Cache.Info;
+
+/******************************************************************************
+ * $controller Service
+ *****************************************************************************/
+
+/**
+ * @typedef {function((Function|string), Object):Object}
+ */
+angular.$controller;
+
+/******************************************************************************
+ * $controllerProvider Service
+ *****************************************************************************/
+
+/**
+ * @typedef {{
+ *   register: function((string|Object), (Function|Array)),
+ *   allowGlobals: function()
+ *   }}
+ */
+angular.$controllerProvider;
 
 /******************************************************************************
  * $exceptionHandler Service
@@ -1362,7 +1405,20 @@ angular.$http.Response;
 
 /**
  * @typedef {{
- *   defaults: !angular.$http.Config
+ *   request: (undefined|(function(!angular.$http.Config):
+ *       !angular.$http.Config|!angular.$q.Promise.<!angular.$http.Config>)),
+ *   requestError: (undefined|(function(Object): !angular.$q.Promise|Object)),
+ *   response: (undefined|(function(!angular.$http.Response):
+ *       !angular.$http.Response|!angular.$q.Promise.<!angular.$http.Response>)),
+ *   responseError: (undefined|(function(Object): !angular.$q.Promise|Object))
+ *   }}
+ */
+angular.$http.Interceptor;
+
+/**
+ * @typedef {{
+ *   defaults: !angular.$http.Config,
+ *   interceptors: !Array.<string|function(...[*]): !angular.$http.Interceptor>
  * }}
  */
 angular.$HttpProvider;
@@ -1668,6 +1724,56 @@ angular.NgModelController.prototype.$viewChangeListeners;
  */
 angular.NgModelController.prototype.$viewValue;
 
+/**
+ * @type {!Object.<string, function(?):*>}
+ */
+angular.NgModelController.prototype.$validators;
+
+/**
+ * @type {boolean}
+ */
+angular.NgModelController.prototype.$untouched;
+
+/**
+ * @type {boolean}
+ */
+angular.NgModelController.prototype.$touched;
+
+/**
+ * @param {?} value
+ */
+angular.NgModelController.prototype.$isEmpty = function(value) {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setPristine = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setUntouched = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setTouched = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$rollbackViewValue = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$validate = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$commitViewValue = function() {};
+
 /******************************************************************************
  * FormController
  *****************************************************************************/
@@ -1681,6 +1787,16 @@ angular.FormController = function() {};
  * @param {*} control
  */
 angular.FormController.prototype.$addControl = function(control) {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$rollbackViewValue = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$commitViewValue = function() {};
 
 /**
  * @type {boolean}
@@ -1721,6 +1837,16 @@ angular.FormController.prototype.$setDirty = function() {};
  * @type {function()}
  */
 angular.FormController.prototype.$setPristine = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$setSubmitted = function() {};
+
+/**
+ * @type {boolean}
+ */
+angular.FormController.prototype.$submitted;
 
 /**
  * @param {string} validationToken
@@ -2307,7 +2433,7 @@ angular.$timeout;
 angular.$timeout_;
 
 /**
- * @type {function(!angular.$q.Promise):boolean}
+ * @type {function(angular.$q.Promise=):boolean}
  */
 angular.$timeout_.cancel = function(promise) {};
 

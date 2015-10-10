@@ -75,7 +75,6 @@ import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
-import com.google.javascript.jscomp.parsing.parser.trees.ObjectPatternFieldTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectPatternTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
@@ -983,16 +982,6 @@ class NewIRFactory {
     }
 
     @Override
-    Node processObjectPatternField(ObjectPatternFieldTree tree) {
-      Node node = processObjectLitKeyAsString(tree.identifier);
-      node.setType(Token.STRING_KEY);
-      if (tree.element != null) {
-        node.addChildToBack(transform(tree.element));
-      }
-      return node;
-    }
-
-    @Override
     Node processAssignmentRestElement(AssignmentRestElementTree tree) {
       return newStringNode(Token.REST, tree.identifier.value);
     }
@@ -1117,18 +1106,32 @@ class NewIRFactory {
 
     @Override
     Node processForInLoop(ForInStatementTree loopNode) {
+      Node initializer = transform(loopNode.initializer);
+      ImmutableSet<Integer> invalidInitializers =
+          ImmutableSet.of(Token.ARRAYLIT, Token.OBJECTLIT);
+      if (invalidInitializers.contains(initializer.getType())) {
+        errorReporter.error("Invalid LHS for a for-in loop", sourceName,
+            lineno(loopNode.initializer), charno(loopNode.initializer));
+      }
       return newNode(
           Token.FOR,
-          transform(loopNode.initializer),
+          initializer,
           transform(loopNode.collection),
           transformBlock(loopNode.body));
     }
 
     @Override
     Node processForOf(ForOfStatementTree loopNode) {
+      Node initializer = transform(loopNode.initializer);
+      ImmutableSet<Integer> invalidInitializers =
+          ImmutableSet.of(Token.ARRAYLIT, Token.OBJECTLIT);
+      if (invalidInitializers.contains(initializer.getType())) {
+        errorReporter.error("Invalid LHS for a for-of loop", sourceName,
+            lineno(loopNode.initializer), charno(loopNode.initializer));
+      }
       return newNode(
           Token.FOR_OF,
-          transform(loopNode.initializer),
+          initializer,
           transform(loopNode.collection),
           transformBlock(loopNode.body));
     }
@@ -1306,22 +1309,10 @@ class NewIRFactory {
 
     @Override
     Node processBinaryExpression(BinaryOperatorTree exprNode) {
-      Node n =  newNode(
+      return newNode(
           transformBinaryTokenType(exprNode.operator.type),
           transform(exprNode.left),
           transform(exprNode.right));
-
-      if (isAssignmentOp(n)) {
-        Node target = n.getFirstChild();
-        if (!target.isValidAssignmentTarget()) {
-          errorReporter.error(
-              "invalid assignment target: " + target,
-              sourceName,
-              target.getLineno(), 0);
-        }
-      }
-
-      return n;
     }
 
     // Move this to a more maintainable location.
@@ -1804,10 +1795,9 @@ class NewIRFactory {
 
     @Override
     Node processCatchClause(CatchTree clauseNode) {
-      IdentifierToken catchVar = clauseNode.exceptionName;
-      Node node = newNode(Token.CATCH, processName(catchVar));
-      node.addChildToBack(transformBlock(clauseNode.catchBody));
-      return node;
+      return newNode(Token.CATCH,
+          transform(clauseNode.exception),
+          transformBlock(clauseNode.catchBody));
     }
 
     @Override
@@ -1833,16 +1823,6 @@ class NewIRFactory {
               msg,
               sourceName,
               operand.getLineno(), 0);
-        } else  if (type == Token.INC || type == Token.DEC) {
-          if (!operand.isValidAssignmentTarget()) {
-            String msg = (type == Token.INC)
-                ? "invalid increment target"
-                : "invalid decrement target";
-            errorReporter.error(
-                msg,
-                sourceName,
-                operand.getLineno(), 0);
-          }
         }
 
         return newNode(type, operand);
@@ -1852,19 +1832,7 @@ class NewIRFactory {
     @Override
     Node processPostfixExpression(PostfixExpressionTree exprNode) {
       int type = transformPostfixTokenType(exprNode.operator.type);
-      Node operand = transform(exprNode.operand);
-      // Only INC and DEC
-      if (!operand.isValidAssignmentTarget()) {
-        String msg = (type == Token.INC)
-            ? "invalid increment target"
-            : "invalid decrement target";
-        errorReporter.error(
-            msg,
-            sourceName,
-            operand.getLineno(), 0);
-      }
-
-      Node node = newNode(type, operand);
+      Node node = newNode(type, transform(exprNode.operand));
       node.putBooleanProp(Node.INCRDECR_PROP, true);
       return node;
     }
@@ -1917,8 +1885,8 @@ class NewIRFactory {
     Node processVariableDeclaration(VariableDeclarationTree decl) {
       Node node = transformNodeWithInlineJsDoc(decl.lvalue, true);
       if (decl.initializer != null) {
-        Node initalizer = transform(decl.initializer);
-        node.addChildToBack(initalizer);
+        Node initializer = transform(decl.initializer);
+        node.addChildToBack(initializer);
       }
       return node;
     }

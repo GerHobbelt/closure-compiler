@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -68,6 +69,9 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   private LanguageMode languageOut;
 
+  /**
+   * If true, transpile ES6 to ES3 only. All others passes will be skipped.
+   */
   boolean transpileOnly;
 
   /**
@@ -777,7 +781,8 @@ public class CompilerOptions implements Serializable, Cloneable {
   // Output options
   //--------------------------------
 
-  public boolean preserveJsDoc;
+  /** Do not strip closure-style type annotations from code. */
+  public boolean preserveTypeAnnotations;
 
   /** Output in pretty indented format */
   public boolean prettyPrint;
@@ -902,11 +907,6 @@ public class CompilerOptions implements Serializable, Cloneable {
   String outputCharset;
 
   /**
-   * Whether the named objects types included 'undefined' by default.
-   */
-  boolean looseTypes;
-
-  /**
    * Transitional option.
    */
   boolean enforceAccessControlCodingConventions;
@@ -938,6 +938,8 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   public boolean instrumentForCoverage;
 
+  /** List of conformance configs to use in CheckConformance */
+  private ImmutableList<ConformanceConfig> conformanceConfigs = ImmutableList.of();
 
   /**
    * Initializes compiler options. All options are disabled by default.
@@ -1081,7 +1083,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     instrumentForCoverage = false;  // instrument lines
 
     // Output
-    preserveJsDoc = false;
+    preserveTypeAnnotations = false;
     printInputDelimiter = false;
     prettyPrint = false;
     lineBreak = false;
@@ -1636,17 +1638,6 @@ public class CompilerOptions implements Serializable, Cloneable {
         && languageIn != languageOut;
   }
 
-  /**
-   * Whether to include "undefined" in the default types.
-   *   For example:
-   *     "{Object}" is normally "Object|null" becomes "Object|null|undefined"
-   *     "{?string}" is normally "string|null" becomes "string|null|undefined"
-   * In either case "!" annotated types excluded both null and undefined.
-   */
-  public void setLooseTypes(boolean looseTypes) {
-    this.looseTypes = looseTypes;
-  }
-
   @Override
   public Object clone() throws CloneNotSupportedException {
     CompilerOptions clone = (CompilerOptions) super.clone();
@@ -2078,6 +2069,10 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.preserveGoogRequires = preserveGoogRequires;
   }
 
+  public void setPreserveTypeAnnotations(boolean preserveTypeAnnotations) {
+    this.preserveTypeAnnotations = preserveTypeAnnotations;
+  }
+
   public void setGatherCssNames(boolean gatherCssNames) {
     this.gatherCssNames = gatherCssNames;
   }
@@ -2264,6 +2259,24 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   public void setInstrumentForCoverage(boolean instrumentForCoverage) {
     this.instrumentForCoverage = instrumentForCoverage;
+  }
+
+  public List<ConformanceConfig> getConformanceConfigs() {
+    return conformanceConfigs;
+  }
+
+  /**
+   * Both enable and configure conformance checks, if non-null.
+   */
+  public void setConformanceConfig(ConformanceConfig conformanceConfig) {
+    this.conformanceConfigs = ImmutableList.of(conformanceConfig);
+  }
+
+  /**
+   * Both enable and configure conformance checks, if non-null.
+   */
+  public void setConformanceConfigs(List<ConformanceConfig> configs) {
+    this.conformanceConfigs = ImmutableList.copyOf(configs);
   }
 
   //////////////////////////////////////////////////////////////////////////////

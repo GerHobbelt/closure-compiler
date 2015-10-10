@@ -34,6 +34,7 @@ import com.google.common.io.Files;
 
 import com.google.javascript.jscomp.CompilerOptions.TweakProcessing;
 import com.google.javascript.jscomp.deps.ClosureBundler;
+import com.google.javascript.jscomp.deps.SourceCodeEscapers;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
@@ -394,6 +395,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     options.transformAMDToCJSModules = config.transformAMDToCJSModules;
     options.processCommonJSModules = config.processCommonJSModules;
     options.rewriteEs6Modules = config.rewriteEs6Modules;
+    options.transpileOnly = config.transpileOnly;
     options.commonJSModulePathPrefix = config.commonJSModulePathPrefix;
     options.angularPass = config.angularPass;
     options.tracer = config.tracerMode;
@@ -933,8 +935,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   }
 
   Function<String, String> getJavascriptEscaper() {
-    throw new UnsupportedOperationException(
-        "SourceCodeEscapers is not in the standard release of Guava yet :(");
+    return SourceCodeEscapers.javascriptEscaper().asFunction();
   }
 
   void outputSingleBinary() throws IOException {
@@ -1570,6 +1571,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   @VisibleForTesting
   void printBundleTo(Iterable<CompilerInput> inputs, Appendable out)
       throws IOException {
+    ClosureBundler bundler = new ClosureBundler();
+
     for (CompilerInput input : inputs) {
       // Every module has an empty file in it. This makes it easier to implement
       // cross-module code motion.
@@ -1597,7 +1600,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       out.append(displayName);
       out.append("\n");
 
-      ClosureBundler.appendInput(out, input, file, inputCharset);
+      bundler.appendTo(out, input, file, inputCharset);
 
       out.append("\n");
     }
@@ -1896,8 +1899,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       return this;
     }
 
-    private List<SourceMap.LocationMapping> sourceMapLocationMappings =
-      Lists.newArrayList();
+    private ImmutableList<SourceMap.LocationMapping> sourceMapLocationMappings =
+      ImmutableList.of();
 
     /**
      * The source map location mappings to use, if generated.
@@ -1905,8 +1908,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     CommandLineConfig setSourceMapLocationMappings(
         List<SourceMap.LocationMapping> locationMappings) {
 
-      this.sourceMapLocationMappings.clear();
-      this.sourceMapLocationMappings.addAll(locationMappings);
+      this.sourceMapLocationMappings = ImmutableList.copyOf(locationMappings);
       return this;
     }
 
@@ -2116,6 +2118,16 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
      */
     CommandLineConfig setRewriteEs6Modules(boolean rewriteEs6Modules) {
       this.rewriteEs6Modules = rewriteEs6Modules;
+      return this;
+    }
+
+    private boolean transpileOnly = false;
+
+    /**
+     * Sets whether to run up to ES6 transpilation only.
+     */
+    CommandLineConfig setTranspileOnly(boolean transpileOnly) {
+      this.transpileOnly = transpileOnly;
       return this;
     }
 

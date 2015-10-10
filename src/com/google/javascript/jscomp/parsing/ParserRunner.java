@@ -51,7 +51,6 @@ public class ParserRunner {
   private ParserRunner() {}
 
   public static Config createConfig(boolean isIdeMode,
-                                    boolean parseJsDocDocumentation,
                                     LanguageMode languageMode,
                                     boolean acceptConstKeyword,
                                     Set<String> extraAnnotationNames) {
@@ -64,7 +63,7 @@ public class ParserRunner {
       effectiveAnnotationNames.addAll(extraAnnotationNames);
     }
     return new Config(effectiveAnnotationNames, suppressionNames,
-        isIdeMode, parseJsDocDocumentation, languageMode, acceptConstKeyword);
+        isIdeMode, languageMode, acceptConstKeyword);
   }
 
   public static Set<String> getReservedVars() {
@@ -179,7 +178,7 @@ public class ParserRunner {
       case ECMASCRIPT6:
         return Mode.ES6;
       case ECMASCRIPT6_STRICT:
-        return Mode.ES5_STRICT;
+        return Mode.ES6_STRICT;
       default:
         throw new IllegalStateException("unexpected");
     }

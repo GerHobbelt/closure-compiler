@@ -328,6 +328,7 @@ public class Compiler extends AbstractCompiler {
    */
   public void initOptions(CompilerOptions options) {
     this.options = options;
+    this.languageMode = options.getLanguageIn();
     if (errorManager == null) {
       if (outStream == null) {
         setErrorManager(
@@ -404,7 +405,6 @@ public class Compiler extends AbstractCompiler {
       List<T1> externs,
       List<T2> inputs,
       CompilerOptions options) {
-    languageMode = options.getLanguageIn();
     JSModule module = new JSModule(SINGLETON_MODULE_NAME);
     for (SourceFile input : inputs) {
       module.add(input);
@@ -1202,7 +1202,7 @@ public class Compiler extends AbstractCompiler {
   @Override
   public JSTypeRegistry getTypeRegistry() {
     if (typeRegistry == null) {
-      typeRegistry = new JSTypeRegistry(oldErrorReporter, options.looseTypes);
+      typeRegistry = new JSTypeRegistry(oldErrorReporter);
     }
     return typeRegistry;
   }
@@ -2170,7 +2170,6 @@ public class Compiler extends AbstractCompiler {
   protected Config createConfig(Config.LanguageMode mode) {
     return ParserRunner.createConfig(
         isIdeMode(),
-        isIdeMode() || options.preserveJsDoc,
         mode,
         acceptConstKeyword(),
         options.extraAnnotationNames);

@@ -423,27 +423,27 @@ chrome.app.window.AppWindow.prototype.isAlwaysOnTop = function() {};
 chrome.app.window.AppWindow.prototype.setAlwaysOnTop = function(alwaysOnTop) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onBoundsChanged;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onClosed;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onFullscreened;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onMinimized;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onMaximized;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.app.window.AppWindow.prototype.onRestored;
 
 
@@ -701,7 +701,7 @@ chrome.bluetooth.AdapterStateEvent.prototype.hasListeners = function() {};
  * @type {!chrome.bluetooth.AdapterStateEvent}
  * @see https://developer.chrome.com/apps/bluetooth#event-onAdapterStateChanged
  */
-chrome.bluetooth.onAdapterStateChange;
+chrome.bluetooth.onAdapterStateChanged;
 
 
 /**
@@ -749,6 +749,397 @@ chrome.bluetooth.onDeviceChanged;
  * @see https://developer.chrome.com/apps/bluetooth#event-onDeviceRemoved
  */
 chrome.bluetooth.onDeviceRemoved;
+
+
+/**
+ * @const
+ * @see https://developer.chrome.com/apps/bluetoothSocket
+ */
+chrome.bluetoothSocket = {};
+
+
+/**
+ * @typedef {{
+ *   persistent: (boolean|undefined),
+ *   name: (string|undefined),
+ *   bufferSize: (number|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/bluetoothSocket#type-SocketProperties
+ */
+chrome.bluetoothSocket.SocketProperties;
+
+
+/**
+ * @typedef {{
+ *   channel: (number|undefined),
+ *   psm: (number|undefined),
+ *   backlog: (number|undefined)
+ * }}
+ * @see https://developer.chrome.com/apps/bluetoothSocket#type-ListenOptions
+ */
+chrome.bluetoothSocket.ListenOptions;
+
+
+/**
+ * @constructor
+ * @see https://developer.chrome.com/apps/bluetoothSocket#type-SocketInfo
+ */
+chrome.bluetoothSocket.SocketInfo = function() {};
+
+
+/** @type {number} */
+chrome.bluetoothSocket.SocketInfo.prototype.socketId;
+
+
+/** @type {boolean} */
+chrome.bluetoothSocket.SocketInfo.prototype.persistent;
+
+
+/** @type {string|undefined} */
+chrome.bluetoothSocket.SocketInfo.prototype.name;
+
+
+/** @type {number|undefined} */
+chrome.bluetoothSocket.SocketInfo.prototype.bufferSize;
+
+
+/** @type {boolean} */
+chrome.bluetoothSocket.SocketInfo.prototype.paused;
+
+
+/** @type {boolean} */
+chrome.bluetoothSocket.SocketInfo.prototype.connected;
+
+
+/** @type {string|undefined} */
+chrome.bluetoothSocket.SocketInfo.prototype.address;
+
+
+/** @type {string|undefined} */
+chrome.bluetoothSocket.SocketInfo.prototype.uuid;
+
+
+/**
+ * @param {!chrome.bluetoothSocket.SocketProperties|
+ *     function(!{socketId: number})} propertiesOrCallback
+ * @param {function(!{socketId: number})=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-create
+ */
+chrome.bluetoothSocket.create = function(propertiesOrCallback, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {!chrome.bluetoothSocket.SocketProperties} properties
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-update
+ */
+chrome.bluetoothSocket.update = function(socketId, properties, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {boolean} paused
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-setPaused
+ */
+chrome.bluetoothSocket.setPaused = function(socketId, paused, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {string} uuid
+ * @param {!chrome.bluetoothSocket.ListenOptions|function()} optionsOrCallback
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-listenUsingRfcomm
+ */
+chrome.bluetoothSocket.listenUsingRfcomm =
+    function(socketId, uuid, optionsOrCallback, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {string} uuid
+ * @param {!chrome.bluetoothSocket.ListenOptions|function()} optionsOrCallback
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-listenUsingL2cap
+ */
+chrome.bluetoothSocket.listenUsingL2cap =
+    function(socketId, uuid, optionsOrCallback, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {string} address
+ * @param {string} uuid
+ * @param {function()} callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-connect
+ */
+chrome.bluetoothSocket.connect = function(socketId, address, uuid, callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-disconnect
+ */
+chrome.bluetoothSocket.disconnect = function(socketId, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {function()=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-close
+ */
+chrome.bluetoothSocket.close = function(socketId, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {!ArrayBuffer} data
+ * @param {function(number)=} opt_callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-send
+ */
+chrome.bluetoothSocket.send = function(socketId, data, opt_callback) {};
+
+
+/**
+ * @param {number} socketId
+ * @param {function(!chrome.bluetoothSocket.SocketInfo)} callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-getInfo
+ */
+chrome.bluetoothSocket.getInfo = function(socketId, callback) {};
+
+
+/**
+ * @param {function(!Array.<!chrome.bluetoothSocket.SocketInfo>)} callback
+ * @see https://developer.chrome.com/apps/bluetoothSocket#method-getSockets
+ */
+chrome.bluetoothSocket.getSockets = function(callback) {};
+
+
+/**
+ * @constructor
+ * @see https://developer.chrome.com/apps/bluetoothSocket#event-onAccept
+ */
+chrome.bluetoothSocket.AcceptEventData = function() {};
+
+
+/** @type {number} */
+chrome.bluetoothSocket.AcceptEventData.prototype.socketId;
+
+
+/** @type {number} */
+chrome.bluetoothSocket.AcceptEventData.prototype.clientSocketId;
+
+
+/**
+ * Event whose listeners take a AcceptEventData parameter.
+ * @constructor
+ */
+chrome.bluetoothSocket.AcceptEvent = function() {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.AcceptEventData): void} callback
+ */
+chrome.bluetoothSocket.AcceptEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.AcceptEventData): void} callback
+ */
+chrome.bluetoothSocket.AcceptEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.AcceptEventData): void} callback
+ * @return {boolean}
+ */
+chrome.bluetoothSocket.AcceptEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.bluetoothSocket.AcceptEvent.prototype.hasListeners = function() {};
+
+
+/** @type {!chrome.bluetoothSocket.AcceptEvent} */
+chrome.bluetoothSocket.onAccept;
+
+
+/**
+ * @constructor
+ * @see https://developer.chrome.com/apps/bluetoothSocket#event-onAcceptError
+ */
+chrome.bluetoothSocket.AcceptErrorEventData = function() {};
+
+
+/** @type {number} */
+chrome.bluetoothSocket.AcceptErrorEventData.prototype.socketId;
+
+
+/** @type {string} */
+chrome.bluetoothSocket.AcceptErrorEventData.prototype.errorMessage;
+
+
+/** @type {string} */
+chrome.bluetoothSocket.AcceptErrorEventData.prototype.error;
+
+
+/**
+ * Event whose listeners take a AcceptErrorEventData parameter.
+ * @constructor
+ */
+chrome.bluetoothSocket.AcceptErrorEvent = function() {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.AcceptErrorEventData): void} callback
+ */
+chrome.bluetoothSocket.AcceptErrorEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.AcceptErrorEventData): void} callback
+ */
+chrome.bluetoothSocket.AcceptErrorEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.AcceptErrorEventData): void} callback
+ * @return {boolean}
+ */
+chrome.bluetoothSocket.AcceptErrorEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.bluetoothSocket.AcceptErrorEvent.prototype.hasListeners =
+    function() {};
+
+
+/** @type {!chrome.bluetoothSocket.AcceptErrorEvent} */
+chrome.bluetoothSocket.onAcceptError;
+
+
+/**
+ * @constructor
+ * @see https://developer.chrome.com/apps/bluetoothSocket#event-onReceive
+ */
+chrome.bluetoothSocket.ReceiveEventData = function() {};
+
+
+/** @type {number} */
+chrome.bluetoothSocket.ReceiveEventData.prototype.socketId;
+
+
+/** @type {!ArrayBuffer} */
+chrome.bluetoothSocket.ReceiveEventData.prototype.data;
+
+
+/**
+ * Event whose listeners take a ReceiveEventData parameter.
+ * @constructor
+ */
+chrome.bluetoothSocket.ReceiveEvent = function() {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.ReceiveEventData): void} callback
+ */
+chrome.bluetoothSocket.ReceiveEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.ReceiveEventData): void} callback
+ */
+chrome.bluetoothSocket.ReceiveEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.bluetoothSocket.ReceiveEventData): void} callback
+ * @return {boolean}
+ */
+chrome.bluetoothSocket.ReceiveEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.bluetoothSocket.ReceiveEvent.prototype.hasListeners = function() {};
+
+
+/** @type {!chrome.bluetoothSocket.ReceiveEvent} */
+chrome.bluetoothSocket.onReceive;
+
+
+/**
+ * @constructor
+ * @see https://developer.chrome.com/apps/bluetoothSocket#event-onReceiveError
+ */
+chrome.bluetoothSocket.ReceiveErrorEventData = function() {};
+
+
+/** @type {number} */
+chrome.bluetoothSocket.ReceiveErrorEventData.prototype.socketId;
+
+
+/** @type {string} */
+chrome.bluetoothSocket.ReceiveErrorEventData.prototype.errorMessage;
+
+
+/** @type {string} */
+chrome.bluetoothSocket.ReceiveErrorEventData.prototype.error;
+
+
+/**
+ * Event whose listeners take a ReceiveErrorEventData parameter.
+ * @constructor
+ */
+chrome.bluetoothSocket.ReceiveErrorEvent = function() {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.ReceiveErrorEventData): void} callback
+ */
+chrome.bluetoothSocket.ReceiveErrorEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.ReceiveErrorEventData): void} callback
+ */
+chrome.bluetoothSocket.ReceiveErrorEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(
+ *     !chrome.bluetoothSocket.ReceiveErrorEventData): void} callback
+ * @return {boolean}
+ */
+chrome.bluetoothSocket.ReceiveErrorEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.bluetoothSocket.ReceiveErrorEvent.prototype.hasListeners =
+    function() {};
+
+
+/** @type {!chrome.bluetoothSocket.ReceiveErrorEvent} */
+chrome.bluetoothSocket.onReceiveError;
 
 
 /**
@@ -865,23 +1256,23 @@ chrome.extension.sendRequest = function(opt_arg1, opt_request, opt_callback) {};
 chrome.extension.setUpdateUrlData = function(data) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.extension.onConnect;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.extension.onConnectExternal;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.extension.onMessage;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.extension.onRequest;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.extension.onRequestExternal;
 
 
@@ -1487,54 +1878,54 @@ chrome.tabs.update = function(tabIdOrUpdateProperties,
 
 
 /**
- * @type {ChromeEvent}
+ * @type {!ChromeEvent}
  * @deprecated Please use tabs.onActivated.
  */
 chrome.tabs.onActiveChanged;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onActivated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onAttached;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onCreated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onDetached;
 
 
 /**
- * @type {ChromeEvent}
+ * @type {!ChromeEvent}
  * @deprecated Please use tabs.onHighlighted.
  */
 chrome.tabs.onHighlightChanged;
 
 
 /**
- * @type {ChromeEvent}
+ * @type {!ChromeEvent}
  */
 chrome.tabs.onHighlighted;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onMoved;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onRemoved;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onUpdated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.tabs.onReplaced;
 
 // DEPRECATED:
@@ -1542,7 +1933,7 @@ chrome.tabs.onReplaced;
 
 
 /**
- * @type {ChromeEvent}
+ * @type {!ChromeEvent}
  * @deprecated Please use tabs.onActivated.
  */
 chrome.tabs.onSelectionChanged;
@@ -1609,15 +2000,15 @@ chrome.windows.remove = function(tabId, opt_callback) {};
 chrome.windows.update = function(tabId, updateProperties, opt_callback) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.windows.onCreated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.windows.onFocusChanged;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.windows.onRemoved;
 
 
@@ -1701,7 +2092,7 @@ chrome.pageAction.setTitle = function(details) {};
 chrome.pageAction.show = function(tabId) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.pageAction.onClicked;
 
 /**
@@ -1759,7 +2150,7 @@ chrome.browserAction.setPopup = function(details) {};
 chrome.browserAction.setTitle = function(details) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.browserAction.onClicked;
 
 
@@ -1783,12 +2174,15 @@ chrome.bookmarks = {};
 
 
 /**
- * @param {Object} bookmark An object which has 'parentId' and
- *     optionally 'index', 'title', and 'url'.
- * @param {function(BookmarkTreeNode): void=} opt_callback The
- *     callback function which accepts a BookmarkTreeNode object.
+ * @typedef {?{
+ *   pareintId: (string|undefined),
+ *   index: (number|undefined),
+ *   url: (string|undefined),
+ *   title: (string|undefined)
+ * }}
+ * @see https://developer.chrome.com/extensions/bookmarks#method-create
  */
-chrome.bookmarks.create = function(bookmark, opt_callback) {};
+chrome.bookmarks.CreateDetails;
 
 
 /**
@@ -1819,6 +2213,14 @@ chrome.bookmarks.getRecent = function(numberOfItems, callback) {};
 
 
 /**
+ * @param {function(Array.<BookmarkTreeNode>): void} callback The
+ *     callback function which accepts an array of BookmarkTreeNode.
+ * @return {Array.<BookmarkTreeNode>}
+ */
+chrome.bookmarks.getTree = function(callback) {};
+
+
+/**
  * @param {string} id The ID of the root of the subtree to retrieve.
  * @param {function(Array.<BookmarkTreeNode>): void} callback The
  *     callback function which accepts an array of BookmarkTreeNode.
@@ -1828,11 +2230,19 @@ chrome.bookmarks.getSubTree = function(id, callback) {};
 
 
 /**
- * @param {function(Array.<BookmarkTreeNode>): void} callback The
- *     callback function which accepts an array of BookmarkTreeNode.
+ * @param {string} query
+ * @param {function(Array.<BookmarkTreeNode>): void} callback
  * @return {Array.<BookmarkTreeNode>}
  */
-chrome.bookmarks.getTree = function(callback) {};
+chrome.bookmarks.search = function(query, callback) {};
+
+
+/**
+ * @param {chrome.bookmarks.CreateDetails} bookmark
+ * @param {function(BookmarkTreeNode): void=} opt_callback The
+ *     callback function which accepts a BookmarkTreeNode object.
+ */
+chrome.bookmarks.create = function(bookmark, opt_callback) {};
 
 
 /**
@@ -1843,6 +2253,15 @@ chrome.bookmarks.getTree = function(callback) {};
  *     The callback function which accepts a BookmarkTreeNode object.
  */
 chrome.bookmarks.move = function(id, destination, opt_callback) {};
+
+
+/**
+ * @param {string} id
+ * @param {Object} changes An object which may have 'title' as a key.
+ * @param {function(BookmarkTreeNode): void=} opt_callback The
+ *     callback function which accepts a BookmarkTreeNode object.
+ */
+chrome.bookmarks.update = function(id, changes, opt_callback) {};
 
 
 /**
@@ -1860,47 +2279,42 @@ chrome.bookmarks.removeTree = function(id, opt_callback) {};
 
 
 /**
- * @param {string} query
- * @param {function(Array.<BookmarkTreeNode>): void} callback
- * @return {Array.<BookmarkTreeNode>}
+ * @param {function(): void=} opt_callback
  */
-chrome.bookmarks.search = function(query, callback) {};
+chrome.bookmarks.import = function(opt_callback) {};
 
 
 /**
- * @param {string} id
- * @param {Object} changes An object which may have 'title' as a key.
- * @param {function(BookmarkTreeNode): void=} opt_callback The
- *     callback function which accepts a BookmarkTreeNode object.
+ * @param {function(): void=} opt_callback
  */
-chrome.bookmarks.update = function(id, changes, opt_callback) {};
+chrome.bookmarks.export = function(opt_callback) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onChanged;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onChildrenReordered;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onCreated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onImportBegan;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onImportEnded;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onMoved;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.bookmarks.onRemoved;
 
 
@@ -2109,7 +2523,7 @@ chrome.cookies.set = function(details, opt_callback) {};
 
 /**
  * @see https://developer.chrome.com/extensions/cookies.html#event-onChanged
- * @type {ChromeEvent}
+ * @type {!ChromeEvent}
  */
 chrome.cookies.onChanged;
 
@@ -2275,7 +2689,7 @@ chrome.idle.queryState = function(thresholdSeconds, callback) {};
 chrome.idle.setDetectionInterval = function(intervalInSeconds) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.idle.onStateChanged;
 
 
@@ -2375,11 +2789,11 @@ chrome.tts.stop = function() {};
 chrome.ttsEngine = {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.ttsEngine.onSpeak;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.ttsEngine.onStop;
 
 
@@ -2421,7 +2835,7 @@ chrome.contentSettings.notifications;
 chrome.fileBrowserHandle = {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.fileBrowserHandle.onExecute;
 
 
@@ -2618,11 +3032,11 @@ chrome.history.getVisits = function(details, callback) {};
 chrome.history.search = function(query, callback) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.history.onVisitRemoved;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.history.onVisited;
 
 
@@ -2669,7 +3083,7 @@ chrome.identity.launchWebAuthFlow = function(details, callback) {};
 chrome.identity.WebAuthFlowDetails;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.identity.onSignInChanged;
 
 
@@ -3109,7 +3523,7 @@ chrome.proxy = {};
 chrome.proxy.settings;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.proxy.onProxyError;
 
 
@@ -3457,7 +3871,7 @@ chrome.system = {};
 chrome.system.display = {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.system.display.onDisplayChanged;
 
 
@@ -3598,7 +4012,7 @@ chrome.system.display.setDisplayProperties =
 chrome.chromeSetting = {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.chromeSetting.onChange;
 
 
@@ -3626,39 +4040,39 @@ chrome.webNavigation.getAllFrames = function(details, callback) {};
 chrome.webNavigation.getFrame = function(details, callback) {};
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onBeforeNavigate;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onCommitted;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onDOMContentLoaded;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onCompleted;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onErrorOccurred;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onCreatedNavigationTarget;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onReferenceFragmentUpdated;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onTabReplaced;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 chrome.webNavigation.onHistoryStateUpdated;
 
 
@@ -4335,11 +4749,11 @@ function Port() {}
 Port.prototype.name;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 Port.prototype.onDisconnect;
 
 
-/** @type {ChromeEvent} */
+/** @type {!ChromeEvent} */
 Port.prototype.onMessage;
 
 
@@ -4396,15 +4810,15 @@ function BookmarkTreeNode() {}
 BookmarkTreeNode.prototype.id;
 
 
-/** @type {string} */
+/** @type {string|undefined} */
 BookmarkTreeNode.prototype.parentId;
 
 
-/** @type {number} */
+/** @type {number|undefined} */
 BookmarkTreeNode.prototype.index;
 
 
-/** @type {string} */
+/** @type {string|undefined} */
 BookmarkTreeNode.prototype.url;
 
 
@@ -4412,15 +4826,19 @@ BookmarkTreeNode.prototype.url;
 BookmarkTreeNode.prototype.title;
 
 
-/** @type {number} */
+/** @type {number|undefined} */
 BookmarkTreeNode.prototype.dateAdded;
 
 
-/** @type {number} */
+/** @type {number|undefined} */
 BookmarkTreeNode.prototype.dateGroupModified;
 
 
-/** @type {Array.<BookmarkTreeNode>} */
+/** @type {string|undefined} */
+BookmarkTreeNode.prototype.unmodifiable;
+
+
+/** @type {!Array.<!BookmarkTreeNode>|undefined} */
 BookmarkTreeNode.prototype.children;
 
 
@@ -6421,24 +6839,18 @@ chrome.networkingPrivate.onPortalDetectionCompleted;
 chrome.mdns = {};
 
 
-/** @constructor */
-chrome.mdns.MdnsService = function() {};
-
-
-/** @type {string} */
-chrome.mdns.MdnsService.prototype.serviceName;
-
-
-/** @type {string} */
-chrome.mdns.MdnsService.prototype.serviceHostPort;
-
-
-/** @type {string} */
-chrome.mdns.MdnsService.prototype.ipAddress;
-
-
-/** @type {!Array.<string>} */
-chrome.mdns.MdnsService.prototype.serviceData;
+/**
+ * Data type sent to the event handler of chrome.mdns.onServiceList.
+ * TODO: This one event handler data type is being made a typedef
+ * as an experiment. This allows us to create these objects in tests to pass
+ * to the handlers which isn't possible by using the object form.
+ * @typedef {{
+ *     serviceName: string,
+ *     serviceHostPort: string,
+ *     ipAddress: string,
+ *     serviceData: !Array.<string>}}
+ */
+chrome.mdns.MdnsService;
 
 
 /**
@@ -6502,6 +6914,18 @@ chrome.gcdPrivate = {};
 chrome.gcdPrivate.Device;
 
 
+/** @constructor */
+chrome.gcdPrivate.ConfirmationInfo = function() {};
+
+
+/** @type {string} */
+chrome.gcdPrivate.ConfirmationInfo.prototype.type;
+
+
+/** @type {string|undefined} */
+chrome.gcdPrivate.ConfirmationInfo.prototype.code;
+
+
 /**
  * Returns the list of cloud devices visible locally or available in the
  * cloud for user account.
@@ -6533,22 +6957,25 @@ chrome.gcdPrivate.prefetchWifiPassword = function(ssid, callback) {};
  * Establish the session.
  * @param {string} ipAddress
  * @param {number} port
- * @param {function(number, string, string, string): void} callback Called when
- *     the confirmation code is available or on error. 1st param, |sessionId|,
- *     is the session ID (identifies the session for future calls). 2nd param,
- *     |status|, is the status (success or type of error). 3rd param, |code|, is
- *     the confirmation code or empty on error. 4th param, |confirmationType|,
- *     is the type of confirmation required.
+ * @param {function(number, string, !chrome.gcdPrivate.ConfirmationInfo): void}
+ *     callback Called when the session is established or on error. 1st param,
+ *     |sessionId|, is the session ID (identifies the session for future calls).
+ *     2nd param, |status|, is the status (success or type of error). 3rd param,
+ *     |confirmationInfo|, is the info about how the device handles
+ *     confirmation.
  */
 chrome.gcdPrivate.establishSession = function(ipAddress, port, callback) {};
 
 
 /**
- * Confirm that the code is correct. Device will still need to confirm.
+ * Confirm that the code is correct. Device will still need to confirm. |code|
+ * must be present and must match the code from the device, even when the code
+ * is supplied in the |ConfirmationInfo| object.
  * @param {number} sessionId
+ * @param {string} code
  * @param {function(string): void} callback
  */
-chrome.gcdPrivate.confirmCode = function(sessionId, callback) {};
+chrome.gcdPrivate.confirmCode = function(sessionId, code, callback) {};
 
 
 /**
@@ -6664,3 +7091,104 @@ chrome.gcdPrivate.onDeviceStateChanged;
  * @type {!ChromeStringEvent}
  */
 chrome.gcdPrivate.onDeviceRemoved;
+
+
+/**
+ * @const
+ * @see http://goo.gl/bKHibo
+ */
+chrome.bluetoothPrivate = {};
+
+
+/** @constructor */
+chrome.bluetoothPrivate.PairingEvent = function() {};
+
+
+/** @type {string} */
+chrome.bluetoothPrivate.PairingEvent.prototype.pairing;
+
+
+/** @type {!chrome.bluetooth.Device} */
+chrome.bluetoothPrivate.PairingEvent.prototype.device;
+
+
+/** @type {string|undefined} */
+chrome.bluetoothPrivate.PairingEvent.prototype.pincode;
+
+
+/** @type {number|undefined} */
+chrome.bluetoothPrivate.PairingEvent.prototype.passkey;
+
+
+/** @type {number|undefined} */
+chrome.bluetoothPrivate.PairingEvent.prototype.enteredKey;
+
+
+/**
+ * @typedef {{
+ *   name: (string|undefined),
+ *   powered: (boolean|undefined),
+ *   discoverable: (boolean|undefined)
+ * }}
+ */
+chrome.bluetoothPrivate.NewAdapterState;
+
+
+/**
+ * @typedef {{
+ *   device: !chrome.bluetooth.Device,
+ *   response: (string|undefined),
+ *   pincode: (string|undefined),
+ *   passkey: (number|undefined),
+ *   enteredKey: (number|undefined)
+ * }}
+ */
+chrome.bluetoothPrivate.SetPairingResponseOptions;
+
+
+/**
+ * @param {!chrome.bluetoothPrivate.NewAdapterState} adapterState
+ * @param {function()} callback
+ */
+chrome.bluetoothPrivate.setAdapterState = function(adapterState, callback) {};
+
+
+/**
+ * @param {!chrome.bluetoothPrivate.SetPairingResponseOptions} options
+ * @param {function()} callback
+ */
+chrome.bluetoothPrivate.setPairingResponse = function(options, callback) {};
+
+
+/**
+ * Event whose listeners take a PairingEvent parameter.
+ * @constructor
+ */
+chrome.bluetoothPrivate.PairingEventEvent = function() {};
+
+
+/** @param {function(!chrome.bluetoothPrivate.PairingEvent): void} callback */
+chrome.bluetoothPrivate.PairingEventEvent.prototype.addListener =
+    function(callback) {};
+
+
+/** @param {function(!chrome.bluetoothPrivate.PairingEvent): void} callback */
+chrome.bluetoothPrivate.PairingEventEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.bluetoothPrivate.PairingEvent): void} callback
+ * @return {boolean}
+ */
+chrome.bluetoothPrivate.PairingEventEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.bluetoothPrivate.PairingEventEvent.prototype.hasListeners =
+    function() {};
+
+
+/** @type {!chrome.bluetoothPrivate.PairingEventEvent} */
+chrome.bluetoothPrivate.onPairing;

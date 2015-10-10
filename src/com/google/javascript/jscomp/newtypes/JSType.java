@@ -180,6 +180,10 @@ public abstract class JSType {
       UNDEFINED_MASK | NON_SCALAR_MASK,
       ImmutableSet.of(ObjectType.TOP_OBJECT), null, null);
 
+  public static JSType looseTopFunction() {
+    return topFunction().withLoose();
+  }
+
   public static JSType topFunction() {
     if (TOP_FUNCTION == null) {
       TOP_FUNCTION = fromFunctionType(FunctionType.TOP_FUNCTION);
@@ -378,8 +382,7 @@ public abstract class JSType {
     if (isTop()
         || isUnknown()
         || getObjs() == null && getTypeVar() == null
-        || concreteTypes.isEmpty()
-        || !hasFreeTypeVars(new HashSet<String>())) {
+        || concreteTypes.isEmpty()) {
       return this;
     }
     ImmutableSet<ObjectType> newObjs = null;
@@ -417,20 +420,6 @@ public abstract class JSType {
     typeMultimap.put(typeParam, type);
   }
 
-  boolean hasFreeTypeVars(Set<String> boundTypeVars) {
-    if (getTypeVar() != null && !boundTypeVars.contains(getTypeVar())) {
-      return true;
-    }
-    if (getObjs() != null) {
-      for (ObjectType obj : getObjs()) {
-        if (obj.hasFreeTypeVars(boundTypeVars)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   private static int promoteBoolean(int mask) {
     if ((mask & (TRUE_MASK | FALSE_MASK)) != 0) {
       return mask | TRUE_MASK | FALSE_MASK;
@@ -442,8 +431,7 @@ public abstract class JSType {
    * Unify the two types symmetrically, given that we have already instantiated
    * the type variables of interest in {@code t1} and {@code t2}, treating
    * JSType.UNKNOWN as a "hole" to be filled.
-   * @return The unified type, or null if unification fails
-   */
+   * @return The unified type, or null if unification fails */
   static JSType unifyUnknowns(JSType t1, JSType t2) {
     if (t1.isUnknown()) {
       return t2;

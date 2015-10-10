@@ -17,9 +17,16 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
+import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Process aliases in goog.scope blocks.
@@ -54,6 +61,16 @@ public class ClosureRewriteModule
           "JSC_GOOG_MODULE_INVALID_REQUIRE_IDENTIFIER",
           "goog.require parameter must be a string literal.");
 
+  static final DiagnosticType INVALID_GET_IDENTIFIER =
+      DiagnosticType.error(
+          "JSC_GOOG_MODULE_INVALID_GET_IDENTIFIER",
+          "goog.module.get parameter must be a string literal.");
+
+  static final DiagnosticType INVALID_GET_CALL_SCOPE =
+      DiagnosticType.error(
+          "JSC_GOOG_MODULE_INVALID_GET_CALL_SCOPE",
+          "goog.module.get can not be called in global scope.");
+
   private final AbstractCompiler compiler;
 
   private static class ModuleDescription {
@@ -62,6 +79,9 @@ public class ClosureRewriteModule
     Node requireInsertNode = null;
     final Node moduleScopeRoot;
     final Node moduleStatementRoot;
+    final List<Node> requires = new ArrayList<>();
+    final List<Node> provides = new ArrayList<>();
+    public Scope moduleScope = null;
 
     ModuleDescription(Node n) {
       if (isLoadModuleCall(n)) {
@@ -83,7 +103,14 @@ public class ClosureRewriteModule
 
   @Override
   public void process(Node externs, Node root) {
-    hotSwapScript(root, null);
+    // Each module is its own scope, prevent building a global scope,
+    // so we can use the scope for the file.
+    // TODO(johnlenz): this is a little odd, rework this once we have
+    // a concept of a module scope.
+    for (Node c = root.getFirstChild(); c != null; c = c.getNext()) {
+      Preconditions.checkState(c.isScript());
+      hotSwapScript(c, null);
+    }
   }
 
   @Override
@@ -96,6 +123,9 @@ public class ClosureRewriteModule
     if (isModuleFile(n) || isLoadModuleCall(n)) {
       enterModule(n);
     }
+    if (isGetModuleCall(n)) {
+      rewriteGetModuleCall(t, n);
+    }
     return true;
   }
 
@@ -103,6 +133,33 @@ public class ClosureRewriteModule
     return n.isCall()
         && n.getFirstChild().matchesQualifiedName("goog.loadModule");
   }
+
+  private static boolean isGetModuleCall(Node n) {
+    return n.isCall()
+        && n.getFirstChild().matchesQualifiedName("goog.module.get");
+  }
+
+  private void rewriteGetModuleCall(NodeTraversal t, Node n) {
+    // "use(goog.module.get('a.namespace'))" to "use(a.namespace)"
+    Node namespace = n.getFirstChild().getNext();
+    if (!namespace.isString()) {
+      t.report(namespace, INVALID_GET_IDENTIFIER);
+      return;
+    }
+
+    if (!inModule() && t.inGlobalScope()) {
+      t.report(namespace, INVALID_GET_CALL_SCOPE);
+      return;
+    }
+
+    Node replacement = NodeUtil.newQualifiedNameNode(
+        compiler.getCodingConvention(), namespace.getString());
+    replacement.srcrefTree(namespace);
+
+    n.getParent().replaceChild(n, replacement);
+    compiler.reportCodeChange();
+  }
+
 
   private static boolean isModuleFile(Node n) {
     return n.isScript() && n.hasChildren()
@@ -146,12 +203,17 @@ public class ClosureRewriteModule
     }
 
     switch (n.getType()) {
+      case Token.FUNCTION:
+        if (current.moduleScopeRoot == n) {
+          current.moduleScope = t.getScope();
+        }
+        break;
       case Token.CALL:
         Node first = n.getFirstChild();
         if (first.matchesQualifiedName("goog.module")) {
           recordAndUpdateModule(t, n);
         } else if (first.matchesQualifiedName("goog.require")) {
-          recordAndUpdateRequire(t, n);
+          recordRequire(t, n);
         } else if (isLoadModuleCall(n)) {
           rewriteModuleAsScope(n);
         }
@@ -167,6 +229,7 @@ public class ClosureRewriteModule
         break;
 
       case Token.SCRIPT:
+        current.moduleScope = t.getScope();
         // Exiting the script, fixup everything else;
         rewriteModuleAsScope(n);
         break;
@@ -192,14 +255,27 @@ public class ClosureRewriteModule
     // rewrite "goog.module('foo')" to "goog.provide('foo')"
     Node target = call.getFirstChild();
     target.getLastChild().setString("provide");
+
+    current.provides.add(call);
   }
 
-  private void recordAndUpdateRequire(NodeTraversal t, Node call) {
+  private void recordRequire(NodeTraversal t, Node call) {
     Node idNode = call.getLastChild();
     if (!idNode.isString()) {
       t.report(idNode, INVALID_REQUIRE_IDENTIFIER);
       return;
     }
+    current.requires.add(call);
+  }
+
+  private void updateRequires(List<Node> requires) {
+    for (Node node : requires) {
+      updateRequire(node);
+    }
+  }
+
+  private void updateRequire(Node call) {
+    Node idNode = call.getLastChild();
     String namespace = idNode.getString();
     if (current.requireInsertNode == null) {
       current.requireInsertNode = getInsertRoot(call);
@@ -224,6 +300,23 @@ public class ClosureRewriteModule
     insertAt.getParent().addChildBefore(require, insertAt);
   }
 
+  private List<String> collectRoots(ModuleDescription module) {
+    List<String> result = new ArrayList<>();
+    for (Node n : module.provides) {
+      result.add(getRootName(n.getFirstChild().getNext()));
+    }
+    for (Node n : module.requires) {
+      result.add(getRootName(n.getFirstChild().getNext()));
+    }
+    return result;
+  }
+
+  private String getRootName(Node n) {
+    String qname = n.getString();
+    int endPos = qname.indexOf('.');
+    return (endPos == -1) ? qname : qname.substring(0, endPos);
+  }
+
   private void rewriteModuleAsScope(Node root) {
     // Moving everything following the goog.module/goog.requires into a
     // goog.scope so that the aliases can be resolved.
@@ -232,6 +325,10 @@ public class ClosureRewriteModule
 
     // The moduleDecl will be null if it is invalid.
     Node srcref = current.moduleDecl != null ? current.moduleDecl : root;
+
+    ImmutableSet<String> roots = ImmutableSet.copyOf(collectRoots(current));
+    updateRootShadows(current.moduleScope, roots);
+    updateRequires(current.requires);
 
     Node block = IR.block();
     Node scope = IR.exprResult(IR.call(
@@ -255,6 +352,32 @@ public class ClosureRewriteModule
 
     // reset the module.
     current = null;
+  }
+
+  private void updateRootShadows(Scope s, ImmutableSet<String> roots) {
+    final Map<String, String> nameMap = new HashMap<>();
+    for (String root : roots) {
+      if (s.getOwnSlot(root) != null) {
+        nameMap.put(root, root + "_module");
+      }
+    }
+
+    if (nameMap.isEmpty()) {
+      // Don't traverse if there is nothing to do.
+      return;
+    }
+
+    new NodeTraversal(compiler, new AbstractPostOrderCallback() {
+      @Override
+      public void visit(NodeTraversal t, Node n, Node parent) {
+        if (n.isName()) {
+          String rename = nameMap.get(n.getString());
+          if (rename != null) {
+            n.setString(rename);
+          }
+        }
+      }
+    }).traverseAtScope(s);
   }
 
   private static Node getModuleScopeRootForLoadModuleCall(Node n) {

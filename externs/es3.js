@@ -18,6 +18,10 @@
  * @fileoverview ECMAScript 3 Built-Ins. This include common extensions so this
  * is actually ES3+Reality.
  * @externs
+ * @author stevey@google.com (Steve Yegge)
+ * @author nicksantos@google.com (Nick Santos)
+ * @author arv@google.com (Erik Arvidsson)
+ * @author johnlenz@google.com (John Lenz)
  */
 
 
@@ -415,8 +419,9 @@ Function.prototype.toString = function() {};
 /**
  * @constructor
  * @param {...*} var_args
- * @return {!Array}
+ * @return {!Array.<?>}
  * @nosideeffects
+ * @template T
  * @see http://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Global_Objects/Array
  */
 function Array(var_args) {}
@@ -428,7 +433,7 @@ function Array(var_args) {}
  * and/or value(s).
  *
  * @param {...*} var_args
- * @return {!Array}
+ * @return {!Array.<?>}
  * @this {*}
  * @nosideeffects
  * @see http://developer.mozilla.org/en/Core_JavaScript_1.5_Reference/Global_Objects/Array/concat
@@ -547,7 +552,7 @@ Array.prototype.splice = function(opt_index, opt_howMany, var_args) {};
 Array.prototype.toSource;
 
 /**
- * @this {Array}
+ * @this {Array.<?>}
  * @return {string}
  * @nosideeffects
  * @override
@@ -701,7 +706,7 @@ Array.every = function(arr, callback, opt_context) {};
  * @param {{length: number}|Array.<T>} arr
  * @param {?function(this:S, T, number, ?) : ?} callback
  * @param {S=} opt_context
- * @return {!Array}
+ * @return {!Array.<T>}
  * @template T,S
  */
 Array.filter = function(arr, callback, opt_context) {};
@@ -746,24 +751,6 @@ Array.lastIndexOf = function(arr, obj, opt_fromIndex) {};
  * @template T,S,R
  */
 Array.map = function(arr, callback, opt_context) {};
-
-/**
- * @param {{length: number}|Array.<T>} arr
- * @param {function(?, T, number, Array) : R} callback
- * @param {?=} opt_initialValue
- * @return {R}
- * @template T,R
- */
-Array.reduce = function(arr, callback, opt_initialValue) {};
-
-/**
- * @param {{length: number}|Array.<T>} arr
- * @param {function(?, T, number, Array) : R} callback
- * @param {?=} opt_initialValue
- * @return {R}
- * @template T,R
- */
-Array.reduceRight = function(arr, callback, opt_initialValue) {};
 
 /**
  * @param {{length: number}|Array.<T>} arr
@@ -1938,7 +1925,7 @@ RegExp.input;
 
 /**
  * The last matched characters.
- * @type {Array}
+ * @type {string}
  * @see http://www.devguru.com/Technologies/Ecmascript/Quickref/regexp_lastMatch.html
  */
 RegExp.lastMatch;

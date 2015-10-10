@@ -23,6 +23,7 @@
  * it in gecko_dom.js
  *
  * @externs
+ * @author stevey@google.com (Steve Yegge)
  */
 
 // TODO(nicksantos): Rewrite all the DOM interfaces as interfaces, instead
@@ -363,18 +364,6 @@ Window.prototype.screenLeft;
  */
 Window.prototype.screenTop;
 
-/**
- * @type {function(new:XDomainRequest)}
- * @see http://msdn.microsoft.com/en-us/library/cc287985(VS.85).aspx
- */
-Window.prototype.XDomainRequest;
-
-/**
- * @type {function(new:XMLHttpRequest)}
- * @see http://msdn.microsoft.com/en-us/library/ms535157(VS.85).aspx
- */
-Window.prototype.XMLHttpRequest;
-
 // Functions
 
 /**
@@ -390,6 +379,8 @@ Window.prototype.attachEvent;
 Window.prototype.createPopup;
 
 /**
+ * @param {string} event
+ * @param {Function} handler
  * @see http://msdn.microsoft.com/en-us/library/ms536411(VS.85).aspx
  */
 Window.prototype.detachEvent;
@@ -486,7 +477,7 @@ Window.prototype.showModelessDialog;
 
 /**
  * @see http://msdn.microsoft.com/en-us/library/ms535246%28v=vs.85%29.aspx
- * @const
+ * @const {!Object}
  */
 Window.prototype.external;
 
@@ -550,6 +541,31 @@ HTMLIFrameElement.prototype.contentWindow;
  * @see http://msdn.microsoft.com/en-us/library/ms536385(VS.85).aspx
  */
 HTMLBodyElement.prototype.createControlRange;
+
+/**
+ * @type {string}
+ * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
+ */
+HTMLScriptElement.prototype.readyState;
+
+/**
+ * @type {string}
+ * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
+ */
+HTMLIFrameElement.prototype.readyState;
+
+/**
+ * @type {string}
+ * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
+ */
+HTMLImageElement.prototype.readyState;
+
+/**
+ * @type {string}
+ * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
+ */
+HTMLObjectElement.prototype.readyState;
+
 
 /**
  * @constructor
@@ -844,7 +860,7 @@ Document.prototype.protocol;
  * @type {string}
  * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
  */
-Document.prototype.readyState;
+HTMLDocument.prototype.readyState;
 
 /**
  * @type {Selection}
@@ -897,6 +913,8 @@ Document.prototype.createEventObject;
 Document.prototype.createStyleSheet;
 
 /**
+ * @param {string} event
+ * @param {Function} handler
  * @see http://msdn.microsoft.com/en-us/library/ms536411(VS.85).aspx
  */
 Document.prototype.detachEvent;
@@ -949,11 +967,6 @@ Document.prototype.childNodes;
  * @see http://msdn.microsoft.com/en-us/library/ms537459(VS.85).aspx
  */
 Document.prototype.frames;
-
-/**
- * @see http://msdn.microsoft.com/en-us/library/ms537461(VS.85).aspx
- */
-Document.prototype.images;
 
 /**
  * @see http://msdn.microsoft.com/en-us/library/ms537470(VS.85).aspx
@@ -1033,6 +1046,8 @@ Element.prototype.createTextRange;
 Element.prototype.currentStyle;
 
 /**
+ * @param {string} event
+ * @param {Function} handler
  * @see http://msdn.microsoft.com/en-us/library/ie/ms536411(v=vs.85).aspx
  */
 Element.prototype.detachEvent;
@@ -1111,12 +1126,6 @@ Element.prototype.onselectstart;
  * @see http://msdn.microsoft.com/en-us/library/aa752326(VS.85).aspx
  */
 Element.prototype.outerHTML;
-
-/**
- * @type {string}
- * @see http://msdn.microsoft.com/en-us/library/ms534359(VS.85).aspx
- */
-Element.prototype.readyState;
 
 /**
  * @see http://msdn.microsoft.com/en-us/library/ms536689(VS.85).aspx

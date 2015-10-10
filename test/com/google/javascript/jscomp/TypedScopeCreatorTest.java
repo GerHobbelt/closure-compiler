@@ -39,6 +39,7 @@ import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
 import com.google.javascript.rhino.testing.Asserts;
 
+import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
@@ -837,7 +838,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
     Var v = globalScope.getVar("Object");
     FunctionType obj = (FunctionType) v.getType();
-    assertEquals("function (new:Object, *=): ?", obj.toString());
+    assertEquals("function (new:Object, *=): Object", obj.toString());
     assertNotNull(v.getNode());
     assertNotNull(v.input);
   }
@@ -2056,7 +2057,7 @@ public class TypedScopeCreatorTest extends CompilerTestCase {
 
   private JSType findTypeOnMatchedNode(Predicate<Node> matcher, Scope scope) {
     Node root = scope.getRootNode();
-    Deque<Node> queue = Lists.newLinkedList();
+    Deque<Node> queue = new ArrayDeque<>();
     queue.push(root);
     while (!queue.isEmpty()) {
       Node current = queue.pop();

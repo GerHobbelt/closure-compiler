@@ -42,6 +42,7 @@ import java.util.Set;
 /**
  * A parser for JSDoc comments.
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 // TODO(nicksantos): Unify all the JSDocInfo stuff into one package, instead of
 // spreading it across multiple packages.
@@ -170,6 +171,7 @@ public final class JsDocInfoParser {
     JSTypeExpression expr = createJSTypeExpression(typeAst);
     if (expr != null) {
       jsdocBuilder.recordType(expr);
+      jsdocBuilder.recordInlineType();
       return retrieveAndResetParsedJSDocInfo();
     }
     return null;
@@ -193,7 +195,6 @@ public final class JsDocInfoParser {
     Config config = new Config(
         Sets.<String>newHashSet(),
         Sets.<String>newHashSet(),
-        false,
         false,
         LanguageMode.ECMASCRIPT3,
         false);
@@ -256,11 +257,26 @@ public final class JsDocInfoParser {
           break;
 
         case EOC:
+          boolean success = true;
           if (hasParsedFileOverviewDocInfo()) {
             fileOverviewJSDocInfo = retrieveAndResetParsedJSDocInfo();
+            Visibility visibility = fileOverviewJSDocInfo.getVisibility();
+            switch (visibility) {
+              case PRIVATE: // fallthrough
+              case PROTECTED:
+                // PRIVATE and PROTECTED are not allowed in @fileoverview JsDoc.
+                parser.addParserWarning("msg.bad.fileoverview.visibility.annotation",
+                    visibility.toString().toLowerCase(), stream.getLineno(), stream.getCharno());
+                success = false;
+                break;
+              default:
+                // PACKAGE, PUBLIC, and (implicitly) INHERITED are allowed
+                // in @fileoverview JsDoc.
+                break;
+            }
           }
           checkExtendedTypes(extendedTypes);
-          return true;
+          return success;
 
         case EOF:
           // discard any accumulated information

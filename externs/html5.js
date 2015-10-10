@@ -29,27 +29,12 @@
  * @externs
  */
 
-/*
- * JSON API.
- */
-
-/**
- * @see https://developer.mozilla.org/En/Using_native_JSON
- * @type {!JSONType}
- */
-Window.prototype.JSON;
-
 /**
  * @constructor
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/the-canvas-element.html#the-canvas-element
  * @extends {HTMLElement}
  */
 function HTMLCanvasElement() {}
-
-/**
- * @type {function(new:HTMLCanvasElement)}
- */
-Window.prototype.HTMLCanvasElement;
 
 /** @type {number} */
 HTMLCanvasElement.prototype.width;
@@ -702,8 +687,8 @@ function postMessage(message, opt_targetOriginOrTransfer,
  * The postMessage method (as defined by HTML5 spec), with support for the
  * obsolete 'ports' argument in either 2nd or 3rd position.
  * @param {*} message
- * @param {string|Array.<!MessagePort>} targetOriginOrPorts
- * @param {(string|Array.<!MessagePort>|Array.<!Transferable>)=}
+ * @param {string|!Array.<!MessagePort>} targetOriginOrPorts
+ * @param {(string|!Array.<!MessagePort>|!Array.<!Transferable>)=}
  *     opt_targetOriginOrPortsOrTransfer
  * @see http://dev.w3.org/html5/postmsg/#dom-window-postmessage
  */
@@ -962,14 +947,14 @@ Worker.prototype.webkitPostMessage = function(message, opt_transfer) {};
  * Sent when the worker thread posts a message to its creator.
  * @type {?function(!MessageEvent)}
  */
-Worker.prototype.onmessage = function() {};
+Worker.prototype.onmessage;
 
 /**
  * Sent when the worker thread encounters an error.
  * TODO(tbreisacher): Should this change to function(!ErrorEvent)?
  * @type {?function(!Event)}
  */
-Worker.prototype.onerror = function() {};
+Worker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1008,7 +993,7 @@ SharedWorker.prototype.port;
  * TODO(tbreisacher): Should this change to function(!ErrorEvent)?
  * @type {?function(!Event)}
  */
-SharedWorker.prototype.onerror = function() {};
+SharedWorker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1100,7 +1085,7 @@ DedicatedWorkerGlobalScope.prototype.webkitPostMessage =
  * Sent when the creator posts a message to this worker.
  * @type {?function(!MessageEvent)}
  */
-DedicatedWorkerGlobalScope.prototype.onmessage = function() {};
+DedicatedWorkerGlobalScope.prototype.onmessage;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1116,7 +1101,7 @@ SharedWorkerGlobalScope.prototype.name;
  * Sent when a connection to this worker is opened.
  * @type {?function(!Event)}
  */
-SharedWorkerGlobalScope.prototype.onconnect = function() {};
+SharedWorkerGlobalScope.prototype.onconnect;
 
 /** @type {Element} */
 HTMLElement.prototype.contextMenu;
@@ -1221,6 +1206,12 @@ HTMLAnchorElement.prototype.search;
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/semantics.html#hyperlink-auditing
  */
 HTMLAreaElement.prototype.ping;
+
+/**
+ * @type {string}
+ * @see http://www.w3.org/TR/html-markup/iframe.html#iframe.attrs.srcdoc
+ */
+HTMLIFrameElement.prototype.srcdoc;
 
 /** @type {string} */
 HTMLInputElement.prototype.autocomplete;
@@ -2363,7 +2354,7 @@ Window.prototype.crypto.getRandomValues = function(typedArray) {};
 HTMLFormElement.prototype.checkValidity = function() {};
 
 /** @type {boolean} */
-HTMLFormElement.prototype.novalidate;
+HTMLFormElement.prototype.noValidate;
 
 /** @constructor */
 function ValidityState() {}
@@ -2755,11 +2746,6 @@ function MutationObserver(callback) {}
 MutationObserver.prototype.observe = function(target, options) {};
 
 MutationObserver.prototype.disconnect = function() {};
-
-/**
- * @type {function(new:MutationObserver, function(Array.<MutationRecord>))}
- */
-Window.prototype.MutationObserver;
 
 /**
  * @type {function(new:MutationObserver, function(Array.<MutationRecord>))}

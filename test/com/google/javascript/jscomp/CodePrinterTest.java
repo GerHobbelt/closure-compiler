@@ -35,13 +35,13 @@ public class CodePrinterTest extends TestCase {
   private boolean allowWarnings = false;
 
   private boolean trustedStrings = true;
-  private boolean preserveJsDoc = false;
+  private boolean preserveTypeAnnotations = false;
   private Compiler lastCompiler = null;
   private LanguageMode languageMode = LanguageMode.ECMASCRIPT5;
 
   @Override public void setUp() {
     allowWarnings = false;
-    preserveJsDoc = false;
+    preserveTypeAnnotations = false;
     trustedStrings = true;
     lastCompiler = null;
     languageMode = LanguageMode.ECMASCRIPT5;
@@ -56,7 +56,7 @@ public class CodePrinterTest extends TestCase {
     lastCompiler = compiler;
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
-    options.preserveJsDoc = preserveJsDoc;
+    options.preserveTypeAnnotations = preserveTypeAnnotations;
 
     // Allow getters and setters.
     options.setLanguageIn(languageMode);
@@ -107,7 +107,7 @@ public class CodePrinterTest extends TestCase {
   CompilerOptions newCompilerOptions(boolean prettyprint, int lineThreshold) {
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
-    options.preserveJsDoc = preserveJsDoc;
+    options.preserveTypeAnnotations = preserveTypeAnnotations;
     options.setLanguageOut(languageMode);
     options.setPrettyPrint(prettyprint);
     options.setLineLengthThreshold(lineThreshold);
@@ -473,6 +473,15 @@ public class CodePrinterTest extends TestCase {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("({a:{b,c}})=foo()");
     assertPrintSame("({a:{b:{c:{d}}}})=foo()");
+  }
+
+  public void testPrintObjectPatternInitializer() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("({a=1})=foo()");
+    assertPrintSame("({a:{b=2}})=foo()");
+    assertPrintSame("({a:b=2})=foo()");
+    assertPrintSame("({a,b:{c=2}})=foo()");
+    assertPrintSame("({a:{b=2},c})=foo()");
   }
 
   public void testPrintMixedDestructuring() {
@@ -1856,13 +1865,13 @@ public class CodePrinterTest extends TestCase {
     assertPrintSame("3*(4%3*5)");
   }
 
-  public void testPreserveJsDoc() {
-    preserveJsDoc = true;
-    assertPrintSame("/** @type {foo} */var bar");
+  public void testPreserveTypeAnnotations() {
+    preserveTypeAnnotations = true;
+    assertPrintSame("/**@type {foo} */var bar");
     assertPrintSame(
         "function/** void */f(/** string */s,/** number */n){}");
 
-    preserveJsDoc = false;
+    preserveTypeAnnotations = false;
     assertPrint("/** @type {foo} */\nvar bar;", "var bar");
   }
 
