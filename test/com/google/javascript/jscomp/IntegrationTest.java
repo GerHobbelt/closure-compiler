@@ -418,9 +418,9 @@ public final class IntegrationTest extends IntegrationTestCase {
             "  return b.meeny+c.miny+b.tiger" +
             "}"},
         new DiagnosticType[]{
-            RhinoErrorReporter.PARSE_ERROR,
-            RhinoErrorReporter.PARSE_ERROR,
-            RhinoErrorReporter.PARSE_ERROR});
+            CheckJSDoc.ANNOTATION_DEPRECATED,
+            CheckJSDoc.ANNOTATION_DEPRECATED,
+            CheckJSDoc.ANNOTATION_DEPRECATED});
   }
 
   public void testCheckSymbolsOff() {
@@ -442,7 +442,6 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testCheckReferencesOn() {
     CompilerOptions options = createCompilerOptions();
     options.setCheckSymbols(true);
-    options.setAggressiveVarCheck(CheckLevel.ERROR);
     test(options, "x = 3; var x = 5;", VariableReferenceCheck.EARLY_REFERENCE);
   }
 
@@ -850,7 +849,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.syntheticBlockStartMarker = "synStart";
     options.syntheticBlockEndMarker = "synEnd";
     options.setCheckSymbols(true);
-    options.setAggressiveVarCheck(CheckLevel.ERROR);
     options.processObjectPropertyString = true;
     options.setCollapseProperties(true);
     test(options, CLOSURE_BOILERPLATE, CLOSURE_COMPILED);
@@ -1683,7 +1681,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     String code = "var a;";
 
-    options.skipAllPasses = true;
+    options.skipNonTranspilationPasses = true;
     options.sourceMapOutputPath = "./src.map";
 
     Compiler compiler = compile(options, code);
@@ -1924,11 +1922,10 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testLanguageMode() {
     CompilerOptions options = createCompilerOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT3);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
 
     String code = "var a = {get f(){}}";
 
+    options.setLanguageIn(LanguageMode.ECMASCRIPT3);
     Compiler compiler = compile(options, code);
     checkUnexpectedErrorsOrWarnings(compiler, 1);
     assertEquals(
@@ -1940,39 +1937,42 @@ public final class IntegrationTest extends IntegrationTestCase {
         compiler.getErrors()[0].toString());
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5_STRICT);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5_STRICT);
-
     testSame(options, code);
   }
 
   public void testLanguageMode2() {
     CompilerOptions options = createCompilerOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT3);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
     options.setWarningLevel(DiagnosticGroups.ES5_STRICT, CheckLevel.OFF);
 
     String code = "var a  = 2; delete a;";
 
+    options.setLanguageIn(LanguageMode.ECMASCRIPT3);
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-
     testSame(options, code);
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT5_STRICT);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5_STRICT);
-
     test(options,
         code,
         code,
         StrictModeCheck.DELETE_VARIABLE);
   }
+
+  public void testEs6LanguageMode() {
+    CompilerOptions options = createCompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+
+    test(options, "var a = function() { return foo(bar); };", "var a = ()=>foo(bar);");
+    test(options,
+        "var o = { x:5, getX:function() { return this.x; } }",
+        "var o = { x:5, getX() { return this.x; } }");
+  }
+
+
 
   public void testIssue598() {
     CompilerOptions options = createCompilerOptions();
@@ -2887,7 +2887,6 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testES5toES6() throws Exception {
     CompilerOptions options = createCompilerOptions();
-    options.setAllowEs6Out(true);
     options.setLanguageIn(LanguageMode.ECMASCRIPT5_STRICT);
     options.setLanguageOut(LanguageMode.ECMASCRIPT6_STRICT);
     CompilationLevel.SIMPLE_OPTIMIZATIONS
@@ -3158,7 +3157,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     WarningLevel warnings = WarningLevel.VERBOSE;
     warnings.setOptionsForWarningLevel(options);
 
-    int numAdds = 4400;
+    int numAdds = 4000;
     StringBuilder original = new StringBuilder("var x = 0");
     for (int i = 0; i < numAdds; i++) {
       original.append(" + 1");
@@ -3175,6 +3174,12 @@ public final class IntegrationTest extends IntegrationTestCase {
     Node out1 = parse(input1, options, false);
     Node out2 = parse(input2, options, false);
     assertFalse(out1.isEquivalentTo(out2));
+  }
+
+  public void testEs6OutDoesntCrash() {
+    CompilerOptions options = new CompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    test(options, "function f(x) { if (x) var x=5; }", "function f(x) { if (x) x=5; }");
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

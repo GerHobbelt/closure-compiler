@@ -22,17 +22,20 @@ import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
 public class InterfaceDeclarationTree extends ParseTree {
   public final IdentifierToken name;
+  public final GenericTypeListTree generics;
   public final ImmutableList<ParseTree> superInterfaces;
   public final ImmutableList<ParseTree> elements;
 
   public InterfaceDeclarationTree(
       SourceRange location,
       IdentifierToken name,
+      GenericTypeListTree generics,
       ImmutableList<ParseTree> superInterfaces,
       ImmutableList<ParseTree> elements) {
     super(ParseTreeType.INTERFACE_DECLARATION, location);
 
     this.name = name;
+    this.generics = generics;
     this.superInterfaces = superInterfaces;
     this.elements = elements;
   }

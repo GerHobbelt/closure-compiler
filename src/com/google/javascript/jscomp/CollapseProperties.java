@@ -35,8 +35,11 @@ import com.google.javascript.rhino.TypeI;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 
 /**
  * Flattens global objects/namespaces by replacing each '.' with '$' in
@@ -91,10 +94,6 @@ class CollapseProperties implements CompilerPass {
       "JSC_UNSAFE_CTOR_ALIASING",
       "Variable {0} aliases a constructor, "
       + "so it cannot be assigned multiple times");
-
-  static final DiagnosticType INVALID_NOCOLLAPSE = DiagnosticType.warning(
-      "JSC_INVALID_NOCOLLAPSE",
-      "@nocollapse is not permitted here");
 
   private AbstractCompiler compiler;
 
@@ -187,7 +186,7 @@ class CollapseProperties implements CompilerPass {
           } else if (ref.type == Type.ALIASING_GET
               && ref.scope.isGlobal()
               && ref.getTwin() == null) { // ignore aliases in chained assignments
-            if (inlineGlobalAliasIfPossible(ref, namespace)) {
+            if (inlineGlobalAliasIfPossible(name, ref, namespace)) {
               name.removeRef(ref);
             }
           }
@@ -216,50 +215,55 @@ class CollapseProperties implements CompilerPass {
    * @return Whether the alias was inlined.
    */
   private boolean inlineGlobalAliasIfPossible(
-      Ref alias, GlobalNamespace namespace) {
+      Name name, Ref alias, GlobalNamespace namespace) {
     // Ensure that the alias is assigned to global name at that the
     // declaration.
-
     Node aliasParent = alias.node.getParent();
-    if (aliasParent.isAssign() && NodeUtil.isExecutedExactlyOnce(aliasParent)) {
-      if (aliasParent.getFirstChild().isQualifiedName()) {
-        Name name = namespace.getSlot(aliasParent.getFirstChild().getQualifiedName());
-        if (name != null && isInlinableGlobalAlias(name)) {
-          List<AstChange> newNodes = new ArrayList<>();
+    if (aliasParent.isAssign() && NodeUtil.isExecutedExactlyOnce(aliasParent)
+        // We special-case for constructors here, to inline constructor aliases
+        // more aggressively in global scope.
+        // We do this because constructor properties are always collapsed,
+        // so we want to inline the aliases also to avoid breakages.
+        || aliasParent.isName() && name.isConstructor()) {
+      Node lvalue = aliasParent.isName() ? aliasParent : aliasParent.getFirstChild();
+      if (!lvalue.isQualifiedName()) {
+        return false;
+      }
+      name = namespace.getSlot(lvalue.getQualifiedName());
+      if (name != null && isInlinableGlobalAlias(name)) {
+        Set<AstChange> newNodes = new LinkedHashSet<>();
 
-          List<Ref> refs = new ArrayList<>(name.getRefs());
-          for (Ref ref : refs) {
-            switch (ref.type) {
-              case SET_FROM_GLOBAL:
-                continue;
-              case DIRECT_GET:
-              case ALIASING_GET:
-                Node newNode = alias.node.cloneTree();
-                Node node = ref.node;
-                node.getParent().replaceChild(node, newNode);
-                newNodes.add(new AstChange(ref.module, ref.scope, newNode));
-                name.removeRef(ref);
-                break;
-              default:
-                throw new IllegalStateException();
-            }
+        List<Ref> refs = new ArrayList<>(name.getRefs());
+        for (Ref ref : refs) {
+          switch (ref.type) {
+            case SET_FROM_GLOBAL:
+              continue;
+            case DIRECT_GET:
+            case ALIASING_GET:
+              Node newNode = alias.node.cloneTree();
+              Node node = ref.node;
+              node.getParent().replaceChild(node, newNode);
+              newNodes.add(new AstChange(ref.module, ref.scope, newNode));
+              name.removeRef(ref);
+              break;
+            default:
+              throw new IllegalStateException();
           }
-
-          rewriteAliasProps(name, alias.node, 0, newNodes);
-
-          // just set the original alias to null.
-          aliasParent.replaceChild(alias.node, IR.nullNode());
-          compiler.reportCodeChange();
-
-          // Inlining the variable may have introduced new references
-          // to descendants of {@code name}. So those need to be collected now.
-          namespace.scanNewNodes(newNodes);
-
-          return true;
         }
+
+        rewriteAliasProps(name, alias.node, 0, newNodes);
+
+        // just set the original alias to null.
+        aliasParent.replaceChild(alias.node, IR.nullNode());
+        compiler.reportCodeChange();
+
+        // Inlining the variable may have introduced new references
+        // to descendants of {@code name}. So those need to be collected now.
+        namespace.scanNewNodes(newNodes);
+
+        return true;
       }
     }
-
     return false;
   }
 
@@ -270,40 +274,38 @@ class CollapseProperties implements CompilerPass {
    * @param newNodes Expression nodes that have been updated.
    */
   private static void rewriteAliasProps(
-      Name name, Node value, int depth, List<AstChange> newNodes) {
-    if (name.props != null) {
-      Preconditions.checkState(!
-          value.matchesQualifiedName(name.getFullName()));
-
-      for (Name prop : name.props) {
-        rewriteAliasProps(prop, value, depth + 1, newNodes);
-
-        List<Ref> refs = new ArrayList<>(prop.getRefs());
-        for (Ref ref : refs) {
-          Node target = ref.node;
-          for (int i = 0; i <= depth; i++) {
-            if (target.isGetProp()) {
-              target = target.getFirstChild();
-            } else if (NodeUtil.isObjectLitKey(target)) {
-              // Object literal key definitions are a little trickier, as we
-              // need to find the assignment target
-              Node gparent = target.getParent().getParent();
-              if (gparent.isAssign()) {
-                target = gparent.getFirstChild();
-              } else {
-                Preconditions.checkState(NodeUtil.isObjectLitKey(gparent));
-                target = gparent;
-              }
+      Name name, Node value, int depth, Set<AstChange> newNodes) {
+    if (name.props == null) {
+      return;
+    }
+    Preconditions.checkState(!value.matchesQualifiedName(name.getFullName()));
+    for (Name prop : name.props) {
+      rewriteAliasProps(prop, value, depth + 1, newNodes);
+      List<Ref> refs = new ArrayList<>(prop.getRefs());
+      for (Ref ref : refs) {
+        Node target = ref.node;
+        for (int i = 0; i <= depth; i++) {
+          if (target.isGetProp()) {
+            target = target.getFirstChild();
+          } else if (NodeUtil.isObjectLitKey(target)) {
+            // Object literal key definitions are a little trickier, as we
+            // need to find the assignment target
+            Node gparent = target.getParent().getParent();
+            if (gparent.isAssign()) {
+              target = gparent.getFirstChild();
             } else {
-              throw new IllegalStateException("unexpected: " + target);
+              Preconditions.checkState(NodeUtil.isObjectLitKey(gparent));
+              target = gparent;
             }
+          } else {
+            throw new IllegalStateException("unexpected: " + target);
           }
-          Preconditions.checkState(target.isGetProp() || target.isName());
-          target.getParent().replaceChild(target, value.cloneTree());
-          prop.removeRef(ref);
-          // Rescan the expression root.
-          newNodes.add(new AstChange(ref.module, ref.scope, ref.node));
         }
+        Preconditions.checkState(target.isGetProp() || target.isName());
+        target.getParent().replaceChild(target, value.cloneTree());
+        prop.removeRef(ref);
+        // Rescan the expression root.
+        newNodes.add(new AstChange(ref.module, ref.scope, ref.node));
       }
     }
   }
@@ -357,7 +359,7 @@ class CollapseProperties implements CompilerPass {
       collector.processScope(scope);
 
       ReferenceCollection aliasRefs = collector.getReferences(aliasVar);
-      List<AstChange> newNodes = new ArrayList<>();
+      Set<AstChange> newNodes = new LinkedHashSet<>();
 
       if (aliasRefs.isWellDefined()
           && aliasRefs.firstReferenceIsAssigningDeclaration()) {
@@ -503,7 +505,7 @@ class CollapseProperties implements CompilerPass {
 
   /**
    * Flattens all references to collapsible properties of a global name except
-   * their initial definitions. Recurses on subnames.
+   * their initial definitions. Recurs on subnames.
    *
    * @param n An object representing a global name
    * @param alias The flattened name for {@code n}
@@ -527,7 +529,6 @@ class CollapseProperties implements CompilerPass {
     }
   }
 
-
   /**
    * Flattens a stub declaration.
    * This is mostly a hack to support legacy users.
@@ -546,7 +547,6 @@ class CollapseProperties implements CompilerPass {
     compiler.reportCodeChange();
   }
 
-
   /**
    * Flattens all references to a collapsible property of a global name except
    * its initial definition.
@@ -561,9 +561,7 @@ class CollapseProperties implements CompilerPass {
         // Declarations are handled separately.
         continue;
       }
-
       Node rParent = r.node.getParent();
-
       // There are two cases when we shouldn't flatten a reference:
       // 1) Object literal keys, because duplicate keys show up as refs.
       // 2) References inside a complex assign. (a = x.y = 0). These are
@@ -646,7 +644,7 @@ class CollapseProperties implements CompilerPass {
       for (int i = 1; i < depth && n.hasChildren(); i++) {
         n = n.getFirstChild();
       }
-      if (n.hasChildren()) {
+      if (n.isGetProp() && n.getFirstChild().isGetProp()) {
         flattenNameRef(alias, n.getFirstChild(), n, originalName);
       }
     }
@@ -662,6 +660,9 @@ class CollapseProperties implements CompilerPass {
    */
   private void flattenNameRef(String alias, Node n, Node parent,
       String originalName) {
+    Preconditions.checkArgument(n.isGetProp(),
+        "Expected GETPROP, found %s. Node: %s", Token.name(n.getType()), n);
+
     // BEFORE:
     //   getprop
     //     getprop
@@ -689,7 +690,7 @@ class CollapseProperties implements CompilerPass {
 
   /**
    * Collapses definitions of the collapsible properties of a global name.
-   * Recurses on subnames that also represent JavaScript objects with
+   * Recurs on subnames that also represent JavaScript objects with
    * collapsible properties.
    *
    * @param n A node representing a global name
@@ -700,32 +701,24 @@ class CollapseProperties implements CompilerPass {
 
     // Handle this name first so that nested object literals get unrolled.
     if (n.canCollapse()) {
-      // Enum properties are always collapsed. Warn when @nocollapse
-      // is used on an enum property
-      if (n.docInfo != null && n.docInfo.isNoCollapse() &&
-          n.isDescendantOfEnum()) {
-        compiler.report(
-            JSError.make(n.getDeclaration().getNode(), INVALID_NOCOLLAPSE));
-      }
-
       updateObjLitOrFunctionDeclaration(n, alias, canCollapseChildNames);
     }
 
-    if (n.props != null) {
-      for (Name p : n.props) {
-        // Recurse first so that saved node ancestries are intact when needed.
-        collapseDeclarationOfNameAndDescendants(
-            p, appendPropForAlias(alias, p.getBaseName()));
-
-        if (!p.inExterns && canCollapseChildNames &&
-            p.getDeclaration() != null &&
-            p.canCollapse() &&
-            p.getDeclaration().node != null &&
-            p.getDeclaration().node.getParent() != null &&
-            p.getDeclaration().node.getParent().isAssign()) {
-          updateSimpleDeclaration(
-              appendPropForAlias(alias, p.getBaseName()), p, p.getDeclaration());
-        }
+    if (n.props == null) {
+      return;
+    }
+    for (Name p : n.props) {
+      // Recur first so that saved node ancestries are intact when needed.
+      collapseDeclarationOfNameAndDescendants(
+          p, appendPropForAlias(alias, p.getBaseName()));
+      if (!p.inExterns && canCollapseChildNames &&
+          p.getDeclaration() != null &&
+          p.canCollapse() &&
+          p.getDeclaration().node != null &&
+          p.getDeclaration().node.getParent() != null &&
+          p.getDeclaration().node.getParent().isAssign()) {
+        updateSimpleDeclaration(
+            appendPropForAlias(alias, p.getBaseName()), p, p.getDeclaration());
       }
     }
   }
@@ -1137,25 +1130,24 @@ class CollapseProperties implements CompilerPass {
     Preconditions.checkState(n.canCollapseUnannotatedChildNames());
     Preconditions.checkArgument(NodeUtil.isStatementBlock(parent));
     Preconditions.checkNotNull(addAfter);
+    if (n.props == null) {
+      return 0;
+    }
     int numStubs = 0;
-    if (n.props != null) {
-      for (Name p : n.props) {
-        if (p.needsToBeStubbed()) {
-          String propAlias = appendPropForAlias(alias, p.getBaseName());
-          Node nameNode = IR.name(propAlias);
-          Node newVar = IR.var(nameNode)
-              .copyInformationFromForTree(addAfter);
-          parent.addChildAfter(newVar, addAfter);
-          addAfter = newVar;
-          numStubs++;
-          compiler.reportCodeChange();
-
-          // Determine if this is a constant var by checking the first
-          // reference to it. Don't check the declaration, as it might be null.
-          if (p.getRefs().get(0).node.getLastChild().getBooleanProp(
-                  Node.IS_CONSTANT_NAME)) {
-            nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
-          }
+    for (Name p : n.props) {
+      if (p.needsToBeStubbed()) {
+        String propAlias = appendPropForAlias(alias, p.getBaseName());
+        Node nameNode = IR.name(propAlias);
+        Node newVar = IR.var(nameNode).copyInformationFromForTree(addAfter);
+        parent.addChildAfter(newVar, addAfter);
+        addAfter = newVar;
+        numStubs++;
+        compiler.reportCodeChange();
+        // Determine if this is a constant var by checking the first
+        // reference to it. Don't check the declaration, as it might be null.
+        if (p.getRefs().get(0).node.getLastChild().getBooleanProp(
+            Node.IS_CONSTANT_NAME)) {
+          nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
         }
       }
     }

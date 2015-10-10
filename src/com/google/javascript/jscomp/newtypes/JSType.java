@@ -169,43 +169,6 @@ public abstract class JSType implements TypeI {
 
   protected abstract ImmutableSet<EnumType> getEnums();
 
-  // DO NOT USE THIS METHOD IN THIS FILE!
-  // It represents unions very inefficiently and is only used by client code to avoid exposing the
-  // internal representation which uses bitmaps.
-  // Also, this method stops distinguishing between true and false; it promotes to boolean.
-  public Collection<JSType> getAlternates() {
-    if (isTop() || isUnknown()) {
-      return ImmutableSet.of(this);
-    }
-    ImmutableSet.Builder<JSType> builder = ImmutableSet.builder();
-    int mask = getMask();
-    if ((mask & NUMBER_MASK) != 0) {
-      builder.add(NUMBER);
-    }
-    if ((mask & STRING_MASK) != 0) {
-      builder.add(STRING);
-    }
-    if (isBoolean()) {
-      builder.add(BOOLEAN);
-    }
-    if ((mask & NULL_MASK) != 0) {
-      builder.add(NULL);
-    }
-    if ((mask & UNDEFINED_MASK) != 0) {
-      builder.add(UNDEFINED);
-    }
-    if ((mask & TYPEVAR_MASK) != 0) {
-      builder.add(fromTypeVar(getTypeVar()));
-    }
-    for (ObjectType obj : getObjs()) {
-      builder.add(fromObjectType(obj));
-    }
-    for (EnumType e : getEnums()) {
-      builder.add(fromEnum(e));
-    }
-    return builder.build();
-  }
-
   // Factory method for wrapping a function in a JSType
   static JSType fromFunctionType(FunctionType fn, NominalType fnNominal) {
     return makeType(
@@ -289,6 +252,10 @@ public abstract class JSType implements TypeI {
   @Override
   public boolean isBottom() {
     return BOTTOM_MASK == getMask();
+  }
+
+  public boolean isUndefined() {
+    return UNDEFINED_MASK == getMask();
   }
 
   public boolean isUnknown() {
@@ -396,6 +363,11 @@ public abstract class JSType implements TypeI {
       return false;
     }
     return !(getMask() == NON_SCALAR_MASK && getObjs().size() == 1);
+  }
+
+  public boolean isFunctionWithProperties() {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    return obj != null && obj.isFunctionWithProperties();
   }
 
   public static boolean areCompatibleScalarTypes(JSType lhs, JSType rhs) {
@@ -795,6 +767,10 @@ public abstract class JSType implements TypeI {
     return makeType(newMask, newObjs, newTypevar, enumBuilder.build());
   }
 
+  public static boolean haveCommonSubtype(JSType lhs, JSType rhs) {
+    return lhs.isBottom() || rhs.isBottom() || !meet(lhs, rhs).isBottom();
+  }
+
   private JSType makeTruthy() {
     if (this.isTop() || this.isUnknown()) {
       return this;
@@ -917,25 +893,36 @@ public abstract class JSType implements TypeI {
     return makeType(newMask, objsBuilder.build(), getTypeVar(), enumBuilder.build());
   }
 
-  public FunctionType getFunTypeIfSingletonObj() {
+  // Adds ft to this type, replacing the current function, if any.
+  public JSType withFunction(FunctionType ft, NominalType fnNominal) {
+    Preconditions.checkNotNull(ft);
+    ObjectType ot = getObjTypeIfSingletonObj();
+    // This method is used for a very narrow purpose, hence these checks.
+    Preconditions.checkNotNull(ot);
+    Preconditions.checkState(getMask() == NON_SCALAR_MASK);
+    return fromObjectType(ot.withFunction(ft, fnNominal));
+  }
+
+  public ObjectType getObjTypeIfSingletonObj() {
     if (getMask() != NON_SCALAR_MASK || getObjs().size() > 1) {
       return null;
     }
-    return Iterables.getOnlyElement(getObjs()).getFunType();
+    return Iterables.getOnlyElement(getObjs());
+  }
+
+  public FunctionType getFunTypeIfSingletonObj() {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    return obj == null ? null : obj.getFunType();
   }
 
   public FunctionType getFunType() {
-    if (getObjs().isEmpty()) {
-      return null;
-    }
-    if (getObjs().size() == 1) { // The common case is fast
-      return Iterables.getOnlyElement(getObjs()).getFunType();
-    }
-    FunctionType result = FunctionType.TOP_FUNCTION;
     for (ObjectType obj : getObjs()) {
-      result = FunctionType.meet(result, obj.getFunType());
+      FunctionType ft = obj.getFunType();
+      if (ft != null) {
+        return ft;
+      }
     }
-    return result;
+    return null;
   }
 
   public NominalType getNominalTypeIfSingletonObj() {
@@ -943,13 +930,6 @@ public abstract class JSType implements TypeI {
       return null;
     }
     return Iterables.getOnlyElement(getObjs()).getNominalType();
-  }
-
-  public ObjectType getObjectTypeIfSingletonObj() {
-    if (getMask() != NON_SCALAR_MASK || getObjs().size() > 1) {
-      return null;
-    }
-    return Iterables.getOnlyElement(getObjs());
   }
 
   public boolean isInterfaceDefinition() {
@@ -1157,7 +1137,7 @@ public abstract class JSType implements TypeI {
 
   @Override
   public boolean isFunctionType() {
-    return getFunType() != null;
+    return getFunTypeIfSingletonObj() != null;
   }
 
   @Override

@@ -41,15 +41,14 @@ import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
+import com.google.javascript.rhino.jstype.NamedType;
 import com.google.javascript.rhino.jstype.ObjectType;
 import com.google.javascript.rhino.jstype.Property;
 import com.google.javascript.rhino.jstype.TemplateTypeMap;
 import com.google.javascript.rhino.jstype.TemplateTypeMapReplacer;
 import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.TernaryValue;
-import com.google.javascript.rhino.jstype.UnionType;
 
-import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Set;
@@ -89,10 +88,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "JSC_INEXISTENT_ENUM_ELEMENT",
           "element {0} does not exist on this enum");
 
-  // TODO(johnlenz): enable this by default, now that we have created
-  // "POSSIBLE_INEXISTENT_PROPERTY"
-  static final DiagnosticType INEXISTENT_PROPERTY =
-      DiagnosticType.disabled(
+  public static final DiagnosticType INEXISTENT_PROPERTY =
+      DiagnosticType.warning(
           "JSC_INEXISTENT_PROPERTY",
           "Property {0} never defined on {1}");
 
@@ -246,7 +243,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "Illegal key, the object literal is a {0}");
 
   static final DiagnosticType NON_STRINGIFIABLE_OBJECT_KEY =
-      DiagnosticType.disabled(
+      DiagnosticType.warning(
           "JSC_NON_STRINGIFIABLE_OBJECT_KEY",
           "Object type \"{0}\" contains non-stringifiable key and it may lead to an "
           + "error. Please use ES6 Map instead or implement your own Map structure.");
@@ -286,6 +283,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       IN_USED_WITH_STRUCT,
       ILLEGAL_PROPERTY_CREATION,
       ILLEGAL_OBJLIT_KEY,
+      NON_STRINGIFIABLE_OBJECT_KEY,
       RhinoErrorReporter.TYPE_PARSE_ERROR,
       TypedScopeCreator.UNKNOWN_LENDS,
       TypedScopeCreator.LENDS_ON_NON_OBJECT,
@@ -318,8 +316,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   private int unknownCount = 0;
   private boolean inExterns;
 
-  private Method editDistance;
-
   private static final class SuggestionPair {
     private final String suggestion;
     final int distance;
@@ -345,16 +341,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     this.reportUnknownTypes = ((Compiler) compiler).getOptions().enables(
         DiagnosticGroups.REPORT_UNKNOWN_TYPES);
     this.inferJSDocInfo = new InferJSDocInfo(compiler);
-
-    ClassLoader classLoader = TypeCheck.class.getClassLoader();
-    try {
-      Class<?> c = classLoader.loadClass(
-          "com.google.common.string.EditDistance");
-      editDistance = c.getDeclaredMethod(
-          "getEditDistance", String.class, String.class, boolean.class);
-    } catch (Exception ignored) {
-      editDistance = null;
-    }
   }
 
   public TypeCheck(AbstractCompiler compiler,
@@ -508,17 +494,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         typeable = visitName(t, n, parent);
         break;
 
-      case Token.PARAM_LIST:
-        typeable = false;
-        break;
-
       case Token.COMMA:
         ensureTyped(t, n, getJSType(n.getLastChild()));
-        break;
-
-      case Token.TRUE:
-      case Token.FALSE:
-        ensureTyped(t, n, BOOLEAN_TYPE);
         break;
 
       case Token.THIS:
@@ -531,14 +508,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
       case Token.NUMBER:
         ensureTyped(t, n, NUMBER_TYPE);
-        break;
-
-      case Token.STRING:
-        ensureTyped(t, n, STRING_TYPE);
-        break;
-
-      case Token.STRING_KEY:
-        typeable = false;
         break;
 
       case Token.GETTER_DEF:
@@ -556,8 +525,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
       case Token.GETPROP:
         visitGetProp(t, n, parent);
-        typeable = !(parent.isAssign() &&
-                     parent.getFirstChild() == n);
+        typeable = !(parent.isAssign() && parent.getFirstChild() == n);
         break;
 
       case Token.GETELEM:
@@ -595,14 +563,11 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         ensureTyped(t, n, NUMBER_TYPE);
         break;
 
-      case Token.NOT:
-        ensureTyped(t, n, BOOLEAN_TYPE);
-        break;
-
       case Token.VOID:
         ensureTyped(t, n, VOID_TYPE);
         break;
 
+      case Token.STRING:
       case Token.TYPEOF:
         ensureTyped(t, n, STRING_TYPE);
         break;
@@ -610,8 +575,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case Token.BITNOT:
         childType = getJSType(n.getFirstChild());
         if (!childType.matchesInt32Context()) {
-          report(t, n, BIT_OPERATION, NodeUtil.opToStr(n.getType()),
-              childType.toString());
+          report(t, n, BIT_OPERATION, NodeUtil.opToStr(n.getType()), childType.toString());
         }
         ensureTyped(t, n, NUMBER_TYPE);
         break;
@@ -661,16 +625,19 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           }
         } else {
           // SHEQ or SHNE
-          if (!leftTypeRestricted.canTestForShallowEqualityWith(
-                  rightTypeRestricted)) {
-            result = n.getType() == Token.SHEQ ?
-                TernaryValue.FALSE : TernaryValue.TRUE;
+          if (!leftTypeRestricted.canTestForShallowEqualityWith(rightTypeRestricted)) {
+            result = n.getType() == Token.SHEQ ? TernaryValue.FALSE : TernaryValue.TRUE;
           }
         }
 
         if (result != TernaryValue.UNKNOWN) {
-          report(t, n, DETERMINISTIC_TEST, leftType.toString(),
-              rightType.toString(), result.toString());
+          report(
+              t,
+              n,
+              DETERMINISTIC_TEST,
+              leftType.toString(),
+              rightType.toString(),
+              result.toString());
         }
         ensureTyped(t, n, BOOLEAN_TYPE);
         break;
@@ -683,13 +650,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         leftType = getJSType(n.getFirstChild());
         rightType = getJSType(n.getLastChild());
         if (rightType.isNumber()) {
-          validator.expectNumber(
-              t, n, leftType, "left side of numeric comparison");
+          validator.expectNumber(t, n, leftType, "left side of numeric comparison");
         } else if (leftType.isNumber()) {
-          validator.expectNumber(
-              t, n, rightType, "right side of numeric comparison");
-        } else if (leftType.matchesNumberContext() &&
-                   rightType.matchesNumberContext()) {
+          validator.expectNumber(t, n, rightType, "right side of numeric comparison");
+        } else if (leftType.matchesNumberContext() && rightType.matchesNumberContext()) {
           // OK.
         } else {
           // Whether the comparison is numeric will be determined at runtime
@@ -697,12 +661,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           // should match a string context.
           String message = "left side of comparison";
           validator.expectString(t, n, leftType, message);
-          validator.expectNotNullOrUndefined(
-              t, n, leftType, message, getNativeType(STRING_TYPE));
+          validator.expectNotNullOrUndefined(t, n, leftType, message, getNativeType(STRING_TYPE));
           message = "right side of comparison";
           validator.expectString(t, n, rightType, message);
-          validator.expectNotNullOrUndefined(
-              t, n, rightType, message, getNativeType(STRING_TYPE));
+          validator.expectNotNullOrUndefined(t, n, rightType, message, getNativeType(STRING_TYPE));
         }
         ensureTyped(t, n, BOOLEAN_TYPE);
         break;
@@ -725,8 +687,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         rightType = getJSType(right).restrictByNotNullOrUndefined();
         validator.expectAnyObject(
             t, left, getJSType(left), "deterministic instanceof yields false");
-        validator.expectActualObject(
-            t, right, rightType, "instanceof requires an object");
+        validator.expectActualObject(t, right, rightType, "instanceof requires an object");
         ensureTyped(t, n, BOOLEAN_TYPE);
         break;
 
@@ -763,6 +724,9 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         visitBinaryOperator(n.getType(), t, n);
         break;
 
+      case Token.TRUE:
+      case Token.FALSE:
+      case Token.NOT:
       case Token.DELPROP:
         ensureTyped(t, n, BOOLEAN_TYPE);
         break;
@@ -782,11 +746,18 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         break;
       }
 
+      case Token.MEMBER_FUNCTION_DEF:
+        ensureTyped(t, n, getJSType(n.getFirstChild()));
+        break;
+
       case Token.FUNCTION:
         visitFunction(t, n);
         break;
 
-      // These nodes have no interesting type behavior.
+        // These nodes have no interesting type behavior.
+        // These nodes require data flow analysis.
+      case Token.PARAM_LIST:
+      case Token.STRING_KEY:
       case Token.LABEL:
       case Token.LABEL_NAME:
       case Token.SWITCH:
@@ -801,10 +772,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case Token.CONTINUE:
       case Token.DEBUGGER:
       case Token.THROW:
-        typeable = false;
-        break;
-
-      // These nodes require data flow analysis.
       case Token.DO:
       case Token.IF:
       case Token.WHILE:
@@ -830,8 +797,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           ensureTyped(t, n);
         } else {
           // If this is an enum, then give that type to the objectlit as well.
-          if ((n.isObjectLit())
-              && (parent.getJSType() instanceof EnumType)) {
+          if ((n.isObjectLit()) && (parent.getJSType() instanceof EnumType)) {
             ensureTyped(t, n, parent.getJSType());
           } else {
             ensureTyped(t, n);
@@ -1525,56 +1491,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   private SuggestionPair getClosestPropertySuggestion(
       JSType objectType, String propName) {
-    if (editDistance == null) {
-      return null;
-    }
-
-    String bestSoFar = null;
-    int shortest = Integer.MAX_VALUE;
-    if (objectType instanceof ObjectType) {
-      ObjectType type = (ObjectType) objectType;
-      for (String alt : type.getPropertyNames()) {
-        int distance;
-        try {
-          distance = (Integer) editDistance.invoke(null, propName, alt, false);
-        } catch (Exception e) {
-          return null;
-        }
-        if (distance <= shortest) {
-          if (distance == shortest) {
-            // To make warning determistic across runs we 'tie-break' by
-            // alphabetical order ignore-case.
-            if (bestSoFar != null && alt.compareToIgnoreCase(bestSoFar) > 0) {
-              continue;
-            }
-          }
-          shortest = distance;
-          bestSoFar = alt;
-        }
-      }
-    } else if (objectType.isUnionType()) {
-      UnionType type = (UnionType) objectType;
-      for (JSType alt : type.getAlternates()) {
-        SuggestionPair pair = getClosestPropertySuggestion(alt, propName);
-        if (pair != null) {
-          if (pair.distance <= shortest) {
-            if (pair.distance  == shortest) {
-              if (bestSoFar != null &&
-                  pair.suggestion.compareToIgnoreCase(bestSoFar) > 0) {
-                continue;
-              }
-            }
-            shortest = pair.distance;
-            bestSoFar = pair.suggestion;
-          }
-        }
-      }
-    }
-
-    if (bestSoFar != null) {
-      return new SuggestionPair(bestSoFar, shortest);
-    }
-
     return null;
   }
 
@@ -2163,6 +2079,12 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       }
     }
 
+    // Named types are usually @typedefs. For such types we need to check underlying type specified
+    // in @typedef annotation.
+    if (type instanceof NamedType) {
+      return isStringifiable(((NamedType) type).getReferencedType());
+    }
+
     // Handle interfaces and classes.
     if (type.isObject()) {
       ObjectType objectType = type.toMaybeObjectType();
@@ -2230,6 +2152,16 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         }
       }
     }
+    if (type.isOrdinaryFunction()) {
+      FunctionType function = type.toMaybeFunctionType();
+      for (Node parameter : function.getParameters()) {
+        JSType result = findObjectWithNonStringifiableKey(parameter.getJSType());
+        if (result != null) {
+          return result;
+        }
+      }
+      return findObjectWithNonStringifiableKey(function.getReturnType());
+    }
     return null;
   }
 
@@ -2243,7 +2175,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       return toStringProperty.getType().isFunctionType();
     }
     ObjectType parent = type.getParentScope();
-    if (!parent.isNativeObjectType()) {
+    if (parent != null && !parent.isNativeObjectType()) {
       return classHasToString(parent);
     }
     return false;

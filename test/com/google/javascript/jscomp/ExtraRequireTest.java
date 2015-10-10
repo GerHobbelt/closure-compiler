@@ -18,12 +18,10 @@ package com.google.javascript.jscomp;
 
 import static com.google.javascript.jscomp.CheckRequiresForConstructors.EXTRA_REQUIRE_WARNING;
 
-import com.google.common.base.Joiner;
-
 /**
  * Tests for the "extra requires" check in {@link CheckRequiresForConstructors}.
  */
-public final class ExtraRequireTest extends CompilerTestCase {
+public final class ExtraRequireTest extends Es6CompilerTestCase {
   public ExtraRequireTest() {
     super();
     enableRewriteClosureCode();
@@ -46,7 +44,7 @@ public final class ExtraRequireTest extends CompilerTestCase {
     testSame("goog.require('foo.Bar'); /** @type {Array<foo.Bar>} */ var x;");
     testSame("goog.require('foo.Bar'); var x = new foo.Bar.Baz();");
     testSame("goog.require('foo.bar'); var x = foo.bar();");
-    testSame("goog.require('foo.bar'); var x = /** @type foo.bar */ (null);");
+    testSame("goog.require('foo.bar'); var x = /** @type {foo.bar} */ (null);");
     testSame("goog.require('foo.bar'); function f(/** foo.bar */ x) {}");
     testSame("goog.require('foo.bar'); alert(foo.bar.baz);");
     testSame("/** @suppress {extraRequire} */ goog.require('foo.bar');");
@@ -56,12 +54,13 @@ public final class ExtraRequireTest extends CompilerTestCase {
   }
 
   public void testNoWarning_InnerClassInExtends() {
-    String js = Joiner.on('\n').join(
-        "var goog = {};",
-        "goog.require('goog.foo.Bar');",
-        "",
-        "/** @constructor @extends {goog.foo.Bar.Inner} */",
-        "function SubClass() {}");
+    String js =
+        LINE_JOINER.join(
+            "var goog = {};",
+            "goog.require('goog.foo.Bar');",
+            "",
+            "/** @constructor @extends {goog.foo.Bar.Inner} */",
+            "function SubClass() {}");
     testSame(js);
   }
 

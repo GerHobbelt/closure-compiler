@@ -194,6 +194,36 @@ public class SuggestedFixTest {
   }
 
   @Test
+  public void testRenameTaggedTemplate_justFunctionName() {
+    String prefix = "prt.";
+    String fnName = "oldTaggedTemp";
+    String newFnName = "newTaggedTemp";
+    String input = prefix + fnName + "`${Foo}Bar`;";
+    Compiler compiler = getCompiler(input);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .rename(root.getFirstChild().getFirstChild(), newFnName)
+        .build();
+    CodeReplacement replacement = new CodeReplacement(prefix.length(),
+        fnName.length(), newFnName);
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testRenameTaggedTemplate_entireName() {
+    String fnName = "goog.dom.classes.oldTaggedTemp";
+    String newFnName = "goog.dom.classesList.newTaggedTemp";
+    String input = fnName + "`${Foo}Bar`;";
+    Compiler compiler = getCompiler(input);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .rename(root.getFirstChild().getFirstChild(), newFnName, true)
+        .build();
+    CodeReplacement replacement = new CodeReplacement(0, fnName.length(), newFnName);
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
   public void testReplace() {
     String before = "var someRandomCode = {};\n/** some comment */\n";
     String after = "goog.foo();";
@@ -414,6 +444,18 @@ public class SuggestedFixTest {
         .build();
     CodeReplacement replacement = new CodeReplacement(before.length(), 0, ", baz");
     assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testInsertArguments_castInArguments() {
+    String originalCode = "goog.dom.classes.add(foo, /** @type {String} */ (bar));";
+    String expectedCode = "goog.dom.classes.add(foo, baz, /** @type {String} */ (bar));";
+    Compiler compiler = getCompiler(originalCode);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .insertArguments(root.getFirstChild().getFirstChild(), 1, "baz")
+        .build();
+    assertChanges(fix, "", originalCode, expectedCode);
   }
 
   @Test

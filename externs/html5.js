@@ -296,6 +296,15 @@ CanvasRenderingContext2D.prototype.clip = function(opt_fillRule) {};
 /**
  * @param {number} x
  * @param {number} y
+ * @return {boolean}
+ * @nosideeffects
+ * @see http://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isPointInStroke
+ */
+CanvasRenderingContext2D.prototype.isPointInStroke = function(x, y) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
  * @param {string=} opt_fillRule
  * @return {boolean}
  * @nosideeffects
@@ -474,6 +483,9 @@ CanvasRenderingContext2D.prototype.textAlign;
 /** @type {string} */
 CanvasRenderingContext2D.prototype.textBaseline;
 
+/** @type {number} */
+CanvasRenderingContext2D.prototype.lineDashOffset;
+
 /**
  * @constructor
  */
@@ -500,9 +512,16 @@ function TextMetrics() {}
 TextMetrics.prototype.width;
 
 /**
+ * @param {Uint8ClampedArray|number} dataOrWidth In the first form, this is the
+ *     array of pixel data.  In the second form, this is the image width.
+ * @param {number} widthOrHeight In the first form, this is the image width.  In
+ *     the second form, this is the image height.
+ * @param {number=} opt_height In the first form, this is the optional image
+ *     height.  The second form omits this argument.
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#imagedata
  * @constructor
  */
-function ImageData() {}
+function ImageData(dataOrWidth, widthOrHeight, opt_height) {}
 
 /** @type {Uint8ClampedArray} */
 ImageData.prototype.data;
@@ -857,7 +876,7 @@ Window.prototype.importScripts = function(var_args) {};
  * @see https://developer.mozilla.org/En/DOM/Worker/Functions_available_to_workers
  * @param {...string} var_args
  */
-var importScripts = function(var_args) {};
+function importScripts(var_args) {}
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1361,11 +1380,79 @@ HTMLMediaElement.prototype.load = function() {};
  */
 HTMLMediaElement.prototype.canPlayType = function(type) {};
 
-/**
- * Callback when the media is buffered and ready to play through.
- * @type {function(!Event)}
- */
+/** Event handlers */
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onabort;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.oncanplay;
+
+/** @type {?function(!Event)} */
 HTMLMediaElement.prototype.oncanplaythrough;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.ondurationchange;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onemptied;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onended;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onerror;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onloadeddata;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onloadedmetadata;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onloadstart;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onpause;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onplay;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onplaying;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onprogress;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onratechange;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onseeked;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onseeking;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onstalled;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onsuspend;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.ontimeupdate;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onvolumechange;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onwaiting;
+
+/** @type {?function(!Event)} */
+HTMLImageElement.prototype.onload;
+
+/** @type {?function(!Event)} */
+HTMLImageElement.prototype.onerror;
 
 /** @type {number} */
 HTMLMediaElement.prototype.readyState;
@@ -1889,7 +1976,7 @@ var WheelEventInit;
  * @constructor
  * @extends {MouseEvent}
  */
-var WheelEvent = function(type, opt_eventInitDict) {};
+function WheelEvent(type, opt_eventInitDict) {}
 
 /** @const {number} */
 WheelEvent.prototype.deltaX;
@@ -1911,7 +1998,7 @@ WheelEvent.prototype.deltaMode;
  * @see http://developers.whatwg.org/dnd.html#datatransferitem
  * @constructor
  */
-var DataTransferItem = function() {};
+function DataTransferItem() {}
 
 /** @type {string} */
 DataTransferItem.prototype.kind;
@@ -1949,7 +2036,7 @@ DataTransferItem.prototype.webkitGetAsEntry = function() { return null; };
  * @see http://developers.whatwg.org/dnd.html#datatransferitem
  * @constructor
  */
-var DataTransferItemList = function() {};
+function DataTransferItemList() {}
 
 /** @type {number} */
 DataTransferItemList.prototype.length;
@@ -3266,3 +3353,11 @@ function HTMLTemplateElement() {}
  * @type {!DocumentFragment}
  */
 HTMLTemplateElement.prototype.content;
+
+
+/**
+ * @type {?Document}
+ * @see w3c_dom2.js
+ * @see http://www.w3.org/TR/html-imports/#interface-import
+ */
+HTMLLinkElement.prototype.import;

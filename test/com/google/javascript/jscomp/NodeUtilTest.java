@@ -42,7 +42,7 @@ public final class NodeUtilTest extends TestCase {
   private static Node parse(String js) {
     Compiler compiler = new Compiler();
     compiler.initCompilerOptionsIfTesting();
-    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT5);
+    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
     Node n = compiler.parseTestCode(js);
     assertEquals(0, compiler.getErrorCount());
     return n;
@@ -113,6 +113,13 @@ public final class NodeUtilTest extends TestCase {
     // Known but getBooleanValue return false for expressions with side-effects
     assertPureBooleanUnknown("{a:foo()}");
     assertPureBooleanUnknown("[foo()]");
+
+    assertPureBooleanTrue("`definiteLength`");
+    assertPureBooleanFalse("``");
+    assertPureBooleanUnknown("`${indefinite}Length`");
+
+    assertPureBooleanTrue("class Klass{}");
+
   }
 
   private void assertPureBooleanTrue(String val) {
@@ -312,6 +319,28 @@ public final class NodeUtilTest extends TestCase {
     testGetFunctionName(parent.getLastChild(), "qualified.name2");
   }
 
+  public void testGetBestFunctionName1() throws Exception {
+    Compiler compiler = new Compiler();
+    Node parent = compiler.parseTestCode("function func(){}");
+
+    assertEquals("func",
+        NodeUtil.getNearestFunctionName(parent.getFirstChild()));
+  }
+
+  public void testGetBestFunctionName2() throws Exception {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = new CompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    compiler.initOptions(options);
+
+    Node parent = compiler.parseTestCode("var obj = {memFunc(){}}")
+        .getFirstChild().getFirstChild().getFirstChild().getFirstChild();
+
+    assertEquals("memFunc",
+        NodeUtil.getNearestFunctionName(parent.getLastChild()));
+  }
+
+
   private void testGetFunctionName(Node function, String name) {
     assertEquals(Token.FUNCTION, function.getType());
     assertEquals(name, NodeUtil.getFunctionName(function));
@@ -384,6 +413,15 @@ public final class NodeUtilTest extends TestCase {
     assertSideEffect(false, "(function(a, b) {  })");
     assertSideEffect(false, "a ? c : d");
     assertSideEffect(false, "'1' + navigator.userAgent");
+
+    assertSideEffect(false, "`template`");
+    assertSideEffect(false, "`template${name}`");
+    assertSideEffect(false, "`${name}template`");
+    assertSideEffect(true, "`${naming()}template`");
+    assertSideEffect(true, "templateFunction`template`");
+    assertSideEffect(true, "st = `${name}template`");
+    assertSideEffect(true, "tempFunc = templateFunction`template`");
+
 
     assertSideEffect(false, "new RegExp('foobar', 'i')");
     assertSideEffect(true, "new RegExp(SomethingWacky(), 'i')");
@@ -626,6 +664,9 @@ public final class NodeUtilTest extends TestCase {
     assertFalse(NodeUtil.referencesThis(n));
     assertFalse(NodeUtil.referencesThis(
         parse("(b?foo():null)")));
+
+    assertTrue(NodeUtil.referencesThis(parse("()=>this")));
+    assertTrue(NodeUtil.referencesThis(parse("() => { () => alert(this); }")));
   }
 
   public void testGetNodeTypeReferenceCount() {
@@ -1732,6 +1773,14 @@ public final class NodeUtilTest extends TestCase {
     assertNodeTreesEqual(expected, actual);
   }
 
+  public void testGetBestJsDocInfoForClasses() {
+    Node classNode = getClassNode("/** @export */ class Foo {}");
+    assertTrue(NodeUtil.getBestJSDocInfo(classNode).isExport());
+
+    classNode = getClassNode("/** @export */ var Foo = class {}");
+    assertTrue(NodeUtil.getBestJSDocInfo(classNode).isExport());
+  }
+
   private boolean executedOnceTestCase(String code) {
     Node ast = parse(code);
     Node nameNode = getNameNode(ast, "x");
@@ -1753,6 +1802,24 @@ public final class NodeUtilTest extends TestCase {
     assertEquals(
         expected,
         NodeUtil.getNearestFunctionName(getFunctionNode(js)));
+  }
+
+  static Node getClassNode(String js) {
+   Node root = parse(js);
+    return getClassNode(root);
+  }
+
+  static Node getClassNode(Node n) {
+    if (n.isClass()) {
+      return n;
+    }
+    for (Node c : n.children()) {
+      Node result = getClassNode(c);
+      if (result != null) {
+        return result;
+      }
+    }
+    return null;
   }
 
   static Node getFunctionNode(String js) {

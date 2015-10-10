@@ -30,11 +30,13 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
+import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
-import com.google.javascript.jscomp.lint.CheckJSDoc;
+import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
 import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
+import com.google.javascript.jscomp.lint.CheckRequiresAndProvidesSorted;
 import com.google.javascript.jscomp.parsing.ParserRunner;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -198,40 +200,101 @@ public final class DefaultPassConfig extends PassConfig {
 
     checks.add(createEmptyPass("beforeStandardChecks"));
 
+    // Verify JsDoc annotations
+    checks.add(checkJsDoc);
+
+    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED
+        && options.getLanguageOut() != LanguageMode.ECMASCRIPT6_TYPED) {
+      checks.add(convertEs6TypedToEs6);
+    }
+
+    // Early ES6 transpilation.
+    // Includes ES6 features that are straightforward to transpile.
+    // We won't handle them natively in the rest of the compiler, so we always
+    // transpile them, even if the output language is also ES6.
+    if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
+      checks.add(es6RewriteArrowFunction);
+      checks.add(es6RenameVariablesInParamLists);
+      checks.add(es6SplitVariableDeclarations);
+      checks.add(es6RewriteDestructuring);
+    }
+
+    // goog.module rewrite must happen even if options.skipNonTranspilationPasses is set.
     if (options.closurePass) {
       checks.add(closureRewriteModule);
     }
 
-    // ES6 compatible passes.
-
-    if (!options.transpileOnly) {
-      if (options.declaredGlobalExternsOnWindow) {
-        checks.add(declaredGlobalExternsOnWindow);
-      }
+    if (!options.skipNonTranspilationPasses && options.declaredGlobalExternsOnWindow) {
+      checks.add(declaredGlobalExternsOnWindow);
     }
 
-    // ES6 transpilation passes.
+    checks.add(checkVariableReferences);
 
-    if (options.lowerFromEs6() || options.aggressiveVarCheck.isOn()) {
-      checks.add(checkVariableReferences);
+    if (!options.skipNonTranspilationPasses && options.closurePass) {
+      checks.add(closureGoogScopeAliases);
+      checks.add(closureRewriteClass);
     }
 
-    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED
-        && options.getLanguageOut() != LanguageMode.ECMASCRIPT6_TYPED) {
-      checks.add(convertDeclaredTypesToJSDoc);
+    if (options.enables(DiagnosticGroups.MISSING_REQUIRE)
+        || options.enables(DiagnosticGroups.EXTRA_REQUIRE)) {
+      checks.add(checkRequires);
     }
 
-    if (options.lowerFromEs6()) {
-      checks.add(es6RenameVariablesInParamLists);
-      checks.add(es6SplitVariableDeclarations);
+    checks.add(checkSideEffects);
+
+    if (options.checkProvides.isOn() || options.enables(DiagnosticGroups.MISSING_PROVIDE)) {
+      checks.add(checkProvides);
+    }
+
+    if (options.jqueryPass && !options.skipNonTranspilationPasses) {
+      checks.add(jqueryAliases);
+    }
+
+    if (options.angularPass && !options.skipNonTranspilationPasses) {
+      checks.add(angularPass);
+    }
+
+    if (options.generateExports && !options.skipNonTranspilationPasses) {
+      checks.add(generateExports);
+    }
+
+    if (options.exportTestFunctions && !options.skipNonTranspilationPasses) {
+      checks.add(exportTestFunctions);
+    }
+
+    if (options.closurePass && !options.skipNonTranspilationPasses) {
+      checks.add(closurePrimitives);
+    }
+
+    // It's important that the PolymerPass run *after* the ClosurePrimitives rewrite and *before*
+    // the suspicious code checks.
+    if (options.polymerPass && !options.skipNonTranspilationPasses) {
+      checks.add(polymerPass);
+    }
+
+    if ((options.checkSuspiciousCode
+            || options.enables(DiagnosticGroups.GLOBAL_THIS)
+            || options.enables(DiagnosticGroups.DEBUGGER_STATEMENT_PRESENT))
+        && !options.skipNonTranspilationPasses) {
+      checks.add(suspiciousCode);
+    }
+
+    if (options.closurePass && options.checkMissingGetCssNameLevel.isOn()
+        && !options.skipNonTranspilationPasses) {
+      checks.add(closureCheckGetCssName);
+    }
+
+    if (options.syntheticBlockStartMarker != null && !options.skipNonTranspilationPasses) {
+      // This pass must run before the first fold constants pass.
+      checks.add(createSyntheticBlocks);
+    }
+
+    // Late ES6 transpilation.
+    // Includes ES6 features that are best handled natively by the compiler.
+    // As we convert more passes to handle these features, we will be moving the transpilation
+    // later in the compilation, and eventually only transpiling when the output is lower than ES6.
+    if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
       checks.add(es6ConvertSuper);
-    }
-    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED
-        && options.getLanguageOut() != LanguageMode.ECMASCRIPT6_TYPED) {
-      // Needs ctor already created by es6ConvertSuper pass.
-      checks.add(convertEs6TypedToEs6);
-    }
-    if (options.lowerFromEs6()) {
       checks.add(convertEs6ToEs3);
       checks.add(rewriteLetConst);
       checks.add(rewriteGenerators);
@@ -242,77 +305,17 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(convertToTypedES6);
     }
 
-    if (options.transpileOnly) {
+    if (options.skipNonTranspilationPasses) {
       return checks;
     }
 
-    if (options.lowerFromEs6()) {
+    if (options.getLanguageIn().isEs6OrHigher()) {
       checks.add(es6RuntimeLibrary);
     }
 
     checks.add(convertStaticInheritance);
 
     // End of ES6 transpilation passes.
-
-    if (options.closurePass) {
-      checks.add(closureGoogScopeAliases);
-      checks.add(closureRewriteClass);
-    }
-
-    if (options.jqueryPass) {
-      checks.add(jqueryAliases);
-    }
-
-    if (options.angularPass) {
-      checks.add(angularPass);
-    }
-
-    checks.add(checkSideEffects);
-
-    if (options.enables(DiagnosticGroups.MISSING_REQUIRE)
-        || options.enables(DiagnosticGroups.EXTRA_REQUIRE)) {
-      checks.add(checkRequires);
-    }
-
-    if (options.checkProvides.isOn()) {
-      checks.add(checkProvides);
-    }
-
-    // The following passes are more like "preprocessor" passes.
-    // It's important that they run before most checking passes.
-    // Perhaps this method should be renamed?
-    if (options.generateExports) {
-      checks.add(generateExports);
-    }
-
-    if (options.exportTestFunctions) {
-      checks.add(exportTestFunctions);
-    }
-
-    if (options.closurePass) {
-      checks.add(closurePrimitives);
-    }
-
-    // It's important that the PolymerPass run *after* the ClosurePrimitives rewrite and *before*
-    // the suspicious code checks.
-    if (options.polymerPass) {
-      checks.add(polymerPass);
-    }
-
-    if (options.checkSuspiciousCode
-        || options.enables(DiagnosticGroups.GLOBAL_THIS)
-        || options.enables(DiagnosticGroups.DEBUGGER_STATEMENT_PRESENT)) {
-      checks.add(suspiciousCode);
-    }
-
-    if (options.closurePass && options.checkMissingGetCssNameLevel.isOn()) {
-      checks.add(closureCheckGetCssName);
-    }
-
-    if (options.syntheticBlockStartMarker != null) {
-      // This pass must run before the first fold constants pass.
-      checks.add(createSyntheticBlocks);
-    }
 
     checks.add(checkVars);
 
@@ -427,7 +430,7 @@ public final class DefaultPassConfig extends PassConfig {
     checks.add(createEmptyPass("afterStandardChecks"));
 
     assertAllOneTimePasses(checks);
-    assertPolymerPassIndexValid(checks);
+    assertValidOrder(checks);
     return checks;
   }
 
@@ -435,7 +438,7 @@ public final class DefaultPassConfig extends PassConfig {
   protected List<PassFactory> getOptimizations() {
     List<PassFactory> passes = new ArrayList<>();
 
-    if (options.transpileOnly) {
+    if (options.skipNonTranspilationPasses) {
       return passes;
     }
 
@@ -739,10 +742,6 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(renameVars);
     }
 
-    if (options.groupVariableDeclarations) {
-      passes.add(groupVariableDeclarations);
-    }
-
     // This pass should run after names stop changing.
     if (options.processObjectPropertyString) {
       passes.add(objectPropertyStringPostprocess);
@@ -778,6 +777,11 @@ public final class DefaultPassConfig extends PassConfig {
     // Safety checks
     passes.add(sanityCheckAst);
     passes.add(sanityCheckVars);
+
+    // Raise to ES6, if allowed
+    if (options.getLanguageOut().isEs6OrHigher()) {
+      passes.add(optimizeToEs6);
+    }
 
     return passes;
   }
@@ -916,11 +920,18 @@ public final class DefaultPassConfig extends PassConfig {
     }
   }
 
-  /** Verify that the PolymerPass runs in a valid order. */
-  private void assertPolymerPassIndexValid(List<PassFactory> checks) {
+  /**
+   * Certain checks need to run in a particular order. For example, the PolymerPass
+   * will not work correctly unless it runs after the goog.provide() processing.
+   * This enforces those constraints.
+   * @param checks The list of check passes
+   */
+  private void assertValidOrder(List<PassFactory> checks) {
     int polymerIndex = checks.indexOf(polymerPass);
     int closureIndex = checks.indexOf(closurePrimitives);
     int suspiciousCodeIndex = checks.indexOf(suspiciousCode);
+    int checkVarsIndex = checks.indexOf(checkVariableReferences);
+    int googScopeIndex = checks.indexOf(closureGoogScopeAliases);
 
     if (polymerIndex != -1 && closureIndex != -1) {
       Preconditions.checkState(polymerIndex > closureIndex,
@@ -929,6 +940,12 @@ public final class DefaultPassConfig extends PassConfig {
     if (polymerIndex != -1 && suspiciousCodeIndex != -1) {
       Preconditions.checkState(polymerIndex < suspiciousCodeIndex,
           "The Polymer pass must run befor suspiciousCode processing.");
+    }
+    if (googScopeIndex != -1) {
+      Preconditions.checkState(checkVarsIndex != -1,
+          "goog.scope processing requires variable checking");
+      Preconditions.checkState(checkVarsIndex < googScopeIndex,
+          "Variable checking must happen before goog.scope processing.");
     }
   }
 
@@ -955,6 +972,14 @@ public final class DefaultPassConfig extends PassConfig {
           "JSC_GENERATE_EXPORTS_ERROR",
           "Exports can only be generated if export symbol/property " +
           "functions are set.");
+
+  /** Verifies JSDoc annotations are used properly. */
+  private final PassFactory checkJsDoc = new PassFactory("checkJsDoc", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new CheckJSDoc(compiler);
+    }
+  };
 
   /** Generates exports for @export annotations. */
   private final PassFactory generateExports = new PassFactory("generateExports", true) {
@@ -1106,21 +1131,37 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
+  private final PassFactory es6RewriteDestructuring =
+      new PassFactory("Es6RewriteDestructuring", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new Es6RewriteDestructuring(compiler);
+        }
+      };
+
   private final HotSwapPassFactory es6RenameVariablesInParamLists =
       new HotSwapPassFactory("Es6RenameVariablesInParamLists", true) {
-    @Override
-    protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      return new Es6RenameVariablesInParamLists(compiler);
-    }
-  };
+        @Override
+        protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
+          return new Es6RenameVariablesInParamLists(compiler);
+        }
+      };
+
+  private final PassFactory es6RewriteArrowFunction =
+      new PassFactory("Es6RewriteArrowFunction", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new Es6RewriteArrowFunction(compiler);
+        }
+      };
 
   private final HotSwapPassFactory es6SplitVariableDeclarations =
       new HotSwapPassFactory("Es6SplitVariableDeclarations", true) {
-    @Override
-    protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      return new Es6SplitVariableDeclarations(compiler);
-    }
-  };
+        @Override
+        protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
+          return new Es6SplitVariableDeclarations(compiler);
+        }
+      };
 
   private final HotSwapPassFactory es6ConvertSuper =
       new HotSwapPassFactory("es6ConvertSuper", true) {
@@ -1178,19 +1219,11 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  private final PassFactory convertDeclaredTypesToJSDoc =
-      new PassFactory("convertDeclaredTypesToJSDoc", true) {
-    @Override
-    CompilerPass create(AbstractCompiler compiler) {
-      return new ConvertDeclaredTypesToJSDoc(compiler);
-    }
-  };
-
   private final PassFactory convertToTypedES6 =
       new PassFactory("ConvertToTypedES6", true) {
     @Override
     CompilerPass create(AbstractCompiler compiler) {
-      return new ConvertToTypedES6(compiler);
+      return new JsdocToEs6TypedConverter(compiler);
     }
   };
 
@@ -1200,7 +1233,8 @@ public final class DefaultPassConfig extends PassConfig {
       return new CompilerPass() {
         @Override
         public void process(Node externs, Node root) {
-          compiler.setLanguageMode(options.getLanguageOut());
+          LanguageMode langOut = options.getLanguageOut();
+          compiler.setLanguageMode(langOut.isEs6OrHigher() ? LanguageMode.ECMASCRIPT5 : langOut);
         }
       };
     }
@@ -1383,8 +1417,7 @@ public final class DefaultPassConfig extends PassConfig {
       new HotSwapPassFactory("checkVariableReferences", true) {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
-      return new VariableReferenceCheck(
-          compiler, options.aggressiveVarCheck);
+      return new VariableReferenceCheck(compiler);
     }
   };
 
@@ -1529,13 +1562,19 @@ public final class DefaultPassConfig extends PassConfig {
       new HotSwapPassFactory("lintChecks", true) {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
-      return combineChecks(compiler, ImmutableList.<Callback>of(
-          new CheckEnums(compiler),
-          new CheckInterfaces(compiler),
-          new CheckJSDoc(compiler),
-          new CheckNullableReturn(compiler),
-          new CheckPrototypeProperties(compiler),
-          new ImplicitNullabilityCheck(compiler)));
+      ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
+          .add(new CheckEmptyStatements(compiler))
+          .add(new CheckEnums(compiler))
+          .add(new CheckInterfaces(compiler))
+          .add(new CheckJSDocStyle(compiler))
+          .add(new CheckNullableReturn(compiler))
+          .add(new CheckPrototypeProperties(compiler))
+          .add(new ImplicitNullabilityCheck(compiler));
+      if (options.closurePass) {
+        callbacks.add(new CheckRequiresAndProvidesSorted(compiler));
+      }
+
+      return combineChecks(compiler, callbacks.build());
     }
   };
 
@@ -2175,17 +2214,6 @@ public final class DefaultPassConfig extends PassConfig {
   };
 
   /**
-   * Simple global collapses of variable declarations.
-   */
-  private final PassFactory groupVariableDeclarations =
-      new PassFactory("groupVariableDeclarations", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new GroupVariableDeclarations(compiler);
-    }
-  };
-
-  /**
    * Extracts common sub-expressions.
    */
   private final PassFactory extractPrototypeMemberDeclarations =
@@ -2660,6 +2688,14 @@ public final class DefaultPassConfig extends PassConfig {
     protected CompilerPass create(final AbstractCompiler compiler) {
       return new CheckConformance(
           compiler, ImmutableList.copyOf(options.getConformanceConfigs()));
+    }
+  };
+
+  /** Optimizations that output ES6 features. */
+  private final PassFactory optimizeToEs6 = new PassFactory("optimizeToEs6", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new SubstituteEs6Syntax(compiler);
     }
   };
 }

@@ -149,6 +149,10 @@ public class IR {
     return declaration(lhs, value, Token.VAR);
   }
 
+  public static Node let(Node lhs, Node value) {
+    return declaration(lhs, value, Token.LET);
+  }
+
   public static Node var(Node lhs) {
     return declaration(lhs, Token.VAR);
   }
@@ -353,6 +357,26 @@ public class IR {
     Preconditions.checkState(mayBeExpression(target));
     Preconditions.checkState(prop.isString());
     return new Node(Token.GETPROP, target, prop);
+  }
+
+  public static Node getprop(Node target, Node prop, Node ...moreProps) {
+    Preconditions.checkState(mayBeExpression(target));
+    Preconditions.checkState(prop.isString());
+    Node result = new Node(Token.GETPROP, target, prop);
+    for (Node moreProp : moreProps) {
+      Preconditions.checkState(moreProp.isString());
+      result = new Node(Token.GETPROP, result, moreProp);
+    }
+    return result;
+  }
+
+  public static Node getprop(Node target, String prop, String ...moreProps) {
+    Preconditions.checkState(mayBeExpression(target));
+    Node result = new Node(Token.GETPROP, target, IR.string(prop));
+    for (String moreProp : moreProps) {
+      result = new Node(Token.GETPROP, result, IR.string(moreProp));
+    }
+    return result;
   }
 
   public static Node getelem(Node target, Node elem) {
@@ -568,8 +592,8 @@ public class IR {
   // helper methods
 
   private static Node binaryOp(int token, Node expr1, Node expr2) {
-    Preconditions.checkState(mayBeExpression(expr1));
-    Preconditions.checkState(mayBeExpression(expr2));
+    Preconditions.checkState(mayBeExpression(expr1), expr1);
+    Preconditions.checkState(mayBeExpression(expr2), expr2);
     return new Node(token, expr1, expr2);
   }
 

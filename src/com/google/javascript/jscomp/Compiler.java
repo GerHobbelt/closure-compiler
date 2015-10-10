@@ -58,6 +58,7 @@ import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +93,7 @@ import java.util.regex.Matcher;
  *
  */
 public class Compiler extends AbstractCompiler {
-  static final String SINGLETON_MODULE_NAME = "[singleton]";
+  static final String SINGLETON_MODULE_NAME = "$singleton$";
 
   static final DiagnosticType MODULE_DEPENDENCY_ERROR =
       DiagnosticType.error("JSC_MODULE_DEPENDENCY_ERROR",
@@ -148,7 +149,7 @@ public class Compiler extends AbstractCompiler {
   Node jsRoot;
   Node externAndJsRoot;
 
-  /** @see {@link #getLanguageMode()} */
+  /** @see #getLanguageMode() */
   private CompilerOptions.LanguageMode languageMode =
       CompilerOptions.LanguageMode.ECMASCRIPT3;
 
@@ -346,12 +347,10 @@ public class Compiler extends AbstractCompiler {
     reconcileOptionsWithGuards();
 
     // Initialize the warnings guard.
-    List<WarningsGuard> guards = ImmutableList.of(
-        new SuppressDocWarningsGuard(
-            getDiagnosticGroups().getRegisteredGroups()),
-        options.getWarningsGuard());
-
-    this.warningsGuard = new ComposeWarningsGuard(guards);
+    this.warningsGuard =
+        new ComposeWarningsGuard(
+            new SuppressDocWarningsGuard(getDiagnosticGroups().getRegisteredGroups()),
+            options.getWarningsGuard());
   }
 
   /**
@@ -501,7 +500,7 @@ public class Compiler extends AbstractCompiler {
    * an empty module.
    */
   static String createFillFileName(String moduleName) {
-    return "[" + moduleName + "]";
+    return moduleName + "$fillFile";
   }
 
   /**
@@ -754,7 +753,7 @@ public class Compiler extends AbstractCompiler {
       return;
     }
 
-    if (!options.skipAllPasses) {
+    if (!options.skipNonTranspilationPasses || options.lowerFromEs6()) {
       check();
       if (hasErrors()) {
         return;
@@ -811,10 +810,7 @@ public class Compiler extends AbstractCompiler {
     // the client wanted since they probably meant to use their
     // own PassConfig object.
     Preconditions.checkNotNull(passes);
-
-    if (this.passes != null) {
-      throw new IllegalStateException("this.passes has already been assigned");
-    }
+    Preconditions.checkState(this.passes == null, "setPassConfig was already called");
     this.passes = passes;
   }
 
@@ -1511,17 +1507,14 @@ public class Compiler extends AbstractCompiler {
   }
 
   void processEs6Modules() {
+    ES6ModuleLoader loader = new ES6ModuleLoader(options.moduleRoots, inputs);
     for (CompilerInput input : inputs) {
       input.setCompiler(this);
       Node root = input.getAstRoot(this);
       if (root == null) {
         continue;
       }
-      new ProcessEs6Modules(
-          this,
-          new ES6ModuleLoader(this, options.commonJSModulePathPrefix),
-          true)
-      .processFile(root);
+      new ProcessEs6Modules(this, loader, true).processFile(root);
     }
   }
 
@@ -1537,6 +1530,7 @@ public class Compiler extends AbstractCompiler {
     // with multiple ways to express dependencies. Directly support JSModules
     // that are equivalent to a single file and which express their deps
     // directly in the source.
+    ES6ModuleLoader loader = new ES6ModuleLoader(options.moduleRoots, inputs);
     for (CompilerInput input : inputs) {
       input.setCompiler(this);
       Node root = input.getAstRoot(this);
@@ -1547,10 +1541,7 @@ public class Compiler extends AbstractCompiler {
         new TransformAMDToCJSModule(this).process(null, root);
       }
       if (options.processCommonJSModules) {
-        ProcessCommonJSModules cjs = new ProcessCommonJSModules(
-            this,
-            new ES6ModuleLoader(this, options.commonJSModulePathPrefix),
-            true);
+        ProcessCommonJSModules cjs = new ProcessCommonJSModules(this, loader, true);
         cjs.process(null, root);
 
         JSModule m = new JSModule(cjs.inputToModuleName(input));
@@ -1822,11 +1813,13 @@ public class Compiler extends AbstractCompiler {
           cb.append(delimiter)
             .append("\n");
         }
-        if (root.getJSDocInfo() != null &&
-            root.getJSDocInfo().getLicense() != null) {
-          cb.append("/*\n")
-            .append(root.getJSDocInfo().getLicense())
-            .append("*/\n");
+        if (root.getJSDocInfo() != null) {
+          String license = root.getJSDocInfo().getLicense();
+          if (license != null && cb.addLicense(license)) {
+            cb.append("/*\n")
+              .append(license)
+              .append("*/\n");
+          }
         }
 
         // If there is a valid source map, then indicate to it that the current
@@ -1889,6 +1882,7 @@ public class Compiler extends AbstractCompiler {
     private final StringBuilder sb = new StringBuilder();
     private int lineCount = 0;
     private int colCount = 0;
+    private final Set<String> uniqueLicenses = new HashSet<>();
 
     /** Removes all text, but leaves the line count unchanged. */
     void reset() {
@@ -1942,6 +1936,11 @@ public class Compiler extends AbstractCompiler {
     boolean endsWith(String suffix) {
       return (sb.length() > suffix.length())
           && suffix.equals(sb.substring(sb.length() - suffix.length()));
+    }
+
+    /** Adds a license and returns whether it is unique (has yet to be encountered). */
+    boolean addLicense(String license) {
+      return uniqueLicenses.add(license);
     }
   }
 
@@ -2112,6 +2111,7 @@ public class Compiler extends AbstractCompiler {
       case ECMASCRIPT5_STRICT:
       case ECMASCRIPT6:
       case ECMASCRIPT6_STRICT:
+      case ECMASCRIPT6_TYPED:
         return true;
       case ECMASCRIPT3:
         return false;
@@ -2120,12 +2120,6 @@ public class Compiler extends AbstractCompiler {
             "unexpected language mode: " + options.getLanguageIn());
     }
   }
-
-  @Override
-  public boolean acceptConstKeyword() {
-    return options.acceptConstKeyword;
-  }
-
   @Override
   Config getParserConfig(ConfigContext context) {
     if (parserConfig == null) {
@@ -2172,7 +2166,6 @@ public class Compiler extends AbstractCompiler {
         isIdeMode(),
         options.isParseJsDocDocumentation(),
         mode,
-        acceptConstKeyword(),
         options.extraAnnotationNames);
   }
 

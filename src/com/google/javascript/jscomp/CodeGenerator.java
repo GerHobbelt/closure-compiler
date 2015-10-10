@@ -20,6 +20,7 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
 
 import com.google.common.base.Preconditions;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
@@ -230,6 +231,7 @@ class CodeGenerator {
 
       case Token.NAME:
         addIdentifier(n.getString());
+        maybeAddOptional(n);
         maybeAddTypeDecl(n);
 
         if (first != null && !first.isEmpty()) {
@@ -253,6 +255,7 @@ class CodeGenerator {
 
       case Token.ARRAY_PATTERN:
         addArrayPattern(n);
+        maybeAddTypeDecl(n);
         break;
 
       case Token.PARAM_LIST:
@@ -338,44 +341,18 @@ class CodeGenerator {
         }
         break;
 
-      case Token.FUNCTION:
+      case Token.FUNCTION: {
         if (n.getClass() != Node.class) {
           throw new Error("Unexpected Node subclass.");
         }
         Preconditions.checkState(childCount == 3);
-
-        boolean isArrow = n.isArrowFunction();
-        // Arrow functions are complete expressions, so don't need parentheses
-        // if they are in an expression result.
-        boolean notSingleExpr = n.getParent() == null || !n.getParent().isExprResult();
-        boolean funcNeedsParens = (context == Context.START_OF_EXPR) && (!isArrow || notSingleExpr);
-        if (funcNeedsParens) {
-          add("(");
-        }
-
-        if (!isArrow) {
-          add("function");
-        }
-        if (n.isGeneratorFunction()) {
-          add("*");
-        }
-
-        add(first);
-
-        add(first.getNext()); // param list
-
-        maybeAddTypeDecl(n);
-        if (isArrow) {
-          cc.addOp("=>", true);
-        }
-        add(last, Context.PRESERVE_BLOCK);
-        cc.endFunction(context == Context.STATEMENT);
-
-        if (funcNeedsParens) {
-          add(")");
+        if (n.isArrowFunction()) {
+          addArrowFunction(n, first, last, context);
+        } else {
+          addFunction(n, first, last, context);
         }
         break;
-
+      }
       case Token.REST:
         add("...");
         add(n.getString());
@@ -477,9 +454,24 @@ class CodeGenerator {
           if (!name.isEmpty()) {
             add(name);
           }
+
+          maybeAddGenericTypes(first);
+
           if (!superClass.isEmpty()) {
             add("extends");
             add(superClass);
+          }
+
+          Node interfaces = (Node) n.getProp(Node.IMPLEMENTS);
+          if (interfaces != null) {
+            add("implements");
+            Node child = interfaces.getFirstChild();
+            add(child);
+            while ((child = child.getNext()) != null) {
+              add(",");
+              cc.maybeInsertSpace();
+              add(child);
+            }
           }
           add(members);
           cc.endClass(context == Context.STATEMENT);
@@ -499,7 +491,17 @@ class CodeGenerator {
         }
         cc.endBlock(false);
         break;
-
+      case Token.ENUM_MEMBERS:
+        cc.beginBlock();
+        for (Node c = first; c != null; c = c.getNext()) {
+          add(c);
+          if (c.getNext() != null) {
+            add(",");
+          }
+          cc.endLine();
+        }
+        cc.endBlock(false);
+        break;
       case Token.GETTER_DEF:
       case Token.SETTER_DEF:
       case Token.MEMBER_FUNCTION_DEF:
@@ -509,8 +511,11 @@ class CodeGenerator {
           Preconditions.checkState(
               n.getParent().isObjectLit()
                   || n.getParent().isClassMembers()
-                  || n.getParent().isInterfaceMembers());
+                  || n.getParent().isInterfaceMembers()
+                  || n.getParent().isRecordType()
+                  || n.getParent().isIndexSignature());
 
+          maybeAddAccessibilityModifier(n);
           if (n.isStaticMember()) {
             add("static ");
           }
@@ -541,8 +546,12 @@ class CodeGenerator {
           String name = n.getString();
           if (n.isMemberVariableDef()) {
             add(n.getString());
+            maybeAddOptional(n);
             maybeAddTypeDecl(n);
-            add(";");
+            if (!n.getParent().isRecordType()
+                && !n.getParent().isIndexSignature()) {
+              add(";");
+            }
           } else {
             Preconditions.checkState(childCount == 1);
             Preconditions.checkState(first.isFunction());
@@ -562,6 +571,7 @@ class CodeGenerator {
                 // Unicode escaped.
                 NodeUtil.isLatin(name)) {
               add(name);
+              maybeAddGenericTypes(fn.getFirstChild());
             } else {
               // Determine if the string is a simple number.
               double d = getSimpleNumber(name);
@@ -571,9 +581,14 @@ class CodeGenerator {
                 addJsString(n);
               }
             }
+            maybeAddOptional(fn);
             add(parameters);
             maybeAddTypeDecl(fn);
-            add(body, Context.PRESERVE_BLOCK);
+            if (body.isEmpty()) {
+              add(";");
+            } else {
+              add(body, Context.PRESERVE_BLOCK);
+            }
           }
           break;
         }
@@ -945,6 +960,7 @@ class CodeGenerator {
         }
 
       case Token.COMPUTED_PROP:
+        maybeAddAccessibilityModifier(n);
         if (n.getBooleanProp(Node.COMPUTED_PROP_GETTER)) {
           add("get ");
         } else if (n.getBooleanProp(Node.COMPUTED_PROP_SETTER)) {
@@ -991,6 +1007,7 @@ class CodeGenerator {
 
       case Token.OBJECT_PATTERN:
         addObjectPattern(n, context);
+        maybeAddTypeDecl(n);
         break;
 
       case Token.SWITCH:
@@ -1034,11 +1051,12 @@ class CodeGenerator {
         add(")");
         break;
 
+      case Token.TAGGED_TEMPLATELIT:
+        add(first, Context.START_OF_EXPR);
+        add(first.getNext());
+        break;
+
       case Token.TEMPLATELIT:
-        if (!first.isString()) {
-          add(first, Context.START_OF_EXPR);
-          first = first.getNext();
-        }
         add("`");
         for (Node c = first; c != null; c = c.getNext()) {
           if (c.isString()) {
@@ -1075,7 +1093,7 @@ class CodeGenerator {
         add(first);
         break;
       case Token.ARRAY_TYPE:
-        add(first);
+        addExpr(first, NodeUtil.precedence(Token.ARRAY_TYPE), context);
         add("[]");
         break;
       case Token.FUNCTION_TYPE:
@@ -1086,21 +1104,12 @@ class CodeGenerator {
         cc.addOp("=>", true);
         add(returnType);
         break;
-      case Token.OPTIONAL_PARAMETER:
-        // The '?' token was printed in #maybeAddTypeDecl because it
-        // must come before the colon
-        add(first);
-        break;
-      case Token.REST_PARAMETER_TYPE:
-        add("...");
-        add(first);
-        break;
       case Token.UNION_TYPE:
         addList(first, "|");
         break;
       case Token.RECORD_TYPE:
         add("{");
-        addList(first, false, Context.STATEMENT, ";");
+        addList(first, false, Context.OTHER, ",");
         add("}");
         break;
       case Token.PARAMETERIZED_TYPE:
@@ -1111,6 +1120,19 @@ class CodeGenerator {
         add(">");
         break;
         // CLASS -> NAME,EXPR|EMPTY,BLOCK
+      case Token.GENERIC_TYPE_LIST:
+        add("<");
+        addList(first, false, Context.STATEMENT, ",");
+        add(">");
+        break;
+      case Token.GENERIC_TYPE:
+        addIdentifier(n.getString());
+        if (n.hasChildren()) {
+          add("extends");
+          cc.maybeInsertSpace();
+          add(n.getFirstChild());
+        }
+        break;
       case Token.INTERFACE:
         {
           Preconditions.checkState(childCount == 3);
@@ -1120,17 +1142,57 @@ class CodeGenerator {
 
           add("interface");
           add(name);
+          maybeAddGenericTypes(name);
           if (!superTypes.isEmpty()) {
             add("extends");
-            for (Node child = superTypes.getFirstChild(); child != null; child = child.getNext()) {
-              if (child != n.getFirstChild()) {
-                add(",");
-              }
-              add(child);
+            Node superType = superTypes.getFirstChild();
+            add(superType);
+            while ((superType = superType.getNext()) != null) {
+              add(",");
+              cc.maybeInsertSpace();
+              add(superType);
             }
           }
           add(members);
         }
+        break;
+      case Token.ENUM:
+        {
+          Preconditions.checkState(childCount == 2);
+          Node name = first;
+          Node members = last;
+          add("enum");
+          add(name);
+          add(members);
+          break;
+        }
+      case Token.TYPE_ALIAS:
+        add("type");
+        add(n.getString());
+        cc.addOp("=", true);
+        add(last);
+        cc.endStatement();
+        break;
+      case Token.DECLARE:
+        add("declare");
+        add(first);
+        cc.endStatement();
+        break;
+      case Token.INDEX_SIGNATURE:
+        add("[");
+        add(first);
+        add("]");
+        maybeAddTypeDecl(n);
+        add(";");
+        break;
+      case Token.CALL_SIGNATURE:
+        if (n.getBooleanProp(Node.CONSTRUCT_SIGNATURE)) {
+          add("new ");
+        }
+        maybeAddGenericTypes(n);
+        add(first);
+        maybeAddTypeDecl(n);
+        add(";");
         break;
       default:
         throw new RuntimeException("Unknown type " + Token.name(type) + "\n" + n.toStringTree());
@@ -1139,14 +1201,101 @@ class CodeGenerator {
     cc.endSourceMapping(n);
   }
 
+  private boolean arrowFunctionNeedsParens(Node parent, Context context) {
+    if (parent == null) {
+      return false;
+    }
+    switch (parent.getType()) {
+      case Token.EXPR_RESULT:
+      case Token.COMMA:
+        // Arrow function bodies bind more tightly than commas, and need no parens in that case.
+        return false;
+      default:
+        return (context == Context.START_OF_EXPR);
+    }
+  }
+
+  private void addArrowFunction(Node n, Node first, Node last, Context context) {
+    Preconditions.checkState(first.getString().isEmpty());
+    boolean funcNeedsParens = arrowFunctionNeedsParens(n.getParent(), context);
+    if (funcNeedsParens) {
+      add("(");
+    }
+
+    maybeAddGenericTypes(first);
+
+    add(first.getNext()); // param list
+    maybeAddTypeDecl(n);
+
+    cc.addOp("=>", true);
+
+    if (last.isBlock()) {
+      add(last, Context.PRESERVE_BLOCK);
+    } else {
+      // This is a hack. Arrow functions have no token type, but
+      // blockless arrow function bodies have lower precedence than anything other than commas.
+      addExpr(last, NodeUtil.precedence(Token.COMMA) + 1, Context.PRESERVE_BLOCK);
+    }
+    cc.endFunction(context == Context.STATEMENT);
+
+    if (funcNeedsParens) {
+      add(")");
+    }
+  }
+
+  private void addFunction(Node n, Node first, Node last, Context context) {
+    boolean funcNeedsParens = (context == Context.START_OF_EXPR);
+    if (funcNeedsParens) {
+      add("(");
+    }
+
+    add("function");
+    if (n.isGeneratorFunction()) {
+      add("*");
+      if (!first.getString().isEmpty()) {
+        cc.maybeInsertSpace();
+      }
+    }
+
+    add(first);
+    maybeAddGenericTypes(first);
+
+    add(first.getNext()); // param list
+    maybeAddTypeDecl(n);
+
+    add(last, Context.PRESERVE_BLOCK);
+    cc.endFunction(context == Context.STATEMENT);
+
+    if (funcNeedsParens) {
+      add(")");
+    }
+  }
+
+  private void maybeAddAccessibilityModifier(Node n) {
+    Visibility access = (Visibility) n.getProp(Node.ACCESS_MODIFIER);
+    if (access != null) {
+      add(access.toString().toLowerCase() + " ");
+    }
+  }
+
   private void maybeAddTypeDecl(Node n) {
     if (n.getDeclaredTypeExpression() != null) {
-      if (n.getDeclaredTypeExpression().getType() == Token.OPTIONAL_PARAMETER) {
-        add("?");
-      }
       add(":");
       cc.maybeInsertSpace();
       add(n.getDeclaredTypeExpression());
+    }
+  }
+
+  private void maybeAddGenericTypes(Node n) {
+    Node generics = (Node) n.getProp(Node.GENERIC_TYPE_LIST);
+    if (generics != null) {
+      add(generics);
+    }
+  }
+
+  private void maybeAddOptional(Node n) {
+    if (n.getBooleanProp(Node.OPT_ES6_TYPED)) {
+      add("?");
     }
   }
 

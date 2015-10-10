@@ -233,6 +233,9 @@ Response.redirect = function(url, opt_status) {};
 /** @type {boolean} */
 Response.prototype.bodyUsed;
 
+/** @type {!ReadableByteStream} */
+Response.prototype.body;
+
 /** @return {!Promise.<!ArrayBuffer>} */
 Response.prototype.arrayBuffer = function() {};
 
@@ -295,7 +298,7 @@ var ResponseType = {
  * @param {RequestInit=} opt_init
  * @return {!Promise.<!Response>}
  */
-var fetch = function(input, opt_init) {};
+function fetch(input, opt_init) {}
 
 /**
  * @see https://fetch.spec.whatwg.org/#dom-global-fetch

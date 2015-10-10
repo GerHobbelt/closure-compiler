@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 
 /**
  * This class contains commonly used types, accessible from the jscomp package.
@@ -155,6 +154,7 @@ public final class JSTypes {
 
   public void setObjectType(RawNominalType builtinObject) {
     this.builtinObject = builtinObject;
+    ObjectType.setObjectType(builtinObject.getAsNominalType());
   }
 
   public void setArrayType(RawNominalType arrayType) {

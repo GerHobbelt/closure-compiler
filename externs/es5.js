@@ -69,15 +69,15 @@ String.prototype.trimRight = function() {};
  * Note: not a real constructor.
  * @constructor
  */
-var ObjectPropertyDescriptor = function(){};
+function ObjectPropertyDescriptor() {}
 
 /** @type {*} */
 ObjectPropertyDescriptor.prototype.value;
 
-/** @type {(function():?)||undefined} */
+/** @type {(function():?)|undefined} */
 ObjectPropertyDescriptor.prototype.get;
 
-/** @type {(function(?):void)||undefined} */
+/** @type {(function(?):void)|undefined} */
 ObjectPropertyDescriptor.prototype.set;
 
 /** @type {boolean|undefined} */
@@ -238,7 +238,7 @@ Date.prototype.toJSON = function(opt_ignoredKey) {};
  * A fake type to model the JSON object.
  * @constructor
  */
-var JSONType = function() {};
+function JSONType() {}
 
 
 /**

@@ -185,15 +185,11 @@ public class Token {
 
       COMPUTED_PROP = 175,
 
-      TEMPLATELIT = 176, // template literal
-      TEMPLATELIT_SUB = 177, // template literal substitution
+      TAGGED_TEMPLATELIT = 176, // tagged template literal, e.g. foo`bar`
+      TEMPLATELIT = 177, // template literal
+      TEMPLATELIT_SUB = 178, // template literal substitution
 
-      DEFAULT_VALUE = 178, // Formal parameter or destructuring element
-      // with a default value
-
-      // ECMAScript 6 Typed AST Nodes.
-
-      MEMBER_VARIABLE_DEF = 179,
+      DEFAULT_VALUE = 179, // Formal parameter or destructuring element with a default value
 
       // Used by type declaration ASTs
       STRING_TYPE = 200,
@@ -211,6 +207,8 @@ public class Token {
       RECORD_TYPE = 213,
       UNDEFINED_TYPE = 214,
       ARRAY_TYPE = 215,
+      GENERIC_TYPE = 216,
+      GENERIC_TYPE_LIST = 217,
 
       // JSDoc-only tokens
       ANNOTATION = 300,
@@ -229,6 +227,14 @@ public class Token {
       INTERFACE = 311,
       INTERFACE_EXTENDS = 312,
       INTERFACE_MEMBERS = 313,
+      ENUM = 314,
+      ENUM_MEMBERS = 315,
+      IMPLEMENTS = 316,
+      TYPE_ALIAS = 317,
+      DECLARE = 318,
+      MEMBER_VARIABLE_DEF = 319,
+      INDEX_SIGNATURE = 320,
+      CALL_SIGNATURE = 321,
 
       // Token Types to use for internal bookkeeping,
       // an AST is invalid while these are present.
@@ -329,6 +335,8 @@ public class Token {
         return "ARRAYLIT";
       case OBJECTLIT:
         return "OBJECTLIT";
+      case TAGGED_TEMPLATELIT:
+        return "TAGGED_TEMPLATELIT";
       case TEMPLATELIT:
         return "TEMPLATELIT";
       case TEMPLATELIT_SUB:
@@ -473,6 +481,10 @@ public class Token {
         return "RECORD_TYPE";
       case UNDEFINED_TYPE:
         return "UNDEFINED_TYPE";
+      case GENERIC_TYPE:
+        return "GENERIC_TYPE";
+      case GENERIC_TYPE_LIST:
+        return "GENERIC_TYPE_LIST";
 
       case ARRAY_PATTERN:
         return "ARRAY_PATTERN";
@@ -530,11 +542,25 @@ public class Token {
         return "INTERFACE_EXTENDS";
       case INTERFACE_MEMBERS:
         return "INTERFACE_MEMBERS";
+      case ENUM:
+        return "ENUM";
+      case ENUM_MEMBERS:
+        return "ENUM_MEMBERS";
+      case IMPLEMENTS:
+        return "IMPLEMENTS";
+      case TYPE_ALIAS:
+        return "TYPE_ALIAS";
+      case DECLARE:
+        return "DECLARE";
+      case INDEX_SIGNATURE:
+        return "INDEX_SIGNATURE";
+      case CALL_SIGNATURE:
+        return "CALL_SIGNATURE";
     }
 
-        // Token without name
-        throw new IllegalStateException("No name defined for " + token);
-    }
+    // Token without name
+    throw new IllegalStateException("No name defined for " + token);
+  }
 
   /** If the arity isn't always the same, this function returns -1 */
   public static int arity(int token) {
@@ -631,6 +657,8 @@ public class Token {
         return -1;
       case OBJECTLIT:
         return -1;
+      case TAGGED_TEMPLATELIT:
+        return 2;
       case TEMPLATELIT:
         return -1;
       case TEMPLATELIT_SUB:
@@ -767,6 +795,16 @@ public class Token {
         return -1;
       case INTERFACE:
         return 3;
+      case ENUM:
+        return 2;
+      case NAMED_TYPE:
+        return 1;
+      case TYPE_ALIAS:
+        return 1;
+      case INDEX_SIGNATURE:
+        return 1;
+      case MEMBER_VARIABLE_DEF:
+        return 0;
     }
     throw new IllegalStateException(
         "No arity defined for " + Token.name(token));

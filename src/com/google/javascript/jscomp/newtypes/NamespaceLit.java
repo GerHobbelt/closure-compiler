@@ -16,18 +16,34 @@
 
 package com.google.javascript.jscomp.newtypes;
 
+import com.google.javascript.rhino.Node;
+
 /**
  *
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public final class NamespaceLit extends Namespace {
-  // collect namespaces during CNT
-  // careful w/ inferred vs declared props on namespaces (for otherprops)
+  public NamespaceLit(String name) {
+    this.name = name;
+  }
 
-  public JSType toJSType() {
-    ObjectType objs = ObjectType.makeObjectType(
+  @Override
+  public boolean finalizeNamespace(Node constDeclNode) {
+    if (!this.isNamespaceFinalized) {
+      this.constDeclNode = constDeclNode;
+      this.isNamespaceFinalized = true;
+      if (!finalizeSubnamespaces(constDeclNode)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
+  protected JSType computeJSType(JSTypes commonTypes) {
+    ObjectType obj = ObjectType.makeObjectType(
         null, otherProps, null, false, ObjectKind.UNRESTRICTED);
-    return withNamedTypes(objs);
+    return withNamedTypes(commonTypes, obj);
   }
 }

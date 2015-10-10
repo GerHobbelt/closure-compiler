@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CodingConvention;
 import com.google.javascript.jscomp.DiagnosticType;
 import com.google.javascript.jscomp.JSError;
-import com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
@@ -78,7 +77,7 @@ public final class JSTypeCreatorFromJSDoc {
           "@implements used without @constructor or @interface for {0}");
 
   public static final DiagnosticType CONFLICTING_SHAPE_TYPE =
-      DiagnosticType.warning(
+      DiagnosticType.disabled(
           "JSC_CONFLICTING_SHAPE_TYPE",
           "{1} cannot extend this type; {0}s can only extend {0}s");
 
@@ -103,8 +102,6 @@ public final class JSTypeCreatorFromJSDoc {
   // Used to communicate state between methods when resolving enum types
   private int howmanyTypeVars = 0;
 
-  private final JSType objectOrNull;
-
   /** Exception for when unrecognized type names are encountered */
   public static class UnknownTypeException extends Exception {
     UnknownTypeException(String cause) {
@@ -117,20 +114,19 @@ public final class JSTypeCreatorFromJSDoc {
   private Map<Node, String> unknownTypeNames = new LinkedHashMap<>();
 
   public JSTypeCreatorFromJSDoc(CodingConvention convention) {
-    this.objectOrNull = JSType.join(JSType.TOP_OBJECT, JSType.NULL);
-    this.qmarkFunctionDeclared = FunctionTypeBuilder.qmarkFunctionBuilder().buildDeclaration();
+    this.qmarkFunctionDeclared = new FunctionAndSlotType(
+        null, FunctionTypeBuilder.qmarkFunctionBuilder().buildDeclaration());
     this.convention = convention;
   }
 
-  private DeclaredFunctionType qmarkFunctionDeclared;
-  private JSType qmarkFunctionOrNull = null;
+  private FunctionAndSlotType qmarkFunctionDeclared;
+  private static final boolean NULLABLE_TYPES_BY_DEFAULT = true;
 
-  private JSType getQmarkFunctionOrNull(JSTypes commonTypes) {
-    if (qmarkFunctionOrNull == null) {
-      qmarkFunctionOrNull =
-          JSType.join(commonTypes.qmarkFunction(), JSType.NULL);
+  public JSType maybeMakeNullable(JSType t) {
+    if (NULLABLE_TYPES_BY_DEFAULT) {
+      return JSType.join(JSType.NULL, t);
     }
-    return qmarkFunctionOrNull;
+    return t;
   }
 
   public JSType getDeclaredTypeOfNode(JSDocInfo jsdoc, RawNominalType ownerType,
@@ -161,8 +157,7 @@ public final class JSTypeCreatorFromJSDoc {
     if (expr == null) {
       return null;
     }
-    return getTypeFromComment(expr.getRoot(), registry, typeParameters == null
-        ? ImmutableList.<String>of() : typeParameters);
+    return getTypeFromComment(expr.getRoot(), registry, typeParameters);
   }
 
   // Very similar to JSTypeRegistry#createFromTypeNodesInternal
@@ -188,7 +183,9 @@ public final class JSTypeCreatorFromJSDoc {
   private JSType getTypeFromCommentHelper(Node n, DeclaredTypeRegistry registry,
       ImmutableList<String> typeParameters) throws UnknownTypeException {
     Preconditions.checkNotNull(n);
-    Preconditions.checkNotNull(typeParameters);
+    if (typeParameters == null) {
+      typeParameters = ImmutableList.of();
+    }
     switch (n.getType()) {
       case Token.LC:
         return getRecordTypeHelper(n, registry, typeParameters);
@@ -298,9 +295,9 @@ public final class JSTypeCreatorFromJSDoc {
       case "void":
         return JSType.UNDEFINED;
       case "Function":
-        return getQmarkFunctionOrNull(registry.getCommonTypes());
+        return maybeMakeNullable(registry.getCommonTypes().qmarkFunction());
       case "Object":
-        return objectOrNull;
+        return maybeMakeNullable(JSType.TOP_OBJECT);
       default:
         return lookupTypeByName(typeName, n, registry, outerTypeParameters);
     }
@@ -399,7 +396,7 @@ public final class JSTypeCreatorFromJSDoc {
       throws UnknownTypeException {
     NominalType uninstantiated = rawType.getAsNominalType();
     if (!rawType.isGeneric() && !n.hasChildren()) {
-      return rawType.getInstanceAsNullableJSType();
+      return rawType.getInstanceWithNullability(NULLABLE_TYPES_BY_DEFAULT);
     }
     ImmutableList.Builder<JSType> typeList = ImmutableList.builder();
     if (n.hasChildren()) {
@@ -424,13 +421,11 @@ public final class JSTypeCreatorFromJSDoc {
             uninstantiated.getName(), String.valueOf(typeParamsSize),
             String.valueOf(typeArgsSize)));
       }
-      return JSType.join(JSType.NULL,
-          JSType.fromObjectType(ObjectType.fromNominalType(
+      return maybeMakeNullable(JSType.fromObjectType(ObjectType.fromNominalType(
               uninstantiated.instantiateGenerics(
                   fixLengthOfTypeList(typeParameters.size(), typeArguments)))));
     }
-    return JSType.join(JSType.NULL,
-        JSType.fromObjectType(ObjectType.fromNominalType(
+    return maybeMakeNullable(JSType.fromObjectType(ObjectType.fromNominalType(
             uninstantiated.instantiateGenerics(typeArguments))));
   }
 
@@ -461,15 +456,16 @@ public final class JSTypeCreatorFromJSDoc {
       ImmutableList<String> typeParameters, FunctionTypeBuilder builder)
       throws UnknownTypeException {
     Node child = jsdocNode.getFirstChild();
+    NominalType builtinObject = registry.getCommonTypes().getObjectType();
     if (child.getType() == Token.THIS) {
       if (ownerType == null) {
-        builder.addReceiverType(
-            getNominalType(child.getFirstChild(), registry, typeParameters));
+        NominalType nt = getNominalType(child.getFirstChild(), registry, typeParameters);
+        builder.addReceiverType(nt == null ? builtinObject : nt);
       }
       child = child.getNext();
     } else if (child.getType() == Token.NEW) {
-      builder.addNominalType(
-          getNominalType(child.getFirstChild(), registry, typeParameters));
+      NominalType nt = getNominalType(child.getFirstChild(), registry, typeParameters);
+      builder.addNominalType(nt == null ? builtinObject : nt);
       child = child.getNext();
     }
     if (child.getType() == Token.PARAM_LIST) {
@@ -493,6 +489,7 @@ public final class JSTypeCreatorFromJSDoc {
         } catch (FunctionTypeBuilder.WrongParameterOrderException e) {
           warn("Wrong parameter order: required parameters are first, " +
               "then optional, then varargs", jsdocNode);
+          builder.addPlaceholderFormal();
         }
       }
       child = child.getNext();
@@ -552,16 +549,26 @@ public final class JSTypeCreatorFromJSDoc {
     return jsdocNode.isString() && jsdocNode.getString().equals("Function");
   }
 
+  public static class FunctionAndSlotType {
+    public JSType slotType;
+    public DeclaredFunctionType functionType;
+
+    public FunctionAndSlotType(JSType slotType, DeclaredFunctionType functionType) {
+      this.slotType = slotType;
+      this.functionType = functionType;
+    }
+  }
+
   /**
    * Consumes either a "classic" function jsdoc with @param, @return, etc,
-   * or a jsdoc with @type{function ...} and finds the types of the formal
+   * or a jsdoc with @type {function ...} and finds the types of the formal
    * parameters and the return value. It returns a builder because the callers
    * of this function must separately handle @constructor, @interface, etc.
    *
    * constructorType is non-null iff this function is a constructor or
    * interface declaration.
    */
-  public DeclaredFunctionType getFunctionType(
+  public FunctionAndSlotType getFunctionType(
       JSDocInfo jsdoc, String functionName, Node declNode,
       RawNominalType constructorType, RawNominalType ownerType,
       DeclaredTypeRegistry registry) {
@@ -571,136 +578,32 @@ public final class JSTypeCreatorFromJSDoc {
     }
     try {
       if (jsdoc != null && jsdoc.getType() != null) {
-        Node jsdocNode = jsdoc.getType().getRoot();
-        int tokenType = jsdocNode.getType();
-        if (tokenType == Token.FUNCTION) {
-          if (declNode.isFunction()) {
-            return getFunTypeFromAtTypeJsdoc(
-                jsdoc, declNode, ownerType, registry, builder);
-          }
-          try {
-            // TODO(blickly): Use typeParameters here
-            fillInFunTypeBuilder(jsdocNode, ownerType, registry,
-                ImmutableList.<String>of(), builder);
-            return builder.buildDeclaration();
-          } catch (UnknownTypeException e) {
-            return qmarkFunctionDeclared;
-          }
-        }
-        if (isQmarkFunction(jsdocNode)) {
+        JSType simpleType = getDeclaredTypeOfNode(jsdoc, ownerType, registry);
+        if (simpleType.isUnknown() || simpleType.isTop()) {
           return qmarkFunctionDeclared;
+        }
+        FunctionType funType = simpleType.getFunType();
+        if (funType != null) {
+          JSType slotType = simpleType.isFunctionType() ? null : simpleType;
+          DeclaredFunctionType declType = funType.toDeclaredFunctionType();
+          if (ownerType != null) {
+            declType = declType.withReceiverType(ownerType.getAsNominalType());
+          }
+          return new FunctionAndSlotType(slotType, declType);
         } else {
           warn("The function is annotated with a non-function jsdoc. " +
               "Ignoring jsdoc.", declNode);
-          return getFunTypeFromTypicalFunctionJsdoc(null, functionName,
-              declNode, constructorType, ownerType, registry, builder, true);
+          jsdoc = null;
         }
       }
-      return getFunTypeFromTypicalFunctionJsdoc(jsdoc, functionName,
+      DeclaredFunctionType declType = getFunTypeFromTypicalFunctionJsdoc(jsdoc, functionName,
           declNode, constructorType, ownerType, registry, builder, false);
+      return new FunctionAndSlotType(null, declType);
     } catch (FunctionTypeBuilder.WrongParameterOrderException e) {
       warn("Wrong parameter order: required parameters are first, " +
           "then optional, then varargs. Ignoring jsdoc.", declNode);
       return qmarkFunctionDeclared;
     }
-  }
-
-  private DeclaredFunctionType getFunTypeFromAtTypeJsdoc(
-      JSDocInfo jsdoc, Node funNode, RawNominalType ownerType,
-      DeclaredTypeRegistry registry, FunctionTypeBuilder builder) {
-    Preconditions.checkArgument(funNode.isFunction());
-    Node childJsdoc = jsdoc.getType().getRoot().getFirstChild();
-    Node param = funNode.getFirstChild().getNext().getFirstChild();
-    Node paramType;
-    boolean warnedForMissingTypes = false;
-    boolean warnedForInlineJsdoc = false;
-    ImmutableList<String> typeParameters = ownerType == null
-        ? ImmutableList.<String>of() : ownerType.getTypeParameters();
-
-    if (childJsdoc.getType() == Token.THIS) {
-      if (ownerType == null) {
-        builder.addReceiverType(getNominalType(
-            childJsdoc.getFirstChild(), registry, typeParameters));
-      }
-      childJsdoc = childJsdoc.getNext();
-    } else if (childJsdoc.getType() == Token.NEW) {
-      builder.addNominalType(
-          getNominalType(childJsdoc.getFirstChild(), registry, typeParameters));
-      childJsdoc = childJsdoc.getNext();
-    }
-    if (childJsdoc.getType() == Token.PARAM_LIST) {
-      paramType = childJsdoc.getFirstChild();
-      childJsdoc = childJsdoc.getNext(); // go to the return type
-    } else { // empty parameter list
-      paramType = null;
-    }
-
-    while (param != null) {
-      if (paramType == null) {
-        if (!warnedForMissingTypes) {
-          warn("The function has more formal parameters than the types " +
-              "declared in the JSDoc", funNode);
-          warnedForMissingTypes = true;
-        }
-        builder.addOptFormal(JSType.UNKNOWN);
-      } else {
-        if (!warnedForInlineJsdoc && param.getJSDocInfo() != null) {
-          warn("The function cannot have both an @type jsdoc and inline " +
-              "jsdocs. Ignoring inline jsdocs.", param);
-          warnedForInlineJsdoc = true;
-        }
-        switch (paramType.getType()) {
-          case Token.EQUALS:
-            builder.addOptFormal(getTypeFromComment(
-                paramType.getFirstChild(), registry, typeParameters));
-            break;
-          case Token.ELLIPSIS:
-            if (!warnedForMissingTypes) {
-              warn("The function has more formal parameters than the types " +
-                  "declared in the JSDoc", funNode);
-              warnedForMissingTypes = true;
-              builder.addOptFormal(JSType.UNKNOWN);
-            }
-            break;
-          default:
-            builder.addReqFormal(
-                getTypeFromComment(paramType, registry, typeParameters));
-            break;
-        }
-        paramType = paramType.getNext();
-      }
-      param = param.getNext();
-    }
-
-    if (paramType != null) {
-      if (paramType.getType() == Token.ELLIPSIS) {
-        builder.addRestFormals(getTypeFromComment(
-            paramType.getFirstChild(), registry, typeParameters));
-      } else {
-        warn("The function has fewer formal parameters than the types " +
-            "declared in the JSDoc", funNode);
-      }
-    }
-    if (!warnedForInlineJsdoc &&
-        funNode.getFirstChild().getJSDocInfo() != null) {
-      warn("The function cannot have both an @type jsdoc and inline " +
-          "jsdocs. Ignoring the inline return jsdoc.", funNode);
-    }
-    if (jsdoc.getReturnType() != null) {
-      warn("The function cannot have both an @type jsdoc and @return " +
-          "jsdoc. Ignoring @return jsdoc.", funNode);
-    }
-    if (funNode.getParent().isSetterDef()) {
-      if (childJsdoc != null) {
-        warn("Cannot declare a return type on a setter", funNode);
-      }
-      builder.addRetType(JSType.UNDEFINED);
-    } else {
-      builder.addRetType(
-          getTypeFromComment(childJsdoc, registry, typeParameters));
-    }
-
-    return builder.buildDeclaration();
   }
 
   private static class ParamIterator {
@@ -812,17 +715,24 @@ public final class JSTypeCreatorFromJSDoc {
     }
 
     if (jsdoc.hasThisType() && ownerType == null) {
-      Node thisNode = jsdoc.getThisType().getRoot();
-      JSType thisType =
-          getMaybeTypeFromComment(thisNode, registry, typeParameters);
+      Node thisRoot = jsdoc.getThisType().getRoot();
+      Preconditions.checkState(thisRoot.getType() == Token.BANG);
+      Node thisNode = thisRoot.getFirstChild();
+      // JsDocInfoParser wraps @this types with !. But we warn when we see !T,
+      // and we don't want to warn for a ! that was automatically inserted.
+      // So, we bypass the ! here.
+      JSType thisType = getMaybeTypeFromComment(thisNode, registry, typeParameters);
+      if (thisType != null) {
+        thisType = thisType.removeType(JSType.NULL);
+      }
       // TODO(dimvar): thisType may be non-null but have a null
       // thisTypeAsNominal.
       // We currently only support nominal types for the receiver type, but
       // people use other types as well: unions, records, etc.
-      // Decide what to do about those.
-      NominalType thisTypeAsNominal = thisType == null
-          ? null : thisType.getNominalTypeIfSingletonObj();
-      builder.addReceiverType(thisTypeAsNominal);
+      // For now, we just use the generic Object for these.
+      NominalType nt = thisType == null ? null : thisType.getNominalTypeIfSingletonObj();
+      NominalType builtinObject = registry.getCommonTypes().getObjectType();
+      builder.addReceiverType(nt == null ? builtinObject : nt);
     }
 
     return builder.buildDeclaration();
@@ -839,47 +749,38 @@ public final class JSTypeCreatorFromJSDoc {
     while (iterator.hasNext()) {
       String pname = iterator.nextString();
       Node param = iterator.getNode();
-      JSType inlineParamType = (ignoreJsdoc || ignoreFunNode)
-          ? null : getDeclaredTypeOfNode(
-              param.getJSDocInfo(), registry, typeParameters);
-      boolean isRequired = true;
-      boolean isRestFormals = false;
-      JSTypeExpression texp = jsdoc == null ? null : jsdoc.getParameterType(pname);
-      Node jsdocNode = texp == null ? null : texp.getRoot();
-      if (param != null) {
-        if (convention.isOptionalParameter(param)) {
-          isRequired = false;
-        } else if (convention.isVarArgsParameter(param)) {
-          isRequired = false;
-          isRestFormals = true;
-        }
+      ParameterKind p = ParameterKind.REQUIRED;
+      if (param != null && convention.isOptionalParameter(param)) {
+        p = ParameterKind.OPTIONAL;
+      } else if (param != null && convention.isVarArgsParameter(param)) {
+        p = ParameterKind.REST;
       }
-      JSType fnParamType = null;
-      if (jsdocNode != null) {
-        if (jsdocNode.getType() == Token.EQUALS) {
-          isRequired = false;
-          jsdocNode = jsdocNode.getFirstChild();
-        } else if (jsdocNode.getType() == Token.ELLIPSIS) {
-          isRequired = false;
-          isRestFormals = true;
-          jsdocNode = jsdocNode.getFirstChild();
-        }
-        fnParamType = getTypeFromComment(jsdocNode, registry, typeParameters);
-      }
-      if (inlineParamType != null) {
-        // TODO(dimvar): The support for inline optional parameters is currently
-        // broken, so this is always a required parameter. See b/11481388. Fix.
-        builder.addReqFormal(inlineParamType);
-        if (fnParamType != null) {
+      ParameterType inlineParamType = (ignoreJsdoc || ignoreFunNode || param.getJSDocInfo() == null)
+          ? null : parseParameter(param.getJSDocInfo().getType(), p, registry, typeParameters);
+      ParameterType fnParamType = inlineParamType;
+      JSTypeExpression jsdocExp = jsdoc == null ? null : jsdoc.getParameterType(pname);
+      if (jsdocExp != null) {
+        if (inlineParamType == null) {
+          fnParamType = parseParameter(jsdocExp, p, registry, typeParameters);
+        } else {
           warn("Found two JsDoc comments for formal parameter " + pname, param);
         }
-      } else if (isRequired) {
-        builder.addReqFormal(fnParamType);
-      } else if (isRestFormals) {
-        builder.addRestFormals(
-            fnParamType == null ? JSType.UNKNOWN : fnParamType);
-      } else {
-        builder.addOptFormal(fnParamType);
+      }
+      JSType t  = null;
+      if (fnParamType != null) {
+        p = fnParamType.kind;
+        t = fnParamType.type;
+      }
+      switch (p) {
+          case REQUIRED:
+            builder.addReqFormal(t);
+            break;
+          case OPTIONAL:
+            builder.addOptFormal(t);
+            break;
+          case REST:
+            builder.addRestFormals(t != null ? t : JSType.UNKNOWN);
+            break;
       }
     }
   }
@@ -892,14 +793,8 @@ public final class JSTypeCreatorFromJSDoc {
     JSDocInfo inlineRetJsdoc =
         ignoreJsdoc ? null : funNode.getFirstChild().getJSDocInfo();
     JSTypeExpression retTypeExp = jsdoc == null ? null : jsdoc.getReturnType();
-    if (parent.isSetterDef()) {
-      // inline returns for setters are attached to the function body.
-      // Consider fixing this.
-      inlineRetJsdoc = ignoreJsdoc ? null :
-          funNode.getLastChild().getJSDocInfo();
-      if (retTypeExp != null || inlineRetJsdoc != null) {
-        warn("Cannot declare a return type on a setter", funNode);
-      }
+    if (parent.isSetterDef() && retTypeExp == null) {
+      // inline returns for getters/setters are not parsed
       builder.addRetType(JSType.UNDEFINED);
     } else if (inlineRetJsdoc != null) {
       builder.addRetType(
@@ -1010,4 +905,48 @@ public final class JSTypeCreatorFromJSDoc {
     warnings.add(JSError.make(faultyNode, BAD_JSDOC_ANNOTATION, msg));
   }
 
+  private ParameterType parseParameter(
+      JSTypeExpression jsdoc, ParameterKind p,
+      DeclaredTypeRegistry registry, ImmutableList<String> typeParameters) {
+    if (jsdoc == null) {
+      return null;
+    }
+    return parseParameter(jsdoc.getRoot(), p, registry, typeParameters);
+  }
+
+  private ParameterType parseParameter(
+      Node jsdoc, ParameterKind p,
+      DeclaredTypeRegistry registry, ImmutableList<String> typeParameters) {
+    if (jsdoc == null) {
+      return null;
+    }
+    switch (jsdoc.getType()) {
+      case Token.EQUALS:
+        p = ParameterKind.OPTIONAL;
+        jsdoc = jsdoc.getFirstChild();
+        break;
+      case Token.ELLIPSIS:
+        p = ParameterKind.REST;
+        jsdoc = jsdoc.getFirstChild();
+        break;
+    }
+    JSType t = getMaybeTypeFromComment(jsdoc, registry, typeParameters);
+    return new ParameterType(t, p);
+  }
+
+  private static class ParameterType {
+    private JSType type;
+    private ParameterKind kind;
+
+    ParameterType(JSType type, ParameterKind kind) {
+      this.type = type;
+      this.kind = kind;
+    }
+  }
+
+  private static enum ParameterKind {
+    REQUIRED,
+    OPTIONAL,
+    REST,
+  }
 }
