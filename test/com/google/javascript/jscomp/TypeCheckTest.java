@@ -13379,6 +13379,56 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "var k;");
   }
 
+  public void testDontOverrideNativeScalarTypes() throws Exception {
+    testTypes(
+        "string = 123;\n"
+        + "var /** string */ s = 123;",
+        "initializing variable\n"
+        + "found   : number\n"
+        + "required: string");
+
+    testTypes(
+        "var string = goog.require('goog.string');\n"
+        + "var /** string */ s = 123;",
+        new String[] {
+          "Property require never defined on goog",
+          "initializing variable\n"
+          + "found   : number\n"
+          + "required: string"
+        });
+  }
+
+  public void testTemplateMap1() throws Exception {
+    // TODO(lgong): fix issue #980. Make the current type system detect mismatch between
+    // different template values involving interfaces.
+    testTypes(
+        "/** @interface \n" +
+        " *  @template KEY1, VALUE1 */\n" +
+        "var IObject = function() {};\n" +
+        "\n" +
+        "/** @interface \n" +
+        " *  @extends {IObject<number, VALUE2>}\n" +
+        " *  @template VALUE2 */\n" +
+        "var IArrayLike = function() {};\n" +
+        "\n" +
+        "/** @constructor \n" +
+        " *  @implements {IArrayLike<number>} */\n" +
+        "function Int8Array2() {}\n" +
+        "\n" +
+        "function f() {\n" +
+        "  /** @type {Int8Array2} */\n" +
+        "  var x = new Int8Array2();\n" +
+        "\n" +
+        "  /** @type {IArrayLike<string>} */\n" +
+        "  var y;\n" +
+        "  y = x;\n" +
+        "\n" +
+        "  /** @type {IObject<number, string>} */\n" +
+        "  var z;\n" +
+        "  z = x;\n" +
+        "}");
+  }
+
   private void testTypes(String js) throws Exception {
     testTypes(js, (String) null);
   }

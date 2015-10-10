@@ -1233,6 +1233,12 @@ HTMLAreaElement.prototype.ping;
  */
 HTMLIFrameElement.prototype.srcdoc;
 
+/**
+ * @type {?string}
+ * @see http://www.w3.org/TR/2012/WD-html5-20121025/the-iframe-element.html#attr-iframe-sandbox
+ */
+HTMLIFrameElement.prototype.sandbox;
+
 /** @type {string} */
 HTMLInputElement.prototype.autocomplete;
 
@@ -1614,6 +1620,24 @@ HTMLVideoElement.prototype.webkitDecodedFrameCount;
 
 /** @type {number} */
 HTMLVideoElement.prototype.webkitDroppedFrameCount;
+
+/**
+ * @typedef {{
+ *    creationTime: number,
+ *    totalVideoFrames: number,
+ *    droppedVideoFrames: number,
+ *    corruptedVideoFrames: number,
+ *    totalFrameDelay: number
+ * }}
+ */
+var VideoPlaybackQuality;
+
+/**
+ * @see https://w3c.github.io/media-source/#htmlvideoelement-extensions
+ * @return {!VideoPlaybackQuality} Stats about the current playback.
+ */
+HTMLVideoElement.prototype.getVideoPlaybackQuality = function() {};
+
 
 /**
  * @constructor

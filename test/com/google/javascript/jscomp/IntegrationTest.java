@@ -1545,14 +1545,14 @@ public final class IntegrationTest extends IntegrationTestCase {
         "function f() { return this.foo + this['bar'] + this.Baz; }" +
         "f.prototype.bar = 3; f.prototype.Baz = 3;";
     String heuristic =
-        "function f() { return this.foo + this['bar'] + this.a; }" +
-        "f.prototype.bar = 3; f.prototype.a = 3;";
+        "function f() { return this.foo + this['bar'] + this.a; }"
+            + "f.prototype.bar = 3; f.prototype.a = 3;";
     String aggHeuristic =
-        "function f() { return this.foo + this['b'] + this.a; } " +
-        "f.prototype.b = 3; f.prototype.a = 3;";
+        "function f() { return this.foo + this['b'] + this.a; } "
+            + "f.prototype.b = 3; f.prototype.a = 3;";
     String all =
-        "function f() { return this.c + this['bar'] + this.a; }" +
-        "f.prototype.b = 3; f.prototype.a = 3;";
+        "function f() { return this.c + this['bar'] + this.a; }"
+            + "f.prototype.b = 3; f.prototype.a = 3;";
     testSame(options, code);
 
     options.setPropertyRenaming(PropertyRenamingPolicy.HEURISTIC);
@@ -3093,12 +3093,6 @@ public final class IntegrationTest extends IntegrationTestCase {
         FindExportableNodes.NON_GLOBAL_ERROR);
 
     options.exportLocalPropertyDefinitions = true;
-
-    // Local exports enabled, but removeUnusedPrototypePropertiesInExterns not
-    // disabled.
-    test(options, code,
-        DefaultPassConfig.CANNOT_USE_EXPORT_LOCALS_AND_EXTERN_PROP_REMOVAL);
-
     options.setRemoveUnusedPrototypePropertiesInExterns(false);
 
     // property name preserved due to export

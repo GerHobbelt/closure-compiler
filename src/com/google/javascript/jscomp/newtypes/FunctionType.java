@@ -24,7 +24,6 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -92,12 +91,17 @@ public final class FunctionType {
         "null required formals for function: %s", this);
     for (JSType formal : requiredFormals) {
       Preconditions.checkNotNull(formal);
+      // A loose function has bottom formals in the bwd direction of NTI.
+      // See NTI#analyzeLooseCallNodeBwd.
+      Preconditions.checkState(isLoose || !formal.isBottom());
     }
-    Preconditions.checkNotNull(requiredFormals,
+    Preconditions.checkNotNull(optionalFormals,
         "null optional formals for function: %s", this);
     for (JSType formal : optionalFormals) {
       Preconditions.checkNotNull(formal);
+      Preconditions.checkState(!formal.isBottom());
     }
+    Preconditions.checkState(restFormals == null || !restFormals.isBottom());
     Preconditions.checkNotNull(returnType);
   }
 
@@ -177,9 +181,9 @@ public final class FunctionType {
   private static final FunctionType LOOSE_TOP_FUNCTION = new FunctionType(true);
 
   // Corresponds to Function, which is a subtype and supertype of all functions.
-  static final FunctionType QMARK_FUNCTION = FunctionType.normalized(null,
+  static final FunctionType QMARK_FUNCTION = normalized(null,
       null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, null, true);
-  private static final FunctionType BOTTOM_FUNCTION = FunctionType.normalized(
+  private static final FunctionType BOTTOM_FUNCTION = normalized(
       null, null, null, JSType.BOTTOM, null, null, null, null, false);
 
   public boolean isTopFunction() {
@@ -298,6 +302,52 @@ public final class FunctionType {
     return NominalType.getConstructorObject(this);
   }
 
+  public FunctionType transformByCallProperty() {
+    if (isTopFunction() || isQmarkFunction() || isLoose) {
+      return QMARK_FUNCTION;
+    }
+    FunctionTypeBuilder builder = new FunctionTypeBuilder();
+    builder.addReqFormal(receiverCallApply(receiverType));
+    for (JSType type : requiredFormals) {
+      builder.addReqFormal(type);
+    }
+    for (JSType type : optionalFormals) {
+      builder.addOptFormal(type);
+    }
+    builder.addRestFormals(restFormals);
+    builder.addRetType(returnType);
+    builder.addTypeParameters(typeParameters);
+    return builder.buildFunction();
+  }
+
+  // We only typecheck the receiver type for a .apply function. To typecheck all
+  // arguments we either need tuple types or special handling in NTI to gather
+  // the types inside the array.
+  public FunctionType transformByApplyProperty(JSTypes commonTypes) {
+    if (isTopFunction() || isQmarkFunction() || isLoose) {
+      return QMARK_FUNCTION;
+    }
+    if (isGeneric()) {
+      return instantiateGenericsWithUnknown(this).transformByApplyProperty(commonTypes);
+    }
+    FunctionTypeBuilder builder = new FunctionTypeBuilder();
+    builder.addReqFormal(receiverCallApply(receiverType));
+    builder.addOptFormal(JSType.join(
+        commonTypes.getArrayInstance(), commonTypes.getArgumentsArrayType()));
+    builder.addRetType(returnType);
+    return builder.buildFunction();
+  }
+
+  private static JSType receiverCallApply(NominalType receiverType) {
+    if (receiverType == null) {
+      return JSType.UNKNOWN;
+    }
+    if (receiverType.isGeneric()) {
+      return receiverType.instantiateGenerics(JSType.MAP_TO_UNKNOWN).getInstanceAsJSType();
+    }
+    return receiverType.getInstanceAsJSType();
+  }
+
   // Used to get a declared type for an unannotated function that appears in
   // argument position.
   // Should only be used during GlobalTypeInfo.
@@ -305,7 +355,7 @@ public final class FunctionType {
     if (isQmarkFunction()) {
       return FunctionTypeBuilder.qmarkFunctionBuilder().buildDeclaration();
     }
-    Preconditions.checkState(!isLoose());
+    Preconditions.checkState(!isLoose(), "Loose function: %s", this);
     // Don't do it for generic types.
     if (isGeneric()) {
       return null;
@@ -445,12 +495,14 @@ public final class FunctionType {
       return f2;
     } else if (f2 == null || f1.equals(f2)) {
       return f1;
+    } else if (f1.isQmarkFunction() || f2.isQmarkFunction()) {
+      return QMARK_FUNCTION;
     } else if (f1.isTopFunction() || f2.isTopFunction()) {
       return TOP_FUNCTION;
     }
 
     if (f1.isLoose() || f2.isLoose()) {
-      return FunctionType.looseJoin(f1, f2);
+      return looseJoin(f1, f2);
     }
 
     if (f1.isGeneric() && f2.isSubtypeOf(f1)) {
@@ -471,21 +523,28 @@ public final class FunctionType {
     int maxRequiredArity = Math.max(
         f1.requiredFormals.size(), f2.requiredFormals.size());
     for (int i = 0; i < maxRequiredArity; i++) {
-      JSType reqFormal = nullAcceptingMeet(
-          f1.getFormalType(i), f2.getFormalType(i));
+      JSType reqFormal = nullAcceptingMeet(f1.getFormalType(i), f2.getFormalType(i));
+      if (reqFormal.isBottom()) {
+        return BOTTOM_FUNCTION;
+      }
       builder.addReqFormal(reqFormal);
     }
     int maxTotalArity = Math.max(
         f1.requiredFormals.size() + f1.optionalFormals.size(),
         f2.requiredFormals.size() + f2.optionalFormals.size());
     for (int i = maxRequiredArity; i < maxTotalArity; i++) {
-      JSType optFormal = nullAcceptingMeet(
-          f1.getFormalType(i), f2.getFormalType(i));
+      JSType optFormal = nullAcceptingMeet(f1.getFormalType(i), f2.getFormalType(i));
+      if (optFormal.isBottom()) {
+        return BOTTOM_FUNCTION;
+      }
       builder.addOptFormal(optFormal);
     }
     if (f1.restFormals != null && f2.restFormals != null) {
-      builder.addRestFormals(
-          nullAcceptingMeet(f1.restFormals, f2.restFormals));
+      JSType newRestFormals = nullAcceptingMeet(f1.restFormals, f2.restFormals);
+      if (newRestFormals.isBottom()) {
+        return BOTTOM_FUNCTION;
+      }
+      builder.addRestFormals(newRestFormals);
     }
     builder.addRetType(JSType.join(f1.returnType, f2.returnType));
     builder.addNominalType(
@@ -501,7 +560,8 @@ public final class FunctionType {
         || !this.isLoose() && other.isLoose()) {
       return this;
     }
-    FunctionType result = FunctionType.meet(this, other);
+    FunctionType result = meet(this, other);
+    Preconditions.checkState(isInhabitable(result));
     if (this.isLoose() && !result.isLoose()) {
       result = result.withLoose();
     }
@@ -519,7 +579,7 @@ public final class FunctionType {
 
     // War is peace, freedom is slavery, meet is join
     if (f1.isLoose() || f2.isLoose()) {
-      return FunctionType.looseJoin(f1, f2);
+      return looseJoin(f1, f2);
     }
 
     if (f1.isGeneric() && f1.isSubtypeOf(f2)) {
@@ -601,48 +661,29 @@ public final class FunctionType {
       Multimap<String, JSType> typeMultimap) {
     Preconditions.checkState(this.typeParameters.isEmpty());
     Preconditions.checkState(this.outerVarPreconditions.isEmpty());
+    Preconditions.checkState(this != TOP_FUNCTION);
 
-    if (this == LOOSE_TOP_FUNCTION || other == LOOSE_TOP_FUNCTION) {
+    if (this == LOOSE_TOP_FUNCTION || other.isTopFunction()) {
       return true;
     }
-
-    Preconditions.checkState(
-        this.requiredFormals != null && other.requiredFormals != null,
-        "Cannot run unification algorithm on %s and %s", this, other);
-
-    if (requiredFormals.size() != other.requiredFormals.size()) {
+    if (other.requiredFormals.size() > this.requiredFormals.size()) {
       return false;
     }
-    Iterator<JSType> thisReqFormals = requiredFormals.iterator();
-    Iterator<JSType> otherReqFormals = other.requiredFormals.iterator();
-    while (thisReqFormals.hasNext()) {
-      JSType reqFormal = thisReqFormals.next();
-      JSType otherReqFormal = otherReqFormals.next();
-      if (!reqFormal.unifyWithSubtype(otherReqFormal, typeParameters, typeMultimap)) {
+    int maxNonInfiniteArity = getMaxArityWithoutRestFormals();
+    for (int i = 0; i < maxNonInfiniteArity; i++) {
+      JSType thisFormal = getFormalType(i);
+      JSType otherFormal = other.getFormalType(i);
+      if (otherFormal != null
+          && !thisFormal.unifyWithSubtype(otherFormal, typeParameters, typeMultimap)) {
         return false;
       }
     }
-
-    if (optionalFormals.size() != other.optionalFormals.size()) {
-      return false;
-    }
-    Iterator<JSType> thisOptFormals = optionalFormals.iterator();
-    Iterator<JSType> otherOptFormals = other.optionalFormals.iterator();
-    while (thisOptFormals.hasNext()) {
-      JSType optFormal = thisOptFormals.next();
-      JSType otherOptFormal = otherOptFormals.next();
-      if (!optFormal.unifyWithSubtype(otherOptFormal, typeParameters, typeMultimap)) {
+    if (this.restFormals != null) {
+      JSType otherRestFormals = other.getFormalType(maxNonInfiniteArity);
+      if (otherRestFormals != null
+          && !this.restFormals.unifyWithSubtype(otherRestFormals, typeParameters, typeMultimap)) {
         return false;
       }
-    }
-
-    if (restFormals == null && other.restFormals != null ||
-        restFormals != null && other.restFormals == null) {
-      return false;
-    }
-    if (restFormals != null && !restFormals.unifyWithSubtype(
-        other.restFormals, typeParameters, typeMultimap)) {
-      return false;
     }
 
     if (nominalType == null && other.nominalType != null

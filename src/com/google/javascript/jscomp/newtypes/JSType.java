@@ -659,10 +659,11 @@ public abstract class JSType implements TypeI {
           && getMask() == (getMask() | (other.getMask() & ~ENUM_MASK));
     } else {
       // this is (T | ...)
-      int templateMask = BOTTOM_MASK;
       int thisScalarBits = getMask() & ~NON_SCALAR_MASK & ~TYPEVAR_MASK;
-      int otherScalarBits = other.getMask() & ~NON_SCALAR_MASK;
-      templateMask |= otherScalarBits & ~thisScalarBits;
+      int templateMask = other.getMask() & ~thisScalarBits;
+      if (ununifiedObjs.isEmpty()) {
+        templateMask &= ~NON_SCALAR_MASK;
+      }
 
       if (templateMask == BOTTOM_MASK) {
         // nothing left in other to assign to thisTypevar, so don't update typemap
@@ -696,6 +697,10 @@ public abstract class JSType implements TypeI {
     String newTypevar;
     if (Objects.equals(getTypeVar(), other.getTypeVar())) {
       newTypevar = getTypeVar();
+    } else if (getTypeVar() != null && other.getTypeVar() == null) {
+      // Consider, e.g., function f(/** T|number */ x) { if (typeof x === 'string') { ... } }
+      // We want to specialize the T to string, rather than going to bottom.
+      return other;
     } else {
       newTypevar = null;
       newMask &= ~TYPEVAR_MASK;

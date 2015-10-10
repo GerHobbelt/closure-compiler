@@ -33,7 +33,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Converts ES6 code to valid ES3 code.
+ * Converts ES6 code to valid ES5 code. This class does most of the transpilation, and
+ * https://github.com/google/closure-compiler/wiki/ECMAScript6 lists which ES6 features are
+ * supported. Other classes that start with "Es6" do other parts of the transpilation.
+ *
+ * In most cases, the output is valid as ES3 (hence the class name) but in some cases, if
+ * the output language is set to ES5, we rely on ES5 features such as getters, setters,
+ * and Object.defineProperties.
  *
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
@@ -44,10 +50,11 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
       "JSC_CANNOT_CONVERT",
       "This code cannot be converted from ES6. {0}");
 
-  // TODO(tbreisacher): Remove this once all ES6 features are transpilable.
+  // TODO(tbreisacher): Remove this once we have implemented transpilation for all the features
+  // we intend to support.
   static final DiagnosticType CANNOT_CONVERT_YET = DiagnosticType.error(
       "JSC_CANNOT_CONVERT_YET",
-      "ES6-to-ES3 conversion of ''{0}'' is not yet implemented.");
+      "ES6 transpilation of ''{0}'' is not yet implemented.");
 
   static final DiagnosticType DYNAMIC_EXTENDS_TYPE = DiagnosticType.error(
       "JSC_DYNAMIC_EXTENDS_TYPE",
@@ -852,6 +859,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
       for (String param : ctorJSDocInfo.getParameterNames()) {
         newInfo.recordParameter(param, ctorJSDocInfo.getParameterType(param));
       }
+      newInfo.mergePropertyBitfieldFrom(ctorJSDocInfo);
     }
 
     if (NodeUtil.isStatement(classNode)) {
@@ -987,16 +995,16 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
 
     CompilerInput input = compiler.getInput(parent.getInputId());
     if (addArguments) {
-      Node name = IR.name(ARGUMENTS_VAR).srcref(parent);
-      Node argumentsVar = IR.var(name, IR.name("arguments").srcref(parent));
-      argumentsVar.srcref(parent);
+      Node name = IR.name(ARGUMENTS_VAR);
+      Node argumentsVar = IR.declaration(name, IR.name("arguments"), Token.CONST);
+      argumentsVar.useSourceInfoIfMissingFromForTree(parent);
       parent.addChildToFront(argumentsVar);
       scope.declare(ARGUMENTS_VAR, name, input);
     }
     if (addThis) {
-      Node name = IR.name(THIS_VAR).srcref(parent);
-      Node thisVar = IR.var(name, IR.thisNode().srcref(parent));
-      thisVar.srcref(parent);
+      Node name = IR.name(THIS_VAR);
+      Node thisVar = IR.declaration(name, IR.thisNode(), Token.CONST);
+      thisVar.useSourceInfoIfMissingFromForTree(parent);
       parent.addChildToFront(thisVar);
       scope.declare(THIS_VAR, name, input);
     }

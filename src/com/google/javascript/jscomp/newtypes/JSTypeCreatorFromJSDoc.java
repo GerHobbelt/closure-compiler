@@ -93,6 +93,11 @@ public final class JSTypeCreatorFromJSDoc {
         "{0} cannot implement this type; "
         + "an interface can only extend, but not implement interfaces");
 
+  public static final DiagnosticType UNION_IS_UNINHABITABLE =
+    DiagnosticType.warning(
+        "JSC_UNION_IS_UNINHABITABLE",
+        "Union of {0} with {1} would create an impossible type.");
+
   private final CodingConvention convention;
 
   // Used to communicate state between methods when resolving enum types
@@ -213,7 +218,13 @@ public final class JSTypeCreatorFromJSDoc {
             warn("This union type is equivalent to '?'.", n);
             return JSType.UNKNOWN;
           }
-          union = JSType.join(union, nextType);
+          JSType nextUnion = JSType.join(union, nextType);
+          if (nextUnion.isBottom()) {
+            warnings.add(JSError.make(n, UNION_IS_UNINHABITABLE,
+                    nextType.toString(), union.toString()));
+            return JSType.UNKNOWN;
+          }
+          union = nextUnion;
         }
         return union;
       }
@@ -239,7 +250,7 @@ public final class JSTypeCreatorFromJSDoc {
       case Token.STAR:
         return JSType.TOP;
       case Token.FUNCTION:
-        return getFunTypeHelper(n, null, registry, typeParameters);
+        return getFunTypeHelper(n, registry, typeParameters);
       default:
         throw new IllegalArgumentException("Unsupported type exp: " +
             Token.name(n.getType()) + " " + n.toStringTree());
@@ -301,7 +312,7 @@ public final class JSTypeCreatorFromJSDoc {
     if (outerTypeParameters.contains(name)) {
       return JSType.fromTypeVar(name);
     }
-    Declaration decl = registry.getDeclaration(QualifiedName.fromQname(name), true);
+    Declaration decl = registry.getDeclaration(QualifiedName.fromQualifiedString(name), true);
     if (decl == null) {
       unknownTypeNames.put(n, name);
       throw new UnknownTypeException("Unhandled type: " + name);
@@ -438,15 +449,10 @@ public final class JSTypeCreatorFromJSDoc {
 
   // Don't confuse with getFunTypeFromAtTypeJsdoc; the function below computes a
   // type that doesn't have an associated AST node.
-  private JSType getFunTypeHelper(Node jsdocNode, RawNominalType ownerType,
-      DeclaredTypeRegistry registry, ImmutableList<String> typeParameters)
-      throws UnknownTypeException {
+  private JSType getFunTypeHelper(Node jsdocNode, DeclaredTypeRegistry registry,
+      ImmutableList<String> typeParameters) throws UnknownTypeException {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
-    if (ownerType != null) {
-      builder.addReceiverType(ownerType.getAsNominalType());
-    }
-    fillInFunTypeBuilder(
-        jsdocNode, ownerType, registry, typeParameters, builder);
+    fillInFunTypeBuilder(jsdocNode, null, registry, typeParameters, builder);
     return registry.getCommonTypes().fromFunctionType(builder.buildFunction());
   }
 
