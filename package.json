@@ -5,19 +5,20 @@
     "description" : "Fork of closure-compiler that allows installation via NPM.",
     "homepage" : "https://github.com/Obvious/closure-compiler",
     "repository" : {
-	"type" : "git",
-	"url" : "http://github.com/Obvious/closure-compiler.git"
+        "type" : "git",
+        "url" : "http://github.com/Obvious/closure-compiler.git"
     },
     "licenses": [ {
         "type": "Apache 2.0",
         "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
     } ],
     "author" : {
-	"name" : "Nick Santos",
-	"email" : "nick@medium.com",
-	"url" : "https://github.com/nicks"
+        "name" : "Nick Santos",
+        "email" : "nick@medium.com",
+        "url" : "https://github.com/nicks"
     },
     "scripts": {
-	"test": "ant test"
+        "make": "ant jar",
+        "test": "ant test"
     }
 }
