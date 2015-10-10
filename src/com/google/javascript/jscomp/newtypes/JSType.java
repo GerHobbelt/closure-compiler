@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
 import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.ObjectTypeI;
 import com.google.javascript.rhino.TypeI;
@@ -44,6 +45,10 @@ public abstract class JSType implements TypeI {
   protected static final int TYPEVAR_MASK = 0x1;
   protected static final int NON_SCALAR_MASK = 0x2;
   protected static final int ENUM_MASK = 0x4;
+  // The less important use case for TRUE_MASK and FALSE_MASK is to type the
+  // values true and false precisely. But people don't write: if (true) {...}
+  // More importantly, these masks come up as the negation of TRUTHY_MASK and
+  // FALSY_MASK when the ! operator is used.
   protected static final int TRUE_MASK = 0x8;  // These two print out
   protected static final int FALSE_MASK = 0x10; // as 'boolean'
   protected static final int NULL_MASK = 0x20;
@@ -262,12 +267,34 @@ public abstract class JSType implements TypeI {
     return UNKNOWN_MASK == getMask();
   }
 
-  public boolean isTruthy() {
+  public boolean isTrueOrTruthy() {
     return TRUTHY_MASK == getMask() || TRUE_MASK == getMask();
   }
 
-  public boolean isFalsy() {
+  private boolean hasTruthyMask() {
+    return TRUTHY_MASK == getMask();
+  }
+
+  public boolean isFalseOrFalsy() {
     return FALSY_MASK == getMask() || FALSE_MASK == getMask();
+  }
+
+  // Ignoring enums for simplicity
+  public boolean isAnyTruthyType() {
+    int mask = getMask();
+    int truthyMask = TRUTHY_MASK | TRUE_MASK | NON_SCALAR_MASK;
+    return mask != BOTTOM_MASK && (mask | truthyMask) == truthyMask;
+  }
+
+  // Ignoring enums for simplicity
+  public boolean isAnyFalsyType() {
+    int mask = getMask();
+    int falsyMask = FALSY_MASK | FALSE_MASK | NULL_MASK | UNDEFINED_MASK;
+    return mask != BOTTOM_MASK && (mask | falsyMask) == falsyMask;
+  }
+
+  private boolean hasFalsyMask() {
+    return FALSY_MASK == getMask();
   }
 
   public boolean isBoolean() {
@@ -318,6 +345,20 @@ public abstract class JSType implements TypeI {
   }
 
   public boolean isStruct() {
+    if (isUnknown()) {
+      return false;
+    }
+    Preconditions.checkState(!getObjs().isEmpty(),
+        "Expected object type but found %s", this);
+    for (ObjectType objType : getObjs()) {
+      if (!objType.isStruct()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public boolean mayBeStruct() {
     for (ObjectType objType : getObjs()) {
       if (objType.isStruct()) {
         return true;
@@ -345,6 +386,19 @@ public abstract class JSType implements TypeI {
   }
 
   public boolean isDict() {
+    if (isUnknown()) {
+      return false;
+    }
+    Preconditions.checkState(!getObjs().isEmpty());
+    for (ObjectType objType : getObjs()) {
+      if (!objType.isDict()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public boolean mayBeDict() {
     for (ObjectType objType : getObjs()) {
       if (objType.isDict()) {
         return true;
@@ -436,12 +490,19 @@ public abstract class JSType implements TypeI {
     Preconditions.checkNotNull(rhs);
     if (lhs.isTop() || rhs.isTop()) {
       return TOP;
-    } else if (lhs.isUnknown() || rhs.isUnknown()) {
+    }
+    if (lhs.isUnknown() || rhs.isUnknown()) {
       return UNKNOWN;
-    } else if (lhs.isBottom()) {
+    }
+    if (lhs.isBottom()) {
       return rhs;
-    } else if (rhs.isBottom()) {
+    }
+    if (rhs.isBottom()) {
       return lhs;
+    }
+    if (lhs.hasTruthyMask() || lhs.hasFalsyMask()
+        || rhs.hasTruthyMask() || rhs.hasFalsyMask()) {
+      return UNKNOWN;
     }
     if (lhs.getTypeVar() != null && rhs.getTypeVar() != null
         && !lhs.getTypeVar().equals(rhs.getTypeVar())) {
@@ -651,18 +712,23 @@ public abstract class JSType implements TypeI {
     }
   }
 
-  // TODO(dimvar): Now that we don't have locations, we may be able to combine
-  // specialize and meet into a single function.
-  // Specialize might still not be symmetric however, b/c of truthy/falsy.
-
   public JSType specialize(JSType other) {
     if (other.isTop() || other.isUnknown() || this == other) {
       return this;
-    } else if (other.isTruthy()) {
+    }
+    if (other.hasTruthyMask()) {
       return makeTruthy();
-    } else if (other.isFalsy()) {
+    }
+    if (hasTruthyMask()) {
+      return other.makeTruthy();
+    }
+    if (other.hasFalsyMask()) {
       return makeFalsy();
-    } else if (this.isTop() || this.isUnknown()) {
+    }
+    // NOTE(dimvar): I couldn't find a case where this.hasFalsyMask(). If the
+    // preconditions check breaks, add code analogous to the hasTruthyMask case.
+    Preconditions.checkState(!hasFalsyMask());
+    if (this.isTop() || this.isUnknown()) {
       return other;
     }
     int newMask = getMask() & other.getMask();
@@ -809,18 +875,18 @@ public abstract class JSType implements TypeI {
     if (isTop() || isUnknown()) {
       return this;
     }
-    if (isTruthy()) {
+    if (isTrueOrTruthy()) {
       return FALSY;
-    } else if (isFalsy()) {
+    } else if (isFalseOrFalsy()) {
       return TRUTHY;
     }
     return UNKNOWN;
   }
 
   public JSType toBoolean() {
-    if (isTruthy()) {
+    if (isTrueOrTruthy()) {
       return TRUE_TYPE;
-    } else if (isFalsy()) {
+    } else if (isFalseOrFalsy()) {
       return FALSE_TYPE;
     }
     return BOOLEAN;
@@ -835,10 +901,15 @@ public abstract class JSType implements TypeI {
     return isSubtypeOfHelper(true, (JSType) other);
   }
 
-  private boolean isSubtypeOfHelper(
-      boolean keepLoosenessOfThis, JSType other) {
+  private boolean isSubtypeOfHelper(boolean keepLoosenessOfThis, JSType other) {
     if (isUnknown() || other.isUnknown() || other.isTop()) {
       return true;
+    }
+    if (hasTruthyMask()) {
+      return !other.makeTruthy().isBottom();
+    }
+    if (hasFalsyMask()) {
+      return !other.makeFalsy().isBottom();
     }
     if (!EnumType.areSubtypes(this, other)) {
       return false;
@@ -1208,7 +1279,7 @@ final class UnionType extends JSType {
     this.mask = mask;
 
     if (!isValidType()) {
-      throw new IllegalStateException(String.format(
+      throw new IllegalStateException(SimpleFormat.format(
           "Cannot create type with bits <<<%x>>>, "
           + "objs <<<%s>>>, typeVar <<<%s>>>, enums <<<%s>>>",
           mask, objs, typeVar, enums));

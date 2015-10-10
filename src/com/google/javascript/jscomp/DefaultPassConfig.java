@@ -32,6 +32,7 @@ import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
+import com.google.javascript.jscomp.lint.CheckForInOverArray;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
@@ -42,7 +43,6 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -75,10 +75,6 @@ public final class DefaultPassConfig extends PassConfig {
           "Rename prototypes and inline variables cannot be used together.");
 
   // Miscellaneous errors.
-  static final DiagnosticType REPORT_PATH_IO_ERROR =
-      DiagnosticType.error("JSC_REPORT_PATH_IO_ERROR",
-          "Error writing compiler report to {0}");
-
   private static final DiagnosticType NAME_REF_GRAPH_FILE_ERROR =
       DiagnosticType.error("JSC_NAME_REF_GRAPH_FILE_ERROR",
           "Error \"{1}\" writing name reference graph to \"{0}\".");
@@ -203,20 +199,9 @@ public final class DefaultPassConfig extends PassConfig {
     // Verify JsDoc annotations
     checks.add(checkJsDoc);
 
-    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED
-        && options.getLanguageOut() != LanguageMode.ECMASCRIPT6_TYPED) {
-      checks.add(convertEs6TypedToEs6);
-    }
-
-    // Early ES6 transpilation.
-    // Includes ES6 features that are straightforward to transpile.
-    // We won't handle them natively in the rest of the compiler, so we always
-    // transpile them, even if the output language is also ES6.
-    if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
-      checks.add(es6RewriteArrowFunction);
-      checks.add(es6RenameVariablesInParamLists);
-      checks.add(es6SplitVariableDeclarations);
-      checks.add(es6RewriteDestructuring);
+    if (!options.skipNonTranspilationPasses && options.closurePass
+        && options.enables(DiagnosticGroups.LINT_CHECKS)) {
+      checks.add(checkRequiresAndProvidesSorted);
     }
 
     // goog.module rewrite must happen even if options.skipNonTranspilationPasses is set.
@@ -254,6 +239,11 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(angularPass);
     }
 
+    if (options.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED
+        && options.getLanguageOut() != LanguageMode.ECMASCRIPT6_TYPED) {
+      checks.add(convertEs6TypedToEs6);
+    }
+
     if (options.generateExports && !options.skipNonTranspilationPasses) {
       checks.add(generateExports);
     }
@@ -266,8 +256,9 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(closurePrimitives);
     }
 
-    // It's important that the PolymerPass run *after* the ClosurePrimitives rewrite and *before*
-    // the suspicious code checks.
+    // It's important that the PolymerPass run *after* the ClosurePrimitives
+    // rewrite and *before* the suspicious code checks.
+    // This is enforced in the assertValidOrder method.
     if (options.polymerPass && !options.skipNonTranspilationPasses) {
       checks.add(polymerPass);
     }
@@ -289,6 +280,34 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(createSyntheticBlocks);
     }
 
+    if (!options.skipNonTranspilationPasses) {
+      checks.add(checkVars);
+    }
+
+    if (options.inferConsts && !options.skipNonTranspilationPasses) {
+      checks.add(inferConsts);
+    }
+
+    if (options.computeFunctionSideEffects && !options.skipNonTranspilationPasses) {
+      checks.add(checkRegExp);
+    }
+
+    // This pass should run before types are assigned.
+    if (options.processObjectPropertyString && !options.skipNonTranspilationPasses) {
+      checks.add(objectPropertyStringPreprocess);
+    }
+
+    // Early ES6 transpilation.
+    // Includes ES6 features that are straightforward to transpile.
+    // We won't handle them natively in the rest of the compiler, so we always
+    // transpile them, even if the output language is also ES6.
+    if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
+      checks.add(es6RewriteArrowFunction);
+      checks.add(es6RenameVariablesInParamLists);
+      checks.add(es6SplitVariableDeclarations);
+      checks.add(es6RewriteDestructuring);
+    }
+
     // Late ES6 transpilation.
     // Includes ES6 features that are best handled natively by the compiler.
     // As we convert more passes to handle these features, we will be moving the transpilation
@@ -296,7 +315,7 @@ public final class DefaultPassConfig extends PassConfig {
     if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
       checks.add(es6ConvertSuper);
       checks.add(convertEs6ToEs3);
-      checks.add(rewriteLetConst);
+      checks.add(rewriteBlockScopedDeclaration);
       checks.add(rewriteGenerators);
       checks.add(markTranspilationDone);
     }
@@ -317,21 +336,6 @@ public final class DefaultPassConfig extends PassConfig {
 
     // End of ES6 transpilation passes.
 
-    checks.add(checkVars);
-
-    if (options.inferConsts) {
-      checks.add(inferConsts);
-    }
-
-    if (options.computeFunctionSideEffects) {
-      checks.add(checkRegExp);
-    }
-
-    // This pass should run before types are assigned.
-    if (options.processObjectPropertyString) {
-      checks.add(objectPropertyStringPreprocess);
-    }
-
     checks.add(createEmptyPass("beforeTypeChecking"));
 
     if (options.useNewTypeInference) {
@@ -339,10 +343,15 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(newTypeInference);
     }
 
-    if (options.checkTypes || options.inferTypes) {
+    checks.add(inlineTypeAliases);
+
+    if (options.checkTypes || options.inferTypes
+        // With NTI, we still need OTI to run because the later passes that use
+        // types only understand OTI types at the moment.
+        || options.useNewTypeInference) {
       checks.add(resolveTypes);
       checks.add(inferTypes);
-      if (options.checkTypes) {
+      if (options.checkTypes || options.useNewTypeInference) {
         checks.add(checkTypes);
       } else {
         checks.add(inferJsDocInfo);
@@ -495,6 +504,10 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(inferConsts);
     }
 
+    if (options.reportPath != null && (options.extraSmartNameRemoval || options.smartNameRemoval)) {
+      passes.add(initNameAnalyzeReport);
+    }
+
     // Running this pass before disambiguate properties allow the removing
     // unused methods that share the same name as methods called from unused
     // code.
@@ -510,7 +523,7 @@ public final class DefaultPassConfig extends PassConfig {
         passes.add(earlyPeepholeOptimizations);
       }
 
-      passes.add(smartNamePass);
+      passes.add(extraSmartNamePass);
     }
 
     // Property disambiguation should only run once and needs to be done
@@ -700,10 +713,6 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(aliasStrings);
     }
 
-    if (options.aliasExternals) {
-      passes.add(aliasExternals);
-    }
-
     // Passes after this point can no longer depend on normalized AST
     // assumptions.
     passes.add(markUnnormalized);
@@ -781,6 +790,8 @@ public final class DefaultPassConfig extends PassConfig {
     // Raise to ES6, if allowed
     if (options.getLanguageOut().isEs6OrHigher()) {
       passes.add(optimizeToEs6);
+      passes.add(objectLitAssignmentShortening);
+      passes.add(rewriteBindThis);
     }
 
     return passes;
@@ -1184,11 +1195,11 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  private final HotSwapPassFactory rewriteLetConst =
-      new HotSwapPassFactory("Es6RewriteLetConst", true) {
+  private final HotSwapPassFactory rewriteBlockScopedDeclaration =
+      new HotSwapPassFactory("Es6RewriteBlockScopedDeclaration", true) {
     @Override
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      return new Es6RewriteLetConst(compiler);
+      return new Es6RewriteBlockScopedDeclaration(compiler);
     }
   };
 
@@ -1216,6 +1227,14 @@ public final class DefaultPassConfig extends PassConfig {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return new Es6ToEs3ClassSideInheritance(compiler);
+    }
+  };
+
+  private final PassFactory inlineTypeAliases =
+      new PassFactory("inlineTypeAliases", true) {
+    @Override
+    CompilerPass create(AbstractCompiler compiler) {
+      return new InlineAliases(compiler);
     }
   };
 
@@ -1481,7 +1500,7 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory("NewTypeInference", true) {
         @Override
         protected CompilerPass create(final AbstractCompiler compiler) {
-          return new NewTypeInference(compiler, options.closurePass);
+          return new NewTypeInference(compiler);
         }
       };
 
@@ -1568,13 +1587,18 @@ public final class DefaultPassConfig extends PassConfig {
           .add(new CheckInterfaces(compiler))
           .add(new CheckJSDocStyle(compiler))
           .add(new CheckNullableReturn(compiler))
+          .add(new CheckForInOverArray(compiler))
           .add(new CheckPrototypeProperties(compiler))
           .add(new ImplicitNullabilityCheck(compiler));
-      if (options.closurePass) {
-        callbacks.add(new CheckRequiresAndProvidesSorted(compiler));
-      }
-
       return combineChecks(compiler, callbacks.build());
+    }
+  };
+
+  private final HotSwapPassFactory checkRequiresAndProvidesSorted =
+      new HotSwapPassFactory("checkRequiresAndProvidesSorted", true) {
+    @Override
+    protected HotSwapCompilerPass create(AbstractCompiler compiler) {
+      return new CheckRequiresAndProvidesSorted(compiler);
     }
   };
 
@@ -2021,60 +2045,40 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /**
-   * Process smart name processing - removes unused classes and does referencing
-   * starting with minimum set of names.
-   */
-  private final PassFactory smartNamePass = new PassFactory("smartNamePass", true) {
-    private boolean hasWrittenFile = false;
-
-    @Override
-    protected CompilerPass create(final AbstractCompiler compiler) {
-      return new CompilerPass() {
-        @Override
-        public void process(Node externs, Node root) {
-          NameAnalyzer na = new NameAnalyzer(compiler, false);
-          na.process(externs, root);
-
-          String reportPath = options.reportPath;
-          if (reportPath != null) {
-            try {
-              if (hasWrittenFile) {
-                Files.append(na.getHtmlReport(), new File(reportPath),
-                    UTF_8);
-              } else {
-                Files.write(na.getHtmlReport(), new File(reportPath),
-                    UTF_8);
-                hasWrittenFile = true;
-              }
-            } catch (IOException e) {
-              compiler.report(JSError.make(REPORT_PATH_IO_ERROR, reportPath));
-            }
-          }
-
-          if (options.smartNameRemoval) {
-            na.removeUnreferenced();
-          }
-        }
-      };
-    }
+  private final PassFactory initNameAnalyzeReport = new PassFactory("initNameAnalyzeReport", true) {
+     @Override
+     protected CompilerPass create(final AbstractCompiler compiler) {
+       return new CompilerPass() {
+         @Override
+         public void process(Node externs, Node root) {
+           NameAnalyzer.createEmptyReport(compiler, options.reportPath);
+         }
+       };
+     }
   };
 
   /**
    * Process smart name processing - removes unused classes and does referencing
    * starting with minimum set of names.
    */
+  private final PassFactory extraSmartNamePass = new PassFactory("smartNamePass", true) {
+    @Override
+    protected CompilerPass create(final AbstractCompiler compiler) {
+      return new NameAnalyzer(compiler, true, options.reportPath);
+    }
+  };
+
+  private final PassFactory smartNamePass = new PassFactory("smartNamePass", true) {
+    @Override
+    protected CompilerPass create(final AbstractCompiler compiler) {
+      return new NameAnalyzer(compiler, true, options.reportPath);
+    }
+  };
+
   private final PassFactory smartNamePass2 = new PassFactory("smartNamePass", true) {
     @Override
     protected CompilerPass create(final AbstractCompiler compiler) {
-      return new CompilerPass() {
-        @Override
-        public void process(Node externs, Node root) {
-          NameAnalyzer na = new NameAnalyzer(compiler, false);
-          na.process(externs, root);
-          na.removeUnreferenced();
-        }
-      };
+      return new NameAnalyzer(compiler, true, null);
     }
   };
 
@@ -2288,15 +2292,6 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /** Alias external symbols. */
-  private final PassFactory aliasExternals = new PassFactory("aliasExternals", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new AliasExternals(compiler, compiler.getModuleGraph(),
-          options.unaliasableGlobals, options.aliasableGlobals);
-    }
-  };
-
   /**
    * Alias string literals with global variables, to avoid creating lots of
    * transient objects.
@@ -2495,23 +2490,8 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory("instrumentFunctions", true) {
     @Override
     protected CompilerPass create(final AbstractCompiler compiler) {
-      return new CompilerPass() {
-        @Override public void process(Node externs, Node root) {
-          try {
-            FileReader templateFile =
-                new FileReader(options.instrumentationTemplate);
-            (new InstrumentFunctions(
-                compiler, functionNames,
-                options.instrumentationTemplate,
-                options.appNameStr,
-                templateFile)).process(externs, root);
-          } catch (IOException e) {
-            compiler.report(
-                JSError.make(AbstractCompiler.READ_ERROR,
-                    options.instrumentationTemplate));
-          }
-        }
-      };
+      return new InstrumentFunctions(
+          compiler, functionNames, options.instrumentationTemplate, options.appNameStr);
     }
   };
 
@@ -2696,6 +2676,22 @@ public final class DefaultPassConfig extends PassConfig {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return new SubstituteEs6Syntax(compiler);
+    }
+  };
+
+  private final PassFactory objectLitAssignmentShortening =
+      new PassFactory("objectLitAssignmentShortening", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new ObjectLitAssignmentShortening(compiler);
+    }
+  };
+
+  private final PassFactory rewriteBindThis =
+      new PassFactory("rewriteBindThis", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new RewriteBindThis(compiler);
     }
   };
 }

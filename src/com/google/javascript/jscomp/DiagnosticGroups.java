@@ -16,15 +16,18 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
+import com.google.javascript.jscomp.lint.CheckForInOverArray;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
 import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
+import com.google.javascript.jscomp.lint.CheckRequiresAndProvidesSorted;
 import com.google.javascript.jscomp.newtypes.JSTypeCreatorFromJSDoc;
 
 import java.util.HashMap;
@@ -72,7 +75,7 @@ public class DiagnosticGroups {
   }
 
   /** Get the registered diagnostic groups, indexed by name. */
-  protected Map<String, DiagnosticGroup> getRegisteredGroups() {
+  public Map<String, DiagnosticGroup> getRegisteredGroups() {
     return ImmutableMap.copyOf(groupsByName);
   }
 
@@ -89,16 +92,16 @@ public class DiagnosticGroups {
   // to parser/ParserConfig.properties
   static final String DIAGNOSTIC_GROUP_NAMES =
       "accessControls, ambiguousFunctionDecl, checkEventfulObjectDisposal, "
-      + "checkRegExp, checkStructDictInheritance, checkTypes, checkVars, "
+      + "checkRegExp, checkTypes, checkVars, "
       + "conformanceViolations, const, constantProperty, deprecated, "
       + "deprecatedAnnotations, duplicateMessage, es3, "
       + "es5Strict, externsValidation, fileoverviewTags, globalThis, "
       + "inferredConstCheck, internetExplorerChecks, invalidCasts, "
       + "misplacedTypeAnnotation, missingGetCssName, missingProperties, "
-      + "missingProvide, missingRequire, missingReturn,"
+      + "missingProvide, missingRequire, missingReturn, msgDescriptions"
       + "newCheckTypes, nonStandardJsDocs, reportUnknownTypes, suspiciousCode, "
       + "strictModuleDepCheck, typeInvalidation, "
-      + "undefinedNames, undefinedVars, unknownDefines, uselessCode, "
+      + "undefinedNames, undefinedVars, unknownDefines, unnecessaryCasts, uselessCode, "
       + "useOfGoogBase, visibility";
 
   public static final DiagnosticGroup GLOBAL_THIS =
@@ -309,9 +312,6 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("reportUnknownTypes",
           TypeCheck.UNKNOWN_EXPR_TYPE);
 
-  public static final DiagnosticGroup CHECK_STRUCT_DICT_INHERITANCE =
-      DiagnosticGroups.registerDeprecatedGroup("checkStructDictInheritance");
-
   public static final DiagnosticGroup CHECK_VARIABLES =
       DiagnosticGroups.registerGroup("checkVars",
           VarCheck.UNDEFINED_VAR_ERROR,
@@ -360,7 +360,6 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("es5StrictUncommon",
           RhinoErrorReporter.INVALID_OCTAL_LITERAL,
           StrictModeCheck.USE_OF_WITH,
-          StrictModeCheck.UNKNOWN_VARIABLE,
           StrictModeCheck.EVAL_DECLARATION,
           StrictModeCheck.EVAL_ASSIGNMENT,
           StrictModeCheck.ARGUMENTS_DECLARATION,
@@ -393,13 +392,20 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("extraRequire",
           CheckRequiresForConstructors.EXTRA_REQUIRE_WARNING);
 
+  @GwtIncompatible("java.util.regex")
   public static final DiagnosticGroup MISSING_GETCSSNAME =
       DiagnosticGroups.registerGroup("missingGetCssName",
           CheckMissingGetCssName.MISSING_GETCSSNAME);
 
+  @GwtIncompatible("JsMessage")
   public static final DiagnosticGroup DUPLICATE_MESSAGE =
       DiagnosticGroups.registerGroup("duplicateMessage",
           JsMessageVisitor.MESSAGE_DUPLICATE_KEY);
+
+  @GwtIncompatible("JsMessage")
+  public static final DiagnosticGroup MESSAGE_DESCRIPTIONS =
+      DiagnosticGroups.registerGroup("msgDescriptions",
+          JsMessageVisitor.MESSAGE_HAS_NO_DESCRIPTION);
 
   public static final DiagnosticGroup MISPLACED_TYPE_ANNOTATION =
       DiagnosticGroups.registerGroup("misplacedTypeAnnotation",
@@ -435,9 +441,18 @@ public class DiagnosticGroups {
           CheckJSDocStyle.OPTIONAL_TYPE_NOT_USING_OPTIONAL_NAME,
           CheckNullableReturn.NULLABLE_RETURN,
           CheckNullableReturn.NULLABLE_RETURN_WITH_NAME,
+          CheckForInOverArray.FOR_IN_OVER_ARRAY,
           CheckPrototypeProperties.ILLEGAL_PROTOTYPE_MEMBER,
+          CheckRequiresAndProvidesSorted.REQUIRES_NOT_SORTED,
+          CheckRequiresAndProvidesSorted.PROVIDES_NOT_SORTED,
+          CheckRequiresAndProvidesSorted.PROVIDES_AFTER_REQUIRES,
+          CheckRequiresAndProvidesSorted.MULTIPLE_MODULES_IN_FILE,
+          CheckRequiresAndProvidesSorted.MODULE_AND_PROVIDES,
           ImplicitNullabilityCheck.IMPLICITLY_NULLABLE_JSDOC,
-          RhinoErrorReporter.JSDOC_MISSING_BRACES_WARNING);
+          RhinoErrorReporter.JSDOC_MISSING_BRACES_WARNING,
+          RhinoErrorReporter.JSDOC_MISSING_TYPE_WARNING,
+          RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS,
+          VariableReferenceCheck.UNUSED_LOCAL_ASSIGNMENT);
 
   public static final DiagnosticGroup USE_OF_GOOG_BASE =
       DiagnosticGroups.registerGroup("useOfGoogBase",
@@ -459,6 +474,7 @@ public class DiagnosticGroups {
         PeepholeFoldConstants.FRACTIONAL_BITWISE_OPERAND);
   }
 
+  @GwtIncompatible("Conformance")
   public static final DiagnosticGroup CONFORMANCE_VIOLATIONS =
       DiagnosticGroups.registerGroup("conformanceViolations",
           CheckConformance.CONFORMANCE_VIOLATION,
@@ -468,6 +484,9 @@ public class DiagnosticGroups {
     // For internal use only, so there is no constant for it.
     DiagnosticGroups.registerGroup("invalidProvide",
         ProcessClosurePrimitives.INVALID_PROVIDE_ERROR);
+
+    DiagnosticGroups.registerGroup("lateProvide",
+        ProcessClosurePrimitives.LATE_PROVIDE_ERROR);
 
     DiagnosticGroups.registerGroup("es6Typed",
         RhinoErrorReporter.MISPLACED_TYPE_SYNTAX);

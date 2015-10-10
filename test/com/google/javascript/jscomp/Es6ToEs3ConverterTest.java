@@ -84,7 +84,8 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
     optimizer.addOneTimePass(
         makePassFactory("convertEs6", new Es6ToEs3Converter(compiler)));
     optimizer.addOneTimePass(
-        makePassFactory("Es6RewriteLetConst", new Es6RewriteLetConst(compiler)));
+        makePassFactory("Es6RewriteBlockScopedDeclaration",
+            new Es6RewriteBlockScopedDeclaration(compiler)));
     return optimizer;
   }
 
@@ -994,7 +995,7 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
         LINE_JOINER.join(
             "/** @constructor @struct */",
             "var C = function() {};",
-            "/** @type {?} */",
+            "/** @nocollapse @type {?} */",
             "C.foo;",
             "Object.defineProperties(C, {",
             "  foo: {",
@@ -1010,7 +1011,7 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
         LINE_JOINER.join(
             "/** @constructor @struct */",
             "var C = function() {};",
-            "/** @type {?} */",
+            "/** @nocollapse @type {?} */",
             "C.foo;",
             "Object.defineProperties(C, {",
             "  foo: {",
@@ -1035,7 +1036,7 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
         LINE_JOINER.join(
             "/** @constructor @struct */",
             "var C = function() {};",
-            "/** @type {?} */",
+            "/** @nocollapse @type {?} */",
             "C.foo;",
             "Object.defineProperties(C, {",
             "  foo: {",
@@ -1053,8 +1054,8 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
   public void testClassComputedPropGetterSetter() {
     languageOut = LanguageMode.ECMASCRIPT5;
 
-    testError("class C { get [foo]() {}}", Es6ToEs3Converter.CANNOT_CONVERT);
-    testError("class C { set [foo](val) {}}", Es6ToEs3Converter.CANNOT_CONVERT);
+    testError("class C { get [foo]() {}}", Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    testError("class C { set [foo](val) {}}", Es6ToEs3Converter.CANNOT_CONVERT_YET);
   }
 
   /**

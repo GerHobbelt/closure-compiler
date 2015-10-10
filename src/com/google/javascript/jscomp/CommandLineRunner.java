@@ -65,7 +65,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -385,12 +384,6 @@ public class CommandLineRunner extends
         "QUIET, DEFAULT, VERBOSE")
     private WarningLevel warningLevel = WarningLevel.DEFAULT;
 
-    @Option(name = "--use_only_custom_externs",
-        hidden = true,
-        handler = BooleanOptionHandler.class,
-        usage = "Specifies whether the default externs should be excluded")
-    private boolean useOnlyCustomExterns = false;
-
     @Option(name = "--debug",
         hidden = true,
         handler = BooleanOptionHandler.class,
@@ -593,6 +586,13 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "A list of JS Conformance configurations in text protocol buffer format.")
     private List<String> conformanceConfigs = new ArrayList<>();
+
+    @Option(name = "--env",
+        hidden = true,
+        usage = "Determines the set of builtin externs to load. "
+            + "Options: BROWSER, CUSTOM. Defaults to BROWSER.")
+    private CompilerOptions.Environment environment =
+        CompilerOptions.Environment.BROWSER;
 
     @Option(name = "--custom_options_file",
         usage = "File listing special option overrides. One option per line, " +
@@ -1150,6 +1150,8 @@ public class CommandLineRunner extends
       level.setDebugOptionsForCompilationLevel(options);
     }
 
+    options.setEnvironment(flags.environment);
+
     options.setChecksOnly(flags.checksOnly);
 
     if (flags.useTypesForOptimization) {
@@ -1213,15 +1215,15 @@ public class CommandLineRunner extends
   }
 
   @Override
-  protected List<SourceFile> createExterns() throws FlagUsageException,
-      IOException {
-    List<SourceFile> externs = super.createExterns();
-    if (flags.useOnlyCustomExterns || isInTestMode()) {
+  protected List<SourceFile> createExterns(CompilerOptions options)
+      throws FlagUsageException, IOException {
+    List<SourceFile> externs = super.createExterns(options);
+    if (isInTestMode()) {
       return externs;
     } else {
-      List<SourceFile> defaultExterns = getDefaultExterns();
-      defaultExterns.addAll(externs);
-      return defaultExterns;
+      List<SourceFile> builtinExterns = getBuiltinExterns(options);
+      builtinExterns.addAll(externs);
+      return builtinExterns;
     }
   }
 
@@ -1260,79 +1262,47 @@ public class CommandLineRunner extends
     return builder.build();
   }
 
-  // The externs expected in externs.zip, in sorted order.
-  private static final List<String> DEFAULT_EXTERNS_NAMES = ImmutableList.of(
-    // JS externs
-    "es3.js",
-    "es5.js",
-    "es6.js",
-    "es6_collections.js",
-    "intl.js",
+  // The core language externs expected in externs.zip, in sorted order.
+  private static final List<String> BUILTIN_LANG_EXTERNS = ImmutableList.of(
+      "es3.js",
+      "es5.js",
+      "es6.js",
+      "es6_collections.js");
 
-    // Event APIs
-    "w3c_event.js",
-    "w3c_event3.js",
-    "gecko_event.js",
-    "ie_event.js",
-    "webkit_event.js",
-    "w3c_device_sensor_event.js",
+  // Externs expected in externs.zip, in sorted order.
+  // Externs not included in this list will be added last
+  private static final List<String> BUILTIN_EXTERN_DEP_ORDER = ImmutableList.of(
+    //-- browser externs --
+    "browser/intl.js",
+    "browser/w3c_event.js",
+    "browser/w3c_event3.js",
+    "browser/gecko_event.js",
+    "browser/ie_event.js",
+    "browser/webkit_event.js",
+    "browser/w3c_device_sensor_event.js",
+    "browser/w3c_dom1.js",
+    "browser/w3c_dom2.js",
+    "browser/w3c_dom3.js",
+    "browser/gecko_dom.js",
+    "browser/ie_dom.js",
+    "browser/webkit_dom.js",
+    "browser/w3c_css.js",
+    "browser/gecko_css.js",
+    "browser/ie_css.js",
+    "browser/webkit_css.js"
+  );
 
-    // DOM apis
-    "w3c_dom1.js",
-    "w3c_dom2.js",
-    "w3c_dom3.js",
-    "gecko_dom.js",
-    "ie_dom.js",
-    "webkit_dom.js",
-
-    // CSS apis
-    "w3c_css.js",
-    "gecko_css.js",
-    "ie_css.js",
-    "webkit_css.js",
-
-    // Top-level namespaces
-    "google.js",
-
-    "chrome.js",
-
-    "deprecated.js",
-    "fetchapi.js",
-    "fileapi.js",
-    "flash.js",
-    "gecko_xml.js",
-    "html5.js",
-    "ie_vml.js",
-    "iphone.js",
-    "mediasource.js",
-    "page_visibility.js",
-    "streamsapi.js",
-    "v8.js",
-    "webstorage.js",
-    "w3c_anim_timing.js",
-    "w3c_audio.js",
-    "w3c_batterystatus.js",
-    "w3c_encoding.js",
-    "w3c_css3d.js",
-    "w3c_elementtraversal.js",
-    "w3c_geolocation.js",
-    "w3c_indexeddb.js",
-    "w3c_navigation_timing.js",
-    "w3c_range.js",
-    "w3c_rtc.js",
-    "w3c_selectors.js",
-    "w3c_serviceworker.js",
-    "w3c_webcrypto.js",
-    "w3c_xml.js",
-    "window.js",
-    "webkit_notifications.js",
-    "webgl.js");
+  @Deprecated
+  public static List<SourceFile> getDefaultExterns() throws IOException {
+    return getBuiltinExterns(new CompilerOptions());
+  }
 
   /**
    * @return a mutable list
    * @throws IOException
    */
-  public static List<SourceFile> getDefaultExterns() throws IOException {
+  public static List<SourceFile> getBuiltinExterns(CompilerOptions options)
+      throws IOException {
     InputStream input = CommandLineRunner.class.getResourceAsStream(
         "/externs.zip");
     if (input == null) {
@@ -1342,30 +1312,57 @@ public class CommandLineRunner extends
     Preconditions.checkNotNull(input);
 
     ZipInputStream zip = new ZipInputStream(input);
-    Map<String, SourceFile> externsMap = new HashMap<>();
+    CompilerOptions.Environment env = options.getEnvironment();
+    String envPrefix = env.toString().toLowerCase() + "/";
+    String browserEnv = CompilerOptions.Environment.BROWSER.toString().toLowerCase();
+    boolean flatExternStructure = true;
+    Map<String, SourceFile> mapFromExternsZip = new HashMap<>();
     for (ZipEntry entry = null; (entry = zip.getNextEntry()) != null; ) {
-      BufferedInputStream entryStream = new BufferedInputStream(
-          ByteStreams.limit(zip, entry.getSize()));
-      externsMap.put(entry.getName(),
-          SourceFile.fromInputStream(
-              // Give the files an odd prefix, so that they do not conflict
-              // with the user's files.
-              "externs.zip//" + entry.getName(),
-              entryStream,
-              UTF_8));
+      String filename = entry.getName();
+      if (filename.contains(browserEnv)) {
+        flatExternStructure = false;
+      }
+      // Always load externs in the root folder.
+      // If the non-core-JS externs are organized in subfolders, only load
+      // the ones in a subfolder matching the specified environment.
+      if (!filename.contains("/")
+          || (filename.indexOf(envPrefix) == 0
+              && filename.length() > envPrefix.length())) {
+        BufferedInputStream entryStream = new BufferedInputStream(
+            ByteStreams.limit(zip, entry.getSize()));
+        mapFromExternsZip.put(filename,
+            SourceFile.fromInputStream(
+                // Give the files an odd prefix, so that they do not conflict
+                // with the user's files.
+                "externs.zip//" + filename,
+                entryStream,
+                UTF_8));
+      }
     }
 
-    Preconditions.checkState(
-        externsMap.keySet().equals(new HashSet<>(DEFAULT_EXTERNS_NAMES)),
-        "Externs zip must match our hard-coded list of externs.");
-
-    // Order matters, so the resources must be added to the result list
-    // in the expected order.
     List<SourceFile> externs = new ArrayList<>();
-    for (String key : DEFAULT_EXTERNS_NAMES) {
-      externs.add(externsMap.get(key));
+    // The externs for core JS objects are loaded in all environments.
+    for (String key : BUILTIN_LANG_EXTERNS) {
+      Preconditions.checkState(
+          mapFromExternsZip.containsKey(key),
+          "Externs zip must contain %s.", key);
+      externs.add(mapFromExternsZip.remove(key));
     }
-
+    // Order matters, so extern resources which have dependencies must be added
+    // to the result list in the expected order.
+    for (String key : BUILTIN_EXTERN_DEP_ORDER) {
+      if (!flatExternStructure && !key.contains(envPrefix)) {
+        continue;
+      }
+      if (flatExternStructure) {
+        key = key.substring(key.indexOf('/') + 1);
+      }
+      Preconditions.checkState(
+          mapFromExternsZip.containsKey(key),
+          "Externs zip must contain %s when environment is %s.", key, env);
+      externs.add(mapFromExternsZip.remove(key));
+    }
+    externs.addAll(mapFromExternsZip.values());
     return externs;
   }
 

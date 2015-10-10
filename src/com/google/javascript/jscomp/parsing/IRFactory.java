@@ -93,6 +93,8 @@ import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionT
 import com.google.javascript.jscomp.parsing.parser.trees.MemberVariableTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NamespaceDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NamespaceNameTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
@@ -132,6 +134,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
+import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
@@ -371,7 +374,7 @@ class IRFactory {
           if (parent.isFunction() || parent.isScript()) {
             // report missing label
             errorReporter.error(
-                String.format(UNDEFINED_LABEL, labelName.getString()),
+                SimpleFormat.format(UNDEFINED_LABEL, labelName.getString()),
                 sourceName,
                 n.getLineno(), n.getCharno());
             break;
@@ -471,7 +474,7 @@ class IRFactory {
         for (; sibling != null; sibling = sibling.getNext()) {
           if (sibling.isName() && c.getString().equals(sibling.getString())) {
             errorReporter.warning(
-                String.format(DUPLICATE_PARAMETER, c.getString()),
+                SimpleFormat.format(DUPLICATE_PARAMETER, c.getString()),
                 sourceName,
                 n.getLineno(), n.getCharno());
           }
@@ -506,7 +509,7 @@ class IRFactory {
            parent != null && !parent.isFunction(); parent = parent.getParent()) {
         if (parent.isLabel() && labelsMatch(parent, labelName)) {
           errorReporter.error(
-              String.format(DUPLICATE_LABEL, labelName.getString()),
+              SimpleFormat.format(DUPLICATE_LABEL, labelName.getString()),
               sourceName,
               n.getLineno(), n.getCharno());
           break;
@@ -1500,7 +1503,7 @@ class IRFactory {
       setSourceInfo(dummyName, tree.body);
       Node paramList = IR.paramList();
       setSourceInfo(paramList, tree.body);
-      Node value = IR.function(dummyName, paramList, body);
+      Node value = newNode(Token.FUNCTION, dummyName, paramList, body);
       setSourceInfo(value, tree.body);
       key.addChildToFront(value);
       key.setStaticMember(tree.isStatic);
@@ -1516,7 +1519,7 @@ class IRFactory {
       Node paramList = IR.paramList(
           safeProcessName(tree.parameter));
       setSourceInfo(paramList, tree.parameter);
-      Node value = IR.function(dummyName, paramList, body);
+      Node value = newNode(Token.FUNCTION, dummyName, paramList, body);
       setSourceInfo(value, tree.body);
       key.addChildToFront(value);
       key.setStaticMember(tree.isStatic);
@@ -1773,7 +1776,7 @@ class IRFactory {
     }
 
     Node processVariableStatement(VariableStatementTree stmt) {
-      // skip the special handling so the doc is attached in the right place.
+      // TODO(moz): Figure out why we still need the special handling
       return justTransform(stmt.declarations);
     }
 
@@ -2036,7 +2039,7 @@ class IRFactory {
 
     Node processModuleImport(ModuleImportTree tree) {
       maybeWarnEs6Feature(tree, "modules");
-      Node module = newNode(Token.MODULE,
+      Node module = newNode(Token.NAMESPACE,
           processName(tree.name),
           processString(tree.from));
       return module;
@@ -2152,6 +2155,39 @@ class IRFactory {
     Node processAmbientDeclaration(AmbientDeclarationTree tree) {
       maybeWarnTypeSyntax(tree, "ambient declaration");
       return newNode(Token.DECLARE, transform(tree.declaration));
+    }
+
+    Node processNamespaceDeclaration(NamespaceDeclarationTree tree) {
+      maybeWarnTypeSyntax(tree, "namespace declaration");
+      Node name = processNamespaceName(tree.name);
+
+      Node body = newNode(Token.NAMESPACE_ELEMENTS);
+      setSourceInfo(body, tree);
+      for (ParseTree child : tree.elements) {
+        body.addChildToBack(transform(child));
+      }
+
+      return newNode(Token.NAMESPACE, name, body);
+    }
+
+    Node processNamespaceName(NamespaceNameTree name) {
+      ImmutableList<String> segments = name.segments;
+      if (segments.size() == 1) {
+        Node namespaceName = newStringNode(Token.NAME, segments.get(0));
+        setSourceInfo(namespaceName, name);
+        return namespaceName;
+      } else {
+        Iterator<String> segmentsIt = segments.iterator();
+        Node node = IR.name(segmentsIt.next());
+        setSourceInfo(node, name);
+        while (segmentsIt.hasNext()) {
+          Node string = newStringNode(Token.STRING, segmentsIt.next());
+          setSourceInfo(string, name);
+          node = newNode(Token.GETPROP, node, string);
+          setSourceInfo(node, name);
+        }
+        return node;
+      }
     }
 
     Node processIndexSignature(IndexSignatureTree tree) {
@@ -2572,6 +2608,8 @@ class IRFactory {
           return processTypeAlias(node.asTypeAlias());
         case AMBIENT_DECLARATION:
           return processAmbientDeclaration(node.asAmbientDeclaration());
+        case NAMESPACE_DECLARATION:
+          return processNamespaceDeclaration(node.asNamespaceDeclaration());
 
         case INDEX_SIGNATURE:
           return processIndexSignature(node.asIndexSignature());

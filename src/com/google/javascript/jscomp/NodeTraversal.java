@@ -85,7 +85,7 @@ public class NodeTraversal {
 
   /** Callback for passes that iterate over a list of functions */
   public interface FunctionCallback {
-    void visit(AbstractCompiler compiler, Node fnRoot);
+    void enterFunction(AbstractCompiler compiler, Node fnRoot);
   }
 
   /**
@@ -525,16 +525,16 @@ public class NodeTraversal {
     final AbstractCompiler comp = compiler;
     final FunctionCallback cb = callback;
     final Node jsRoot = comp.getJsRoot();
-    NodeTraversal t = new NodeTraversal(comp, new AbstractPreOrderCallback() {
-        @Override
-        public final boolean shouldTraverse(NodeTraversal t, Node n, Node p) {
-          if ((n == jsRoot || n.isFunction()) && comp.hasScopeChanged(n)) {
-            cb.visit(comp, n);
+    NodeTraversal.traverseEs6(comp, jsRoot,
+        new AbstractPreOrderCallback() {
+          @Override
+          public final boolean shouldTraverse(NodeTraversal t, Node n, Node p) {
+            if ((n == jsRoot || n.isFunction()) && comp.hasScopeChanged(n)) {
+              cb.enterFunction(comp, n);
+            }
+            return true;
           }
-          return true;
-        }
-      });
-    t.traverse(jsRoot);
+        });
   }
 
   /**
@@ -542,6 +542,15 @@ public class NodeTraversal {
    */
   public static void traverse(AbstractCompiler compiler, Node root, Callback cb) {
     NodeTraversal t = new NodeTraversal(compiler, cb);
+    t.traverse(root);
+  }
+
+  /**
+   * Traverses using the ES6SyntacticScopeCreator
+   */
+  // TODO (stephshi): rename to "traverse" when the old traverse method is no longer used
+  public static void traverseEs6(AbstractCompiler compiler, Node root, Callback cb) {
+    NodeTraversal t = new NodeTraversal(compiler, cb, new Es6SyntacticScopeCreator(compiler));
     t.traverse(root);
   }
 
@@ -639,7 +648,9 @@ public class NodeTraversal {
     popScope();
   }
 
-  /** Examines the functions stack for the last instance of a function node. */
+  /** Examines the functions stack for the last instance of a function node. When possible, prefer
+   *  this method over NodeUtil.getEnclosingFunction() because this in general looks at less nodes.
+   */
   public Node getEnclosingFunction() {
     Node root = getCfgRoot();
     return root.isFunction() ? root : null;
@@ -727,6 +738,13 @@ public class NodeTraversal {
     return scope;
   }
 
+  public Scope getClosestHoistScope() {
+    // TODO(moz): This should not call getScope(). We should find the root of the closest hoist
+    // scope and effectively getScope() from there, which avoids scanning inner scopes that might
+    // not be needed.
+    return getScope().getClosestHoistScope();
+  }
+
   public TypedScope getTypedScope() {
     Scope s = getScope();
     Preconditions.checkState(s instanceof TypedScope,
@@ -767,20 +785,36 @@ public class NodeTraversal {
   }
 
   /**
-   * Determines whether the traversal is currently in the global scope.
+   * Determines whether the traversal is currently in the global scope. Note that this returns false
+   * in a global block scope.
    */
   boolean inGlobalScope() {
-    return getScopeDepth() <= 1;
+    return getScopeDepth() == 0;
   }
 
-  // Not dual of inGlobalScope, because of block scoping.
-  // They both return false in an inner block at top level.
-  boolean inFunction() {
-    return getCfgRoot().isFunction();
+  /**
+   * Determines whether the hoist scope of the current traversal is global. Note that this returns
+   * true for the FUNCTION node of a function defined in the global scope.
+   */
+  boolean inGlobalHoistScope() {
+    if (curNode.isFunction() && getCfgRoot() == curNode) {
+      if (cfgRoots.isEmpty()) {  // Scopes have been created, won't scan scopes.
+        return getClosestHoistScope().isGlobal();
+      } else { // Need to see if previous cfg root is FUNCTION
+        Node temp = cfgRoots.pop();
+        boolean result = cfgRoots.isEmpty() || !cfgRoots.peek().isFunction();
+        cfgRoots.push(temp);
+        return result;
+      }
+    } else {
+      return !getCfgRoot().isFunction();
+    }
   }
 
   int getScopeDepth() {
-    return scopes.size() + scopeRoots.size();
+    int sum = scopes.size() + scopeRoots.size();
+    Preconditions.checkState(sum > 0);
+    return sum - 1; // Use 0-based scope depth to be consistent within the compiler
   }
 
   public boolean hasScope() {

@@ -119,14 +119,10 @@ class VarCheck extends AbstractPostOrderCallback implements
    * @return the SyntacticScopeCreator
    */
   private ScopeCreator createScopeCreator() {
-    if (compiler.getLanguageMode().isEs6OrHigher()) {
-      // Redeclaration check is handled in VariableReferenceCheck for ES6
-      return new Es6SyntacticScopeCreator(compiler, new RedeclarationCheckHandler());
-    } else if (sanityCheck) {
-      return SyntacticScopeCreator.makeUntyped(compiler);
+    if (sanityCheck) {
+      return new Es6SyntacticScopeCreator(compiler);
     } else {
-      return SyntacticScopeCreator.makeUntypedWithRedeclHandler(
-          compiler, new RedeclarationCheckHandler());
+      return new Es6SyntacticScopeCreator(compiler, new RedeclarationCheckHandler());
     }
   }
 
@@ -137,9 +133,7 @@ class VarCheck extends AbstractPostOrderCallback implements
     // remove duplicate VAR declarations, which will make
     // externs look like they have assigns.
     if (!sanityCheck) {
-      NodeTraversal traversal = new NodeTraversal(
-          compiler, new NameRefInExternsCheck(), scopeCreator);
-      traversal.traverse(externs);
+      NodeTraversal.traverseEs6(compiler, externs, new NameRefInExternsCheck());
     }
 
     NodeTraversal t = new NodeTraversal(compiler, this, scopeCreator);

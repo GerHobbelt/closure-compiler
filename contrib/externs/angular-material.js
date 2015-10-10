@@ -93,7 +93,7 @@ md.$dialog = function() {};
  *   locals: (Object|undefined),
  *   resolve: (Object|undefined),
  *   controllerAs: (string|undefined),
- *   parent: (Element|undefined)
+ *   parent: (angular.JQLite|Element|undefined)
  * }}
  */
 md.$dialog.options;
@@ -226,6 +226,7 @@ md.$toast.prototype.simple = function() {};
 
 /**
  * @typedef {{
+ *   isLockedOpen: function():boolean,
  *   isOpen: function():boolean,
  *   toggle: function(),
  *   open: function(),

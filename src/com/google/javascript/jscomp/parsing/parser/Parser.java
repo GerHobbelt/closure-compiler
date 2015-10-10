@@ -75,6 +75,8 @@ import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberVariableTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NamespaceDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NamespaceNameTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
@@ -268,6 +270,26 @@ public class Parser {
     return result.build();
   }
 
+  private ImmutableList<ParseTree> parseNamespaceElements() {
+    ImmutableList.Builder<ParseTree> result = ImmutableList.builder();
+
+    while (!peek(TokenType.CLOSE_CURLY) && !peek(TokenType.END_OF_FILE)) {
+      result.add(parseScriptElement());
+    }
+
+    return result.build();
+  }
+
+  private ImmutableList<ParseTree> parseAmbientNamespaceElements() {
+    ImmutableList.Builder<ParseTree> result = ImmutableList.builder();
+
+    while (peekAmbientNamespaceElement()) {
+      result.add(parseAmbientNamespaceElement());
+    }
+
+    return result.build();
+  }
+
   // ImportDeclaration
   // ExportDeclaration
   // TypeScript InterfaceDeclaration
@@ -281,7 +303,7 @@ public class Parser {
     }
 
     if (peekExportDeclaration()) {
-      return parseExportDeclaration();
+      return parseExportDeclaration(false);
     }
 
     if (peekInterfaceDeclaration()) {
@@ -300,7 +322,23 @@ public class Parser {
       return parseAmbientDeclaration();
     }
 
+    if (peekNamespaceDeclaration()) {
+      return parseNamespaceDeclaration(false);
+    }
+
     return parseSourceElement();
+  }
+
+  private ParseTree parseAmbientNamespaceElement() {
+    if (peekInterfaceDeclaration()) {
+      return parseInterfaceDeclaration();
+    }
+
+    if (peekExportDeclaration()) {
+      return parseExportDeclaration(true);
+    }
+
+    return parseAmbientDeclarationHelper();
   }
 
   // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-imports
@@ -420,11 +458,12 @@ public class Parser {
     [+NoReference] IdentifierName
     [+NoReference] IdentifierName as IdentifierName
    */
-  private ParseTree parseExportDeclaration() {
+  private ParseTree parseExportDeclaration(boolean isAmbient) {
     SourcePosition start = getTreeStartLocation();
     boolean isDefault = false;
     boolean isExportAll = false;
     boolean isExportSpecifier = false;
+    boolean needsSemiColon = true;
     eat(TokenType.EXPORT);
     ParseTree export = null;
     ImmutableList<ParseTree> exportSpecifierList = null;
@@ -434,25 +473,48 @@ public class Parser {
         nextToken();
         break;
       case FUNCTION:
-        export = parseFunctionDeclaration();
+        export = isAmbient ? parseAmbientFunctionDeclaration() : parseFunctionDeclaration();
+        needsSemiColon = isAmbient;
         break;
       case CLASS:
-        export = parseClassDeclaration(false);
+        export = parseClassDeclaration(isAmbient);
+        needsSemiColon = false;
+        break;
+      case INTERFACE:
+        export = parseInterfaceDeclaration();
+        needsSemiColon = false;
+        break;
+      case ENUM:
+        export = parseEnumDeclaration();
+        needsSemiColon = false;
+        break;
+      case MODULE:
+      case NAMESPACE:
+        export = parseNamespaceDeclaration(isAmbient);
+        needsSemiColon = false;
+        break;
+      case DECLARE:
+        export = parseAmbientDeclaration();
+        needsSemiColon = false;
         break;
       case DEFAULT:
         isDefault = true;
         nextToken();
         export = parseExpression();
+        needsSemiColon = false;
         break;
       case OPEN_CURLY:
         isExportSpecifier = true;
         exportSpecifierList = parseExportSpecifierSet();
         break;
+      case TYPE:
+        export = parseTypeAlias();
+        break;
       default: // unreachable, parse as a var decl to get a parse error.
       case VAR:
       case LET:
       case CONST:
-        export = parseVariableDeclarationList();
+        export = isAmbient ? parseAmbientVariableDeclarationList() : parseVariableDeclarationList();
         break;
     }
 
@@ -463,7 +525,9 @@ public class Parser {
       moduleSpecifier = eat(TokenType.STRING).asLiteral();
     }
 
-    eatPossibleImplicitSemiColon();
+    if (needsSemiColon || peekImplicitSemiColon()) {
+      eatPossibleImplicitSemiColon();
+    }
 
     return new ExportDeclarationTree(
         getTreeLocation(start), isDefault, isExportAll,
@@ -508,6 +572,11 @@ public class Parser {
 
   private boolean peekEnumDeclaration() {
     return peek(TokenType.ENUM);
+  }
+
+  private boolean peekNamespaceDeclaration() {
+    return (peek(TokenType.MODULE) || peek(TokenType.NAMESPACE))
+        && !peekImplicitSemiColon(1) && peek(1, TokenType.IDENTIFIER);
   }
 
   private ParseTree parseClassDeclaration(boolean isAmbient) {
@@ -837,6 +906,24 @@ public class Parser {
     return declaration;
   }
 
+  private NamespaceDeclarationTree parseNamespaceDeclaration(boolean isAmbient) {
+    SourcePosition start = getTreeStartLocation();
+    if (eatOpt(TokenType.MODULE) == null) { // Accept "module" or "namespace"
+      eat(TokenType.NAMESPACE);
+    }
+    NamespaceNameTree name = parseNamespaceName();
+    eat(TokenType.OPEN_CURLY);
+    ImmutableList<ParseTree> elements = isAmbient
+        ? parseAmbientNamespaceElements() : parseNamespaceElements();
+    eat(TokenType.CLOSE_CURLY);
+    return new NamespaceDeclarationTree(getTreeLocation(start), name, elements);
+  }
+
+  private NamespaceNameTree parseNamespaceName() {
+    SourcePosition start = getTreeStartLocation();
+    IdentifierToken token = eatId();
+    return new NamespaceNameTree(getTreeLocation(start), buildIdentifierPath(token));
+  }
 
   private ParseTree parseSourceElement() {
     if (peekFunction()) {
@@ -904,14 +991,30 @@ public class Parser {
     return new CallSignatureTree(getTreeLocation(start), isNew, generics, params, returnType);
   }
 
-  private boolean peekAmbientDeclaration() { // AmbientModuleDeclaration not supported
+  private boolean peekAmbientDeclaration() {
     return peek(TokenType.DECLARE) && !peekImplicitSemiColon(1)
         && (peek(1, TokenType.VAR)
          || peek(1, TokenType.LET)
          || peek(1, TokenType.CONST)
          || peek(1, TokenType.FUNCTION)
          || peek(1, TokenType.CLASS)
-         || peek(1, TokenType.ENUM));
+         || peek(1, TokenType.ENUM)
+         || peek(1, TokenType.MODULE)
+         || peek(1, TokenType.NAMESPACE));
+
+  }
+
+  private boolean peekAmbientNamespaceElement() {
+    return peek(TokenType.VAR)
+        || peek(TokenType.LET)
+        || peek(TokenType.CONST)
+        || peek(TokenType.FUNCTION)
+        || peek(TokenType.CLASS)
+        || peek(TokenType.INTERFACE)
+        || peek(TokenType.ENUM)
+        || peek(TokenType.MODULE)
+        || peek(TokenType.NAMESPACE)
+        || peek(TokenType.EXPORT);
   }
 
   private boolean peekFunction(int index) {
@@ -1249,11 +1352,14 @@ public class Parser {
   private TypeNameTree parseTypeName() {
     SourcePosition start = getTreeStartLocation();
     IdentifierToken token = eatIdOrKeywordAsId();  // for 'void'.
+    return new TypeNameTree(getTreeLocation(start), buildIdentifierPath(token));
+  }
 
+  private ImmutableList<String> buildIdentifierPath(IdentifierToken token) {
     ImmutableList.Builder<String> identifiers = ImmutableList.builder();
     identifiers.add(token != null ? token.value : "");  // null if errors while parsing
     while (peek(TokenType.PERIOD)) {
-      // ModuleName . Identifier
+      // Namespace . Identifier
       eat(TokenType.PERIOD);
       token = eatId();
       if (token == null) {
@@ -1261,7 +1367,7 @@ public class Parser {
       }
       identifiers.add(token.value);
     }
-    return new TypeNameTree(getTreeLocation(start), identifiers.build());
+    return identifiers.build();
   }
 
   private BlockTree parseFunctionBody() {
@@ -1374,6 +1480,8 @@ public class Parser {
     case IDENTIFIER:
     case TYPE:
     case DECLARE:
+    case MODULE:
+    case NAMESPACE:
     case THIS:
     case CLASS:
     case SUPER:
@@ -1438,8 +1546,20 @@ public class Parser {
     return parseVariableDeclarationList(Expression.NO_IN);
   }
 
+  private VariableDeclarationListTree parseAmbientVariableDeclarationList() {
+    VariableDeclarationListTree declare = parseVariableDeclarationList(Expression.NO_IN);
+    // AmbientVariebleDeclaration may not have initializer
+    for (VariableDeclarationTree tree : declare.asVariableDeclarationList().declarations) {
+      if (tree.initializer != null) {
+        reportError("Ambient variable declaration may not have initializer");
+      }
+    }
+    return declare;
+  }
+
   private VariableDeclarationListTree parseVariableDeclarationList(
       Expression expressionIn) {
+    SourcePosition start = getTreeStartLocation();
     TokenType token = peekType();
 
     switch (token) {
@@ -1453,7 +1573,6 @@ public class Parser {
       return null;
     }
 
-    SourcePosition start = getTreeStartLocation();
     ImmutableList.Builder<VariableDeclarationTree> declarations =
         ImmutableList.builder();
 
@@ -1896,6 +2015,8 @@ public class Parser {
     case IDENTIFIER:
     case TYPE:
     case DECLARE:
+    case MODULE:
+    case NAMESPACE:
       return parseIdentifierExpression();
     case NUMBER:
     case STRING:
@@ -2399,6 +2520,8 @@ public class Parser {
       case IDENTIFIER:
       case TYPE:
       case DECLARE:
+      case MODULE:
+      case NAMESPACE:
       case MINUS:
       case MINUS_MINUS:
       case NEW:
@@ -3174,10 +3297,16 @@ public class Parser {
   private ParseTree parseAmbientDeclaration() {
     SourcePosition start = getTreeStartLocation();
     eat(TokenType.DECLARE);
+    ParseTree declare = parseAmbientDeclarationHelper();
+    return new AmbientDeclarationTree(getTreeLocation(start), declare);
+  }
+
+  private ParseTree parseAmbientDeclarationHelper() {
     ParseTree declare;
     switch (peekType()) {
       case FUNCTION:
         declare = parseAmbientFunctionDeclaration();
+        eatPossibleImplicitSemiColon();
         break;
       case CLASS:
         declare = parseClassDeclaration(true);
@@ -3185,22 +3314,20 @@ public class Parser {
       case ENUM:
         declare = parseEnumDeclaration();
         break;
+      case MODULE:
+      case NAMESPACE:
+        declare = parseNamespaceDeclaration(true);
+        break;
       default: // unreachable, parse as a var decl to get a parse error.
       case VAR:
       case LET:
       case CONST:
-        declare = parseVariableDeclarationListNoIn();
-        // AmbientVariebleDeclaration may not have initializer
-        for (VariableDeclarationTree tree : declare.asVariableDeclarationList().declarations) {
-          if (tree.initializer != null) {
-            reportError("Ambient variable declaration may not have initializer");
-          }
-        }
+        declare = parseAmbientVariableDeclarationList();
+        eatPossibleImplicitSemiColon();
         break;
     }
 
-    eatPossibleImplicitSemiColon();
-    return new AmbientDeclarationTree(getTreeLocation(start), declare);
+    return declare;
   }
 
   /**
@@ -3278,7 +3405,13 @@ public class Parser {
 
   private boolean peekId(int index) {
     TokenType type = peekType(index);
-    return type == TokenType.IDENTIFIER || type == TokenType.TYPE || type == TokenType.DECLARE
+    return EnumSet.of(
+        TokenType.IDENTIFIER,
+        TokenType.TYPE,
+        TokenType.DECLARE,
+        TokenType.MODULE,
+        TokenType.NAMESPACE)
+            .contains(type)
         || (!inStrictContext() && Keywords.isStrictKeyword(type));
   }
 

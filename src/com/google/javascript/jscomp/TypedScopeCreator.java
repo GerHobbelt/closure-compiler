@@ -1350,7 +1350,7 @@ final class TypedScopeCreator implements ScopeCreator {
             return createEnumTypeFromNodes(
                 rValue, lValue.getQualifiedName(), info, lValue);
           }
-        } else if (info.isConstructor() || info.isInterface()) {
+        } else if (info.isConstructorOrInterface()) {
           return createFunctionTypeFromNodes(
               rValue, lValue.getQualifiedName(), info, lValue);
         }
@@ -1516,10 +1516,8 @@ final class TypedScopeCreator implements ScopeCreator {
           FunctionType functionType = objectType.getConstructor();
 
           if (functionType != null) {
-            FunctionType getterType =
-                typeRegistry.createFunctionType(objectType);
-            codingConvention.applySingletonGetter(functionType, getterType,
-                objectType);
+            FunctionType getterType = typeRegistry.createFunctionType(objectType);
+            codingConvention.applySingletonGetterOld(functionType, getterType, objectType);
           }
         }
       }
@@ -2147,14 +2145,6 @@ final class TypedScopeCreator implements ScopeCreator {
 
     @Override public void visit(NodeTraversal t, Node n, Node parent) {
       if (t.inGlobalScope()) {
-        return;
-      }
-
-      if (n.isReturn() && n.getFirstChild() != null) {
-        data.get(t.getScopeRoot()).recordNonEmptyReturn();
-      }
-
-      if (t.getScopeDepth() <= 1) {
         // The first-order function analyzer looks at two types of variables:
         //
         // 1) Local variables that are assigned in inner scopes ("escaped vars")
@@ -2164,6 +2154,10 @@ final class TypedScopeCreator implements ScopeCreator {
         // We treat all global variables as escaped by default, so there's
         // no reason to do this extra computation for them.
         return;
+      }
+
+      if (n.isReturn() && n.getFirstChild() != null) {
+        data.get(t.getScopeRoot()).recordNonEmptyReturn();
       }
 
       if (n.isName() && NodeUtil.isLValue(n) &&

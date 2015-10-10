@@ -96,13 +96,13 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
 
   @Override
   public void process(Node externs, Node root) {
-    NodeTraversal.traverse(compiler, externs, this);
-    NodeTraversal.traverse(compiler, root, this);
+    NodeTraversal.traverseEs6(compiler, externs, this);
+    NodeTraversal.traverseEs6(compiler, root, this);
   }
 
   @Override
   public void hotSwapScript(Node scriptRoot, Node originalRoot) {
-    NodeTraversal.traverse(compiler, scriptRoot, this);
+    NodeTraversal.traverseEs6(compiler, scriptRoot, this);
   }
 
   /**
@@ -150,15 +150,6 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
         visitStringKey(n);
         break;
       case Token.CLASS:
-        for (Node member = n.getLastChild().getFirstChild();
-            member != null;
-            member = member.getNext()) {
-          if (member.getBooleanProp(Node.COMPUTED_PROP_GETTER)
-              || member.getBooleanProp(Node.COMPUTED_PROP_SETTER)) {
-            cannotConvert(member, "computed getter or setter in class definition");
-            return;
-          }
-        }
         visitClass(n, parent);
         break;
       case Token.ARRAYLIT:
@@ -199,7 +190,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
   private void visitStringKey(Node n) {
     if (!n.hasChildren()) {
       Node name = IR.name(n.getString());
-      name.copyInformationFrom(n);
+      name.useSourceInfoIfMissingFrom(n);
       n.addChildToBack(name);
       compiler.reportCodeChange();
     }
@@ -264,7 +255,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
       return;
     }
     CheckClassAssignments checkAssigns = new CheckClassAssignments(name);
-    NodeTraversal.traverse(compiler, enclosingFunction, checkAssigns);
+    NodeTraversal.traverseEs6(compiler, enclosingFunction, checkAssigns);
   }
 
   /**
@@ -315,7 +306,8 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
           typeNode.getType() == Token.ELLIPSIS
               ? typeNode.getFirstChild().cloneNode()
               : typeNode.cloneNode();
-      arrayType.addChildToFront(new Node(Token.BLOCK, memberType).copyInformationFrom(typeNode));
+      arrayType.addChildToFront(
+          new Node(Token.BLOCK, memberType).useSourceInfoIfMissingFrom(typeNode));
       JSDocInfoBuilder builder = new JSDocInfoBuilder(false);
       builder.recordType(
           new JSTypeExpression(new Node(Token.BANG, arrayType), restParam.getSourceFileName()));
@@ -443,7 +435,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
             result);
       } else {
         if (!propdef.hasChildren()) {
-          Node name = IR.name(propdef.getString()).copyInformationFrom(propdef);
+          Node name = IR.name(propdef.getString()).useSourceInfoIfMissingFrom(propdef);
           propdef.addChildToBack(name);
         }
         Node val = propdef.removeFirstChild();
@@ -515,7 +507,11 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
               || (member.isComputedProp() && !member.getBooleanProp(Node.COMPUTED_PROP_VARIABLE)),
           "Member variables should have been transpiled earlier: ", member);
 
-      if (member.isGetterDef() || member.isSetterDef()) {
+      if (member.isComputedProp()
+          && (member.getBooleanProp(Node.COMPUTED_PROP_GETTER)
+              || member.getBooleanProp(Node.COMPUTED_PROP_SETTER))) {
+        cannotConvertYet(member, "computed getter or setter in classes");
+      } else if (member.isGetterDef() || member.isSetterDef()) {
         JSTypeExpression typeExpr = getTypeFromGetterOrSetter(member).clone();
         addToDefinePropertiesObject(metadata, member);
 
@@ -530,6 +526,9 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
           jsDoc.recordType(typeExpr);
           if (member.getJSDocInfo() != null && member.getJSDocInfo().isExport()) {
             jsDoc.recordExport();
+          }
+          if (member.isStaticMember()) {
+            jsDoc.recordNoCollapse();
           }
           membersToDeclare.put(member.getString(), jsDoc.build());
         }
@@ -834,7 +833,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
       // If this is a class statement, or a class expression in a simple
       // assignment or var statement, convert it. In any other case, the
       // code is too dynamic, so return null.
-      if (NodeUtil.isStatement(classNode)) {
+      if (NodeUtil.isClassDeclaration(classNode)) {
         return new ClassDeclarationMetadata(classNode, classNameNode.getString(), false,
             classNameNode, superClassNameNode);
       } else if (parent.isAssign() && parent.getParent().isExprResult()) {

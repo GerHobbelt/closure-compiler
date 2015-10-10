@@ -133,8 +133,8 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
             new Es6ConvertSuper(compiler)));
     passes.add(makePassFactory("convertEs6",
             new Es6ToEs3Converter(compiler)));
-    passes.add(makePassFactory("Es6RewriteLetConst",
-            new Es6RewriteLetConst(compiler)));
+    passes.add(makePassFactory("Es6RewriteBlockScopedDeclaration",
+            new Es6RewriteBlockScopedDeclaration(compiler)));
     passes.add(makePassFactory("rewriteGenerators",
             new Es6RewriteGenerators(compiler)));
     passes.add(makePassFactory("Es6RuntimeLibrary",
@@ -143,7 +143,7 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
             new Es6ToEs3ClassSideInheritance(compiler)));
   }
 
-  protected final void parseAndTypeCheck(String externs, String js) {
+  private final void parseAndTypeCheck(String externs, String js) {
     setUp();
     final CompilerOptions options = compiler.getOptions();
     options.setClosurePass(true);
@@ -179,8 +179,7 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
     GlobalTypeInfo symbolTable = new GlobalTypeInfo(compiler);
     passes.add(makePassFactory("GlobalTypeInfo", symbolTable));
     compiler.setSymbolTable(symbolTable);
-    passes.add(makePassFactory("NewTypeInference",
-            new NewTypeInference(compiler, options.closurePass)));
+    passes.add(makePassFactory("NewTypeInference", new NewTypeInference(compiler)));
 
     PhaseOptimizer phaseopt = new PhaseOptimizer(compiler, null, null);
     phaseopt.consume(passes);
@@ -208,7 +207,7 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
         + "================================================================\n"
         + "but found:\n"
         + "----------------------------------------------------------------\n"
-        + Arrays.toString(warnings) + "\n"
+        + Arrays.toString(errors) + Arrays.toString(warnings) + "\n"
         + "----------------------------------------------------------------\n";
     assertEquals(
         errorMessage + "Warning count", warningKinds.length, warnings.length + errors.length);

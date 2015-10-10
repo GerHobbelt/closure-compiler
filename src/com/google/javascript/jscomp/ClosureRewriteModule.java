@@ -78,6 +78,11 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
           "JSC_GOOG_MODULE_INVALID_GET_CALL_SCOPE",
           "goog.module.get can not be called in global scope.");
 
+  static final DiagnosticType INVALID_GET_ALIAS =
+      DiagnosticType.error(
+          "JSC_GOOG_MODULE_INVALID_GET_ALIAS",
+          "goog.module.get should not be aliased.");
+
   private final AbstractCompiler compiler;
 
   private class ModuleDescription {
@@ -123,7 +128,7 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
 
   @Override
   public void hotSwapScript(Node scriptRoot, Node originalRoot) {
-    NodeTraversal.traverse(compiler, scriptRoot, this);
+    NodeTraversal.traverseEs6(compiler, scriptRoot, this);
   }
 
   @Override
@@ -143,6 +148,11 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
         case Token.BLOCK:
           if (current.moduleScopeRoot == parent && parent.isFunction()) {
             current.moduleScope = t.getScope();
+          }
+          break;
+        case Token.ASSIGN:
+          if (isGetModuleCallAlias(n)) {
+            rewriteGetModuleCallAlias(t, n);
           }
           break;
         default:
@@ -189,6 +199,46 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
     compiler.reportCodeChange();
   }
 
+  private void rewriteGetModuleCallAlias(NodeTraversal t, Node n) {
+    // x = goog.module.get('a.namespace');
+    Preconditions.checkArgument(NodeUtil.isExprAssign(n.getParent()));
+    Preconditions.checkArgument(n.getFirstChild().isName());
+    Preconditions.checkArgument(isGetModuleCall(n.getLastChild()));
+
+    rewriteGetModuleCall(t, n.getLastChild());
+
+    String aliasName = n.getFirstChild().getQualifiedName();
+    Var alias = t.getScope().getVar(aliasName);
+    if (alias == null) {
+      t.report(n, INVALID_GET_ALIAS);
+      return;
+    }
+    // Only rewrite if original definition was of the form:
+    //   let x = goog.forwardDeclare('a.namespace');
+    Node forwardDeclareCall = NodeUtil.getRValueOfLValue(alias.getNode());
+    if (forwardDeclareCall == null
+        || !isCallTo(forwardDeclareCall, "goog.forwardDeclare")
+        || forwardDeclareCall.getChildCount() != 2) {
+      t.report(n, INVALID_GET_ALIAS);
+      return;
+    }
+    Node argument = forwardDeclareCall.getLastChild();
+    if (!argument.isString() || !n.getLastChild().matchesQualifiedName(argument.getString())) {
+      t.report(n, INVALID_GET_ALIAS);
+      return;
+    }
+
+    Node replacement = NodeUtil.newQName(compiler, argument.getString());
+    replacement.srcrefTree(forwardDeclareCall);
+
+    // Rewrite goog.forwardDeclare
+    forwardDeclareCall.getParent().replaceChild(forwardDeclareCall, replacement);
+    // and remove goog.module.get
+    n.getParent().detachFromParent();
+
+    compiler.reportCodeChange();
+  }
+
 
   private static boolean isModuleFile(Node n) {
     return n.isScript() && n.hasChildren()
@@ -209,6 +259,11 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
       return (target.matchesQualifiedName("goog.module"));
     }
     return false;
+  }
+
+  private static boolean isGetModuleCallAlias(Node n) {
+    return NodeUtil.isExprAssign(n.getParent())
+        && n.getFirstChild().isName() && isGetModuleCall(n.getLastChild());
   }
 
   /**
@@ -329,7 +384,7 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
     // "goog.defineClass" hasn't been rewritten yet, so check for that
     // explicitly.
     JSDocInfo info = target.getJSDocInfo();
-    if ((info != null && (info.isConstructor() || info.isInterface())
+    if ((info != null && info.isConstructorOrInterface()
         || isCallTo(value, "goog.defineClass"))) {
       return;
     }
@@ -492,7 +547,7 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
       return;
     }
 
-    new NodeTraversal(compiler, new AbstractPostOrderCallback() {
+    NodeTraversal.traverseEs6(compiler, s.getRootNode(), new AbstractPostOrderCallback() {
       @Override
       public void visit(NodeTraversal t, Node n, Node parent) {
         if (n.isName()) {
@@ -502,17 +557,14 @@ final class ClosureRewriteModule implements NodeTraversal.Callback, HotSwapCompi
           }
         }
       }
-    }).traverseAtScope(s);
+    });
   }
 
   private Node getModuleScopeRootForLoadModuleCall(Node n) {
     Preconditions.checkState(n.isCall());
     Node fn = n.getLastChild();
     Preconditions.checkState(fn.isFunction());
-    if (compiler.getLanguageMode().isEs6OrHigher()) {
-      return fn.getLastChild();
-    }
-    return fn;
+    return fn.getLastChild();
   }
 
   private Node getModuleStatementRootForLoadModuleCall(Node n) {

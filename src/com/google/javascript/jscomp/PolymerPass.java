@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.GlobalNamespace.Name;
 import com.google.javascript.jscomp.GlobalNamespace.Ref;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
+import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
@@ -110,7 +111,7 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
   @Override
   public void process(Node externs, Node root) {
     FindPolymerExterns externsCallback = new FindPolymerExterns();
-    NodeTraversal.traverse(compiler, externs, externsCallback);
+    NodeTraversal.traverseEs6(compiler, externs, externsCallback);
     polymerElementExterns = externsCallback.polymerElementExterns;
     polymerElementProps = externsCallback.getpolymerElementProps();
 
@@ -159,6 +160,7 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
      */
     private boolean isPolymerElementPropExpr(Node value) {
       return value != null && value.isExprResult()
+          && value.getFirstChild().getFirstChild() != null
           && value.getFirstChild().getFirstChild().isGetProp()
           && NodeUtil.getRootOfQualifiedName(
               value.getFirstChild().getFirstChild()).matchesQualifiedName(POLYMER_ELEMENT_NAME);
@@ -269,9 +271,9 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
 
   @Override
   public void hotSwapScript(Node scriptRoot, Node originalRoot) {
-    NodeTraversal.traverse(compiler, scriptRoot, this);
+    NodeTraversal.traverseEs6(compiler, scriptRoot, this);
     SuppressBehaviors suppressBehaviorsCallback = new SuppressBehaviors(compiler);
-    NodeTraversal.traverse(compiler, scriptRoot, suppressBehaviorsCallback);
+    NodeTraversal.traverseEs6(compiler, scriptRoot, suppressBehaviorsCallback);
   }
 
   @Override
@@ -947,6 +949,8 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
       block.addChildToBack(newProp);
     }
 
+    block.useSourceInfoIfMissingFromForTree(polymerElementExterns);
+
     Node parent = polymerElementExterns.getParent();
     Node stmts = block.removeChildren();
     parent.addChildrenAfter(stmts, polymerElementExterns);
@@ -987,6 +991,8 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
 
       block.addChildToBack(setterExprNode);
     }
+
+    block.useSourceInfoIfMissingFromForTree(polymerElementExterns);
 
     Node parent = polymerElementExterns.getParent();
     Node stmts = block.removeChildren();
@@ -1035,7 +1041,7 @@ final class PolymerPass extends AbstractPostOrderCallback implements HotSwapComp
    * @return The PolymerElement type string for a class definition.
    */
   private static String getPolymerElementType(final ClassDefinition cls) {
-    return String.format("Polymer%sElement", cls.nativeBaseElement == null ? ""
+    return SimpleFormat.format("Polymer%sElement", cls.nativeBaseElement == null ? ""
         : CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, cls.nativeBaseElement));
   }
 

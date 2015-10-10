@@ -112,6 +112,54 @@ public final class IntegrationTest extends IntegrationTestCase {
         "(function() {})('goog.CONSTANT', 1);");
   }
 
+  /**
+   * Tests that calls to goog.string.Const.from() with non-constant arguments
+   * are detected with and without collapsed properties.
+   */
+  public void testBug22684459() {
+    String source =
+        ""
+            + "var goog = {};"
+            + "goog.string = {};"
+            + "goog.string.Const = {};"
+            + "goog.string.Const.from = function(x) {};"
+            + "var x = window.document.location;"
+            + "goog.string.Const.from(x);";
+
+    // Without collapsed properties.
+    CompilerOptions options = createCompilerOptions();
+    test(options, source, ConstParamCheck.CONST_NOT_ASSIGNED_STRING_LITERAL_ERROR);
+
+    // With collapsed properties.
+    options.setCollapseProperties(true);
+    test(options, source, ConstParamCheck.CONST_NOT_ASSIGNED_STRING_LITERAL_ERROR);
+  }
+
+  /**
+   * Tests that calls to goog.string.Const.from() with non-constant arguments
+   * are detected with and without collapsed properties, even when
+   * goog.string.Const.from has been aliased.
+   */
+  public void testBug22684459_aliased() {
+    String source =
+        ""
+            + "var goog = {};"
+            + "goog.string = {};"
+            + "goog.string.Const = {};"
+            + "goog.string.Const.from = function(x) {};"
+            + "var mkConst = goog.string.Const.from;"
+            + "var x = window.document.location;"
+            + "mkConst(x);";
+
+    // Without collapsed properties.
+    CompilerOptions options = createCompilerOptions();
+    test(options, source, ConstParamCheck.CONST_NOT_ASSIGNED_STRING_LITERAL_ERROR);
+
+    // With collapsed properties.
+    options.setCollapseProperties(true);
+    test(options, source, ConstParamCheck.CONST_NOT_ASSIGNED_STRING_LITERAL_ERROR);
+  }
+
   public void testBug2410122() {
     CompilerOptions options = createCompilerOptions();
     options.setGenerateExports(true);
@@ -158,6 +206,27 @@ public final class IntegrationTest extends IntegrationTestCase {
          "(new ClassB).fn(3);\n" +
          "",
          TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
+  public void testForwardDeclaredTypeInTemplate() {
+    CompilerOptions options = createCompilerOptions();
+    WarningLevel.VERBOSE.setOptionsForWarningLevel(options);
+    options.setClosurePass(true);
+    options.setWarningLevel(DiagnosticGroups.LINT_CHECKS, CheckLevel.WARNING);
+
+    test(
+        options,
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "goog.forwardDeclare = function(typeName) {};",
+            "goog.forwardDeclare('fwd.declared.Type');",
+            "",
+            "/** @type {!fwd.declared.Type<string>} */",
+            "var x;",
+            "",
+            "/** @type {!fwd.declared.Type<string, number>} */",
+            "var y;"),
+        "var goog={};goog.forwardDeclare=function(typeName){};var x;var y");
   }
 
   public void testIssue90() {
@@ -1371,6 +1440,18 @@ public final class IntegrationTest extends IntegrationTestCase {
         });
   }
 
+  public void testCrossModuleDepCheck() {
+    CompilerOptions options = createCompilerOptions();
+    String[] code = new String[] {
+      "var goog = {}; new goog.Foo();",
+      "/** @constructor */ goog.Foo = function() {};",
+    };
+    testSame(options, code);
+
+    WarningLevel.VERBOSE.setOptionsForWarningLevel(options);
+    test(options, code, code, CheckGlobalNames.STRICT_MODULE_DEP_QNAME);
+  }
+
   public void testFlowSensitiveInlineVariables1() {
     CompilerOptions options = createCompilerOptions();
     String code = "function f() { var x = 3; x = 5; return x; }";
@@ -1598,18 +1679,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     testSame(options, code);
 
     options.setAliasAllStrings(true);
-    test(options, code, expected);
-  }
-
-  public void testAliasExterns() {
-    CompilerOptions options = createCompilerOptions();
-    String code = "function f() { return window + window + window + window; }";
-    String expected = "var GLOBAL_window = window;" +
-        "function f() { return GLOBAL_window + GLOBAL_window + " +
-        "               GLOBAL_window + GLOBAL_window; }";
-    testSame(options, code);
-
-    options.setAliasExternals(true);
     test(options, code, expected);
   }
 
@@ -1901,7 +1970,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     // are de-duped before that happens.
     CompilerOptions options = createCompilerOptions();
 
-    options.setAliasExternals(true);
     externs = ImmutableList.of(SourceFile.fromCode("externs", "extern.foo"));
 
     test(options,
@@ -2615,7 +2683,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS
         .setOptionsForCompilationLevel(options);
-    options.setAliasExternals(true);
     String code =
         "window.offsetWidth;";
     String result =
@@ -3148,22 +3215,6 @@ public final class IntegrationTest extends IntegrationTestCase {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
     } catch (CompilerOptionsPreprocessor.InvalidOptionsException expected) {}
-  }
-
-  public void testManyAdds() {
-    CompilerOptions options = createCompilerOptions();
-    CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
-    level.setOptionsForCompilationLevel(options);
-    WarningLevel warnings = WarningLevel.VERBOSE;
-    warnings.setOptionsForWarningLevel(options);
-
-    int numAdds = 4000;
-    StringBuilder original = new StringBuilder("var x = 0");
-    for (int i = 0; i < numAdds; i++) {
-      original.append(" + 1");
-    }
-    original.append(";");
-    test(options, original.toString(), "var x = " + numAdds + ";");
   }
 
   // isEquivalentTo returns false for alpha-equivalent nodes

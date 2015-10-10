@@ -126,6 +126,30 @@ public final class ClosureRewriteClassTest extends CompilerTestCase {
         + "var x = function() {};");
   }
 
+  public void testLet() {
+    testRewrite(
+        "let x = goog.defineClass(null, {\n"
+        + "  constructor: function(){}\n"
+        + "});",
+
+        "/** @constructor @struct */"
+        + "let x = function() {};",
+
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testConst() {
+    testRewrite(
+        "const x = goog.defineClass(null, {\n"
+        + "  constructor: function(){}\n"
+        + "});",
+
+        "/** @constructor @struct */"
+        + "const x = function() {};",
+
+        LanguageMode.ECMASCRIPT6);
+  }
+
   public void testAnnotations1() {
     // verify goog.defineClass values are constructible, by default
     enableTypeCheck(CheckLevel.WARNING);
@@ -432,6 +456,33 @@ public final class ClosureRewriteClassTest extends CompilerTestCase {
         "/** @ngInject @constructor @struct */\n"
         + "var x = function(x, y) {};",
         GOOG_CLASS_NG_INJECT_ON_CLASS);
+  }
+
+  // The two following tests are just to make sure that these functionalities in
+  // Es6 does not break the compiler during this pass
+
+  public void testDestructParamOnFunction() {
+    testRewrite(
+        LINE_JOINER.join(
+            "var FancyClass = goog.defineClass(null, {",
+            "  constructor: function({a, b, c}) {}",
+            "});"),
+        LINE_JOINER.join(
+            "/** @constructor @struct */",
+            "var FancyClass = function({a, b, c}) {};"),
+        LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testDefaultParamOnFunction() {
+    testRewrite(
+        LINE_JOINER.join(
+            "var FancyClass = goog.defineClass(null, {",
+            "  constructor: function(a = 1) {}",
+            "});"),
+        LINE_JOINER.join(
+            "/** @constructor @struct */",
+            "var FancyClass = function(a = 1) {};"),
+        LanguageMode.ECMASCRIPT6);
   }
 
   public void testExtendedObjLitMethodDefinition1() {

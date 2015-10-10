@@ -101,6 +101,9 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
 
       // Since we create a separate scope for body, stop scanning here
     } else if (n.isBlock() || n.isFor() || n.isForOf()) {
+      if (scope.getParent() != null) {
+        inputId = NodeUtil.getInputId(n);
+      }
       scanVars(n);
     } else {
       // It's the global block
@@ -124,7 +127,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
       declareLHS(declarationScope, lhs.getFirstChild());
     } else if (lhs.isArrayPattern() || lhs.isObjectPattern()) {
       for (Node child = lhs.getFirstChild(); child != null; child = child.getNext()) {
-        if (NodeUtil.isNameDeclaration(lhs.getParent()) && child.getNext() == null) {
+        if (NodeUtil.isNameDeclaration(lhs.getParent()) && child.getNext() == null
+            && !lhs.getParent().getParent().isForOf()) {
           // If the pattern is a direct child of the var/let/const node,
           // then its last child is the RHS of the assignment, not a variable to
           // be declared.
@@ -196,6 +200,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         if (isNodeAtCurrentLexicalScope(n)) {
           declareLHS(scope, exception);
         }
+        // A new scope is not created for this BLOCK because there is a scope
+        // created for the BLOCK above the CATCH
         scanVars(block);
         return;  // only one child to scan
 

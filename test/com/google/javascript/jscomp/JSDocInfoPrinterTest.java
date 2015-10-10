@@ -152,6 +152,16 @@ public final class JSDocInfoPrinterTest extends TestCase {
     assertEquals(
         "/**@enum {{foo:(number|string)}} */", JSDocInfoPrinter.print(info));
 
+    // Nullable/non-nullable types.
+    builder.recordType(new JSTypeExpression(
+        JsDocInfoParser.parseTypeString("?Object"), ""));
+    info = builder.buildAndReset();
+    assertEquals("/**@type {?Object} */", JSDocInfoPrinter.print(info));
+    builder.recordType(new JSTypeExpression(
+        JsDocInfoParser.parseTypeString("!Object"), ""));
+    info = builder.buildAndReset();
+    assertEquals("/**@type {!Object} */", JSDocInfoPrinter.print(info));
+
     // Array types
     builder.recordType(new JSTypeExpression(
         JsDocInfoParser.parseTypeString("!Array<(number|string)>"), ""));
@@ -206,6 +216,17 @@ public final class JSDocInfoPrinterTest extends TestCase {
         new JSTypeExpression(JsDocInfoParser.parseTypeString("Bar.Baz"), ""));
     info = builder.buildAndReset();
     assertEquals("/**@extends {Foo} @implements {Bar} @implements {Bar.Baz} */",
+        JSDocInfoPrinter.print(info));
+  }
+
+  public void testInterfaceInheritance() {
+    builder.recordInterface();
+    builder.recordExtendedInterface(
+        new JSTypeExpression(JsDocInfoParser.parseTypeString("Foo"), ""));
+     builder.recordExtendedInterface(
+        new JSTypeExpression(JsDocInfoParser.parseTypeString("Bar"), ""));
+    JSDocInfo info = builder.buildAndReset();
+    assertEquals("/**@interface @extends {Foo} @extends {Bar} */",
         JSDocInfoPrinter.print(info));
   }
 

@@ -131,6 +131,16 @@ public final class JSDocInfoPrinter {
       }
       sb.append("} ");
     }
+    for (JSTypeExpression type : info.getExtendedInterfaces()) {
+      sb.append("@extends {");
+      Node typeNode = type.getRoot();
+      if (typeNode.getType() == Token.BANG) {
+        appendTypeNode(sb, typeNode.getFirstChild());
+      } else {
+        appendTypeNode(sb, typeNode);
+      }
+      sb.append("} ");
+    }
     for (JSTypeExpression type : info.getImplementedInterfaces()) {
       sb.append("@implements {");
       Node typeNode = type.getRoot();
@@ -195,6 +205,9 @@ public final class JSDocInfoPrinter {
       sb.append("*");
     } else if (typeNode.getType() == Token.QMARK) {
       sb.append("?");
+      if (typeNode.hasChildren()) {
+        appendTypeNode(sb, typeNode.getFirstChild());
+      }
     } else if (typeNode.isFunction()) {
       appendFunctionNode(sb, typeNode);
     } else if (typeNode.getType() == Token.LC) {

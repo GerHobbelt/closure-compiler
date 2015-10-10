@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-
 /**
  * Flattens global objects/namespaces by replacing each '.' with '$' in
  * their names. This reduces the number of property lookups the browser has
@@ -230,7 +229,7 @@ class CollapseProperties implements CompilerPass {
         return false;
       }
       name = namespace.getSlot(lvalue.getQualifiedName());
-      if (name != null && isInlinableGlobalAlias(name)) {
+      if (name != null && name.isInlinableGlobalAlias()) {
         Set<AstChange> newNodes = new LinkedHashSet<>();
 
         List<Ref> refs = new ArrayList<>(name.getRefs());
@@ -308,35 +307,6 @@ class CollapseProperties implements CompilerPass {
         newNodes.add(new AstChange(ref.module, ref.scope, ref.node));
       }
     }
-  }
-
-  private static boolean isInlinableGlobalAlias(Name name) {
-    // Only simple aliases with direct usage are inlinable.
-    if (name.inExterns || name.globalSets != 1 || name.localSets != 0
-        || !name.canCollapse()) {
-      return false;
-    }
-
-    // Only allow inlining of simple references.
-    for (Ref ref : name.getRefs()) {
-      switch (ref.type) {
-        case SET_FROM_GLOBAL:
-          // Expect one global set
-          continue;
-        case SET_FROM_LOCAL:
-          throw new IllegalStateException();
-        case ALIASING_GET:
-        case DIRECT_GET:
-          continue;
-        case PROTOTYPE_GET:
-        case CALL_GET:
-        case DELETE_PROP:
-          return false;
-        default:
-          throw new IllegalStateException();
-      }
-    }
-    return true;
   }
 
   private boolean inlineAliasIfPossible(
@@ -521,7 +491,7 @@ class CollapseProperties implements CompilerPass {
 
       if (p.canCollapse()) {
         flattenReferencesTo(p, propAlias);
-      } else if (p.isSimpleStubDeclaration()) {
+      } else if (p.isSimpleStubDeclaration() && !p.isCollapsingExplicitlyDenied()) {
         flattenSimpleStubDeclaration(p, propAlias);
       }
 
@@ -538,12 +508,12 @@ class CollapseProperties implements CompilerPass {
     Node nameNode = NodeUtil.newName(
         compiler, alias, ref.node,
         name.getFullName());
-    Node varNode = IR.var(nameNode).copyInformationFrom(nameNode);
+    Node varNode = IR.var(nameNode).useSourceInfoIfMissingFrom(nameNode);
 
     Preconditions.checkState(ref.node.getParent().isExprResult());
     Node parent = ref.node.getParent();
-    Node gramps = parent.getParent();
-    gramps.replaceChild(parent, varNode);
+    Node grandparent = parent.getParent();
+    grandparent.replaceChild(parent, varNode);
     compiler.reportCodeChange();
   }
 
@@ -737,19 +707,19 @@ class CollapseProperties implements CompilerPass {
   private void updateSimpleDeclaration(String alias, Name refName, Ref ref) {
     Node rvalue = ref.node.getNext();
     Node parent = ref.node.getParent();
-    Node gramps = parent.getParent();
-    Node greatGramps = gramps.getParent();
+    Node grandparent = parent.getParent();
+    Node greatGrandparent = grandparent.getParent();
 
     if (rvalue != null && rvalue.isFunction()) {
       checkForHosedThisReferences(rvalue, refName.docInfo, refName);
     }
 
     // Create the new alias node.
-    Node nameNode = NodeUtil.newName(compiler, alias, gramps.getFirstChild(),
+    Node nameNode = NodeUtil.newName(compiler, alias, grandparent.getFirstChild(),
         refName.getFullName());
     NodeUtil.copyNameAnnotations(ref.node.getLastChild(), nameNode);
 
-    if (gramps.isExprResult()) {
+    if (grandparent.isExprResult()) {
       // BEFORE: a.b.c = ...;
       //   exprstmt
       //     assign
@@ -769,7 +739,7 @@ class CollapseProperties implements CompilerPass {
       nameNode.addChildToFront(rvalue);
 
       Node varNode = IR.var(nameNode);
-      greatGramps.replaceChild(gramps, varNode);
+      greatGrandparent.replaceChild(grandparent, varNode);
     } else {
       // This must be a complex assignment.
       Preconditions.checkNotNull(ref.getTwin());
@@ -781,8 +751,8 @@ class CollapseProperties implements CompilerPass {
       // var x$y;
       // ... (x$y = 3);
 
-      Node current = gramps;
-      Node currentParent = gramps.getParent();
+      Node current = grandparent;
+      Node currentParent = grandparent.getParent();
       for (; !currentParent.isScript() &&
              !currentParent.isBlock();
            current = currentParent,
@@ -791,7 +761,7 @@ class CollapseProperties implements CompilerPass {
       // Create a stub variable declaration right
       // before the current statement.
       Node stubVar = IR.var(nameNode.cloneTree())
-          .copyInformationFrom(nameNode);
+          .useSourceInfoIfMissingFrom(nameNode);
       currentParent.addChildBefore(stubVar, current);
 
       parent.replaceChild(ref.node, nameNode);
@@ -866,13 +836,13 @@ class CollapseProperties implements CompilerPass {
     Node rvalue = ref.node.getNext();
     Node varNode = new Node(Token.VAR);
     Node varParent = ref.node.getAncestor(3);
-    Node gramps = ref.node.getAncestor(2);
+    Node grandparent = ref.node.getAncestor(2);
     boolean isObjLit = rvalue.isObjectLit();
     boolean insertedVarNode = false;
 
     if (isObjLit && n.canEliminate()) {
       // Eliminate the object literal altogether.
-      varParent.replaceChild(gramps, varNode);
+      varParent.replaceChild(grandparent, varNode);
       ref.node = null;
       insertedVarNode = true;
 
@@ -898,7 +868,7 @@ class CollapseProperties implements CompilerPass {
       }
       varNode.addChildToBack(nameNode);
       nameNode.addChildToFront(rvalue);
-      varParent.replaceChild(gramps, varNode);
+      varParent.replaceChild(grandparent, varNode);
 
       // Update the node ancestry stored in the reference.
       ref.node = nameNode;
@@ -933,7 +903,7 @@ class CollapseProperties implements CompilerPass {
     // "this", it must be a constructor or documented with @this.
     if (docInfo == null ||
         (!docInfo.isConstructor() && !docInfo.hasThisType())) {
-      NodeTraversal.traverse(compiler, function.getLastChild(),
+      NodeTraversal.traverseEs6(compiler, function.getLastChild(),
           new NodeTraversal.AbstractShallowCallback() {
             @Override
             public void visit(NodeTraversal t, Node n, Node parent) {
@@ -963,23 +933,23 @@ class CollapseProperties implements CompilerPass {
     String name = ref.node.getString();
     Node rvalue = ref.node.getFirstChild();
     Node varNode = ref.node.getParent();
-    Node gramps = varNode.getParent();
+    Node grandparent = varNode.getParent();
 
     boolean isObjLit = rvalue.isObjectLit();
     int numChanges = 0;
 
     if (isObjLit) {
       numChanges += declareVarsForObjLitValues(
-          n, name, rvalue, varNode, gramps.getChildBefore(varNode),
-          gramps);
+          n, name, rvalue, varNode, grandparent.getChildBefore(varNode),
+          grandparent);
     }
 
-    numChanges += addStubsForUndeclaredProperties(n, name, gramps, varNode);
+    numChanges += addStubsForUndeclaredProperties(n, name, grandparent, varNode);
 
     if (isObjLit && n.canEliminate()) {
       varNode.removeChild(ref.node);
       if (!varNode.hasChildren()) {
-        gramps.removeChild(varNode);
+        grandparent.removeChild(varNode);
       }
       numChanges++;
 
@@ -1080,7 +1050,7 @@ class CollapseProperties implements CompilerPass {
       if (key.getBooleanProp(Node.IS_CONSTANT_NAME)) {
         nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
       }
-      Node newVar = IR.var(nameNode).copyInformationFromForTree(key);
+      Node newVar = IR.var(nameNode).useSourceInfoIfMissingFromForTree(key);
       if (nameToAddAfter != null) {
         varParent.addChildAfter(newVar, nameToAddAfter);
       } else {
@@ -1138,7 +1108,7 @@ class CollapseProperties implements CompilerPass {
       if (p.needsToBeStubbed()) {
         String propAlias = appendPropForAlias(alias, p.getBaseName());
         Node nameNode = IR.name(propAlias);
-        Node newVar = IR.var(nameNode).copyInformationFromForTree(addAfter);
+        Node newVar = IR.var(nameNode).useSourceInfoIfMissingFromForTree(addAfter);
         parent.addChildAfter(newVar, addAfter);
         addAfter = newVar;
         numStubs++;

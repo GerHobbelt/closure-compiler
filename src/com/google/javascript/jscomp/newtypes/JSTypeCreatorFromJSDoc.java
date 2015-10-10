@@ -257,25 +257,29 @@ public final class JSTypeCreatorFromJSDoc {
   private JSType getRecordTypeHelper(Node n, DeclaredTypeRegistry registry,
       ImmutableList<String> typeParameters)
       throws UnknownTypeException {
-    Map<String, JSType> fields = new LinkedHashMap<>();
-    // For each of the fields in the record type.
-    for (Node fieldTypeNode = n.getFirstChild().getFirstChild();
-         fieldTypeNode != null;
-         fieldTypeNode = fieldTypeNode.getNext()) {
-      boolean isFieldTypeDeclared = fieldTypeNode.getType() == Token.COLON;
-      Node fieldNameNode = isFieldTypeDeclared ?
-          fieldTypeNode.getFirstChild() : fieldTypeNode;
-      String fieldName = fieldNameNode.getString();
-      if (fieldName.startsWith("'") || fieldName.startsWith("\"")) {
-        fieldName = fieldName.substring(1, fieldName.length() - 1);
+    Map<String, Property> props = new LinkedHashMap<>();
+    for (Node propNode = n.getFirstChild().getFirstChild();
+         propNode != null;
+         propNode = propNode.getNext()) {
+      boolean isPropDeclared = propNode.getType() == Token.COLON;
+      Node propNameNode = isPropDeclared ? propNode.getFirstChild() : propNode;
+      String propName = propNameNode.getString();
+      if (propName.startsWith("'") || propName.startsWith("\"")) {
+        propName = propName.substring(1, propName.length() - 1);
       }
-      JSType fieldType = !isFieldTypeDeclared ? JSType.UNKNOWN :
-          getTypeFromCommentHelper(
-              fieldTypeNode.getLastChild(), registry, typeParameters);
-      // TODO(blickly): Allow optional properties
-      fields.put(fieldName, fieldType);
+      JSType propType = !isPropDeclared
+          ? JSType.UNKNOWN
+          : getTypeFromCommentHelper(propNode.getLastChild(), registry, typeParameters);
+      Property prop;
+      if (!propType.isUnknown() && !propType.isTop()
+          && JSType.UNDEFINED.isSubtypeOf(propType)) {
+        prop = Property.makeOptional(null, propType, propType);
+      } else {
+        prop = Property.make(propType, propType);
+      }
+      props.put(propName, prop);
     }
-    return JSType.fromObjectType(ObjectType.fromProperties(fields));
+    return JSType.fromObjectType(ObjectType.fromProperties(props));
   }
 
   private JSType getNamedTypeHelper(Node n, DeclaredTypeRegistry registry,
@@ -297,7 +301,10 @@ public final class JSTypeCreatorFromJSDoc {
       case "Function":
         return maybeMakeNullable(registry.getCommonTypes().qmarkFunction());
       case "Object":
-        return maybeMakeNullable(JSType.TOP_OBJECT);
+        // We don't generally handle parameterized Object<...>, but we want to
+        // at least not warn about inexistent properties on it, so we type it
+        // as @dict.
+        return maybeMakeNullable(n.hasChildren() ? JSType.TOP_DICT : JSType.TOP_OBJECT);
       default:
         return lookupTypeByName(typeName, n, registry, outerTypeParameters);
     }
@@ -542,13 +549,6 @@ public final class JSTypeCreatorFromJSDoc {
     return builder.build();
   }
 
-  private static boolean isQmarkFunction(Node jsdocNode) {
-    if (jsdocNode.getType() == Token.BANG) {
-      jsdocNode = jsdocNode.getFirstChild();
-    }
-    return jsdocNode.isString() && jsdocNode.getString().equals("Function");
-  }
-
   public static class FunctionAndSlotType {
     public JSType slotType;
     public DeclaredFunctionType functionType;
@@ -596,8 +596,9 @@ public final class JSTypeCreatorFromJSDoc {
           jsdoc = null;
         }
       }
-      DeclaredFunctionType declType = getFunTypeFromTypicalFunctionJsdoc(jsdoc, functionName,
-          declNode, constructorType, ownerType, registry, builder, false);
+      DeclaredFunctionType declType = getFunTypeFromTypicalFunctionJsdoc(
+          jsdoc, functionName, declNode,
+          constructorType, ownerType, registry, builder, false);
       return new FunctionAndSlotType(null, declType);
     } catch (FunctionTypeBuilder.WrongParameterOrderException e) {
       warn("Wrong parameter order: required parameters are first, " +
@@ -659,6 +660,7 @@ public final class JSTypeCreatorFromJSDoc {
       boolean ignoreJsdoc /* for when the jsdoc is malformed */) {
     Preconditions.checkArgument(!ignoreJsdoc || jsdoc == null);
     Preconditions.checkArgument(!ignoreJsdoc || funNode.isFunction());
+    ImmutableList.Builder<String> typeParamsBuilder = new ImmutableList.Builder<>();;
     ImmutableList<String> typeParameters = ImmutableList.of();
     Node parent = funNode.getParent();
 
@@ -667,7 +669,11 @@ public final class JSTypeCreatorFromJSDoc {
     // - warn for @template annotation w/out usage
 
     if (jsdoc != null) {
-      typeParameters = jsdoc.getTemplateTypeNames();
+      typeParamsBuilder.addAll(jsdoc.getTemplateTypeNames());
+      // We don't properly support the type transformation language; we treat
+      // its type variables as ordinary type variables.
+      typeParamsBuilder.addAll(jsdoc.getTypeTransformations().keySet());
+      typeParameters = typeParamsBuilder.build();
       if (!typeParameters.isEmpty()) {
         if (parent.isSetterDef() || parent.isGetterDef()) {
           ignoreJsdoc = true;
@@ -679,11 +685,8 @@ public final class JSTypeCreatorFromJSDoc {
       }
     }
     if (ownerType != null) {
-      ImmutableList.Builder<String> paramsBuilder =
-          new ImmutableList.Builder<>();
-      paramsBuilder.addAll(typeParameters);
-      paramsBuilder.addAll(ownerType.getTypeParameters());
-      typeParameters = paramsBuilder.build();
+      typeParamsBuilder.addAll(ownerType.getTypeParameters());
+      typeParameters = typeParamsBuilder.build();
     }
 
     fillInFormalParameterTypes(
@@ -699,8 +702,7 @@ public final class JSTypeCreatorFromJSDoc {
         jsdoc, functionName, funNode, typeParameters, registry);
     ImmutableSet<NominalType> implementedIntfs = getImplementedInterfaces(
         jsdoc, registry, typeParameters);
-    if (constructorType == null
-        && (jsdoc.isConstructor() || jsdoc.isInterface())) {
+    if (constructorType == null && jsdoc.isConstructorOrInterface()) {
       // Anonymous type, don't register it.
       return builder.buildDeclaration();
     } else if (jsdoc.isConstructor()) {

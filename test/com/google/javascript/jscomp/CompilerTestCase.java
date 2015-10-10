@@ -812,6 +812,20 @@ public abstract class CompilerTestCase extends TestCase {
    * Verifies that the compiler pass's JS output is the same as its input
    * and (optionally) that an expected warning is issued.
    *
+   * @param js Input and output
+   * @param warning Expected warning, or null if no warning is expected
+   * @param description The description of the expected warning,
+   *      or null if no warning is expected or if the warning's description
+   *      should not be examined
+   */
+  public void testSameNoExterns(String js, DiagnosticType warning, String description) {
+    testSame("", js, warning, description, false);
+  }
+
+  /**
+   * Verifies that the compiler pass's JS output is the same as its input
+   * and (optionally) that an expected warning is issued.
+   *
    * @param externs Externs input
    * @param js Input and output
    * @param diag Expected error or warning, or null if none is expected
@@ -1034,18 +1048,18 @@ public abstract class CompilerTestCase extends TestCase {
         errorManagers[i] = new BlackHoleErrorManager();
         compiler.setErrorManager(errorManagers[i]);
 
-        // Only run process closure primitives once, if asked.
-        if (closurePassEnabled && i == 0) {
-          recentChange.reset();
-          new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
-              .process(null, mainRoot);
-          hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
-        }
-
         if (rewriteClosureCode && i == 0) {
           new ClosureRewriteClass(compiler).process(null, mainRoot);
           new ClosureRewriteModule(compiler).process(null, mainRoot);
           new ScopedAliases(compiler, null, CompilerOptions.NULL_ALIAS_TRANSFORMATION_HANDLER)
+              .process(null, mainRoot);
+          hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
+        }
+
+        // Only run process closure primitives once, if asked.
+        if (closurePassEnabled && i == 0) {
+          recentChange.reset();
+          new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
               .process(null, mainRoot);
           hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
         }
@@ -1359,6 +1373,16 @@ public abstract class CompilerTestCase extends TestCase {
     (getProcessor(compiler)).process(externs, root);
 
     if (compareAsTree) {
+      // Ignore and remove empty externs, so that if we start with an empty extern and only add
+      // to the synthetic externs, we can still enable compareAsTree.
+      if (externs.hasMoreThanOneChild()) {
+        for (Node c : externs.children()) {
+          if (!c.hasChildren()) {
+            c.detachFromParent();
+          }
+        }
+      }
+
       // Expected output parsed without implied block.
       Preconditions.checkState(externs.isBlock());
       Preconditions.checkState(compareJsDoc);

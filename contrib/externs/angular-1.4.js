@@ -709,7 +709,7 @@ angular.Module.prototype.name = '';
 angular.Module.prototype.requires;
 
 /** @constructor */
-angular.Scope;
+angular.Scope = function() {};
 
 /** @type {string} */
 angular.Scope.prototype.$$phase;
@@ -888,7 +888,7 @@ angular.$anchorScrollProvider.disableAutoScrolling = function() {};
 /**
  * @constructor
  */
-angular.$animate;
+angular.$animate = function() {};
 
 /**
  * @param {JQLiteSelector} element
@@ -996,7 +996,7 @@ angular.$animate.prototype.cancel = function(animationPromise) {};
 /**
  * @constructor
  */
-angular.$animateProvider;
+angular.$animateProvider = function() {};
 
 /**
  * @param {string} name
@@ -1009,6 +1009,31 @@ angular.$animateProvider.prototype.register = function(name, factory) {};
  */
 angular.$animateProvider.prototype.classNameFilter = function(
     opt_expression) {};
+
+/******************************************************************************
+ * $ariaProvider Service
+ *****************************************************************************/
+
+/**
+ * @constructor
+ */
+angular.$ariaProvider = function() {};
+
+/**
+ * @param {!{
+ *   ariaHidden: (boolean|undefined),
+ *   ariaChecked: (boolean|undefined),
+ *   ariaDisabled: (boolean|undefined),
+ *   ariaRequired: (boolean|undefined),
+ *   ariaInvalid: (boolean|undefined),
+ *   ariaMultiline: (boolean|undefined),
+ *   ariaValue: (boolean|undefined),
+ *   tabindex: (boolean|undefined),
+ *   bindKeypress: (boolean|undefined),
+ *   bindRoleForClick: (boolean|undefined)
+ * }} config
+ */
+angular.$ariaProvider.prototype.config = function(config) {};
 
 /******************************************************************************
  * $compile Service
@@ -1029,7 +1054,7 @@ angular.$compile;
 /**
  * @constructor
  */
-angular.$compileProvider;
+angular.$compileProvider = function() {};
 
 /**
  * @param {boolean=} opt_enabled
@@ -1146,6 +1171,13 @@ angular.$filter;
  *     boolean=): Array}
  */
 angular.$filter.orderBy;
+
+/**
+ * @typedef {function(Array,
+ *     (string|Object|function(?):*),
+ *     (function(?):*|boolean)=): Array}
+ */
+angular.$filter.filter;
 
 /******************************************************************************
  * $filterProvider Service

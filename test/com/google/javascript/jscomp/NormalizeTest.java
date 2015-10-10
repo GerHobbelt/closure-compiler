@@ -35,7 +35,6 @@ public final class NormalizeTest extends CompilerTestCase {
 
   public NormalizeTest() {
     super(EXTERNS);
-    super.enableLineNumberCheck(true);
     compareJsDoc = false;
   }
 
@@ -475,7 +474,7 @@ public final class NormalizeTest extends CompilerTestCase {
 
   private Set<Node> findNodesWithProperty(Node root, final int prop) {
     final Set<Node> set = new HashSet<>();
-    NodeTraversal.traverse(
+    NodeTraversal.traverseEs6(
         getLastCompiler(), root, new AbstractPostOrderCallback() {
         @Override
         public void visit(NodeTraversal t, Node node, Node parent) {

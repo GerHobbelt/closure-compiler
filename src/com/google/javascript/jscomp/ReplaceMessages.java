@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -31,6 +32,7 @@ import javax.annotation.Nullable;
  *
  * @author anatol@google.com (Anatol Pomazau)
  */
+@GwtIncompatible("JsMessage")
 final class ReplaceMessages extends JsMessageVisitor {
   private final MessageBundle bundle;
   private final boolean strictReplacement;
@@ -95,7 +97,7 @@ final class ReplaceMessages extends JsMessageVisitor {
     }
 
     if (newValue != msgNode) {
-      newValue.copyInformationFromForTree(msgNode);
+      newValue.useSourceInfoIfMissingFromForTree(msgNode);
       msgNode.getParent().replaceChild(msgNode, newValue);
       compiler.reportCodeChange();
     }
@@ -185,7 +187,7 @@ final class ReplaceMessages extends JsMessageVisitor {
     // TODO(user): checkTreeEqual is overkill. I am in process of rewriting
     // these functions.
     if (newBlockNode.checkTreeEquals(oldBlockNode) != null) {
-      newBlockNode.copyInformationFromForTree(oldBlockNode);
+      newBlockNode.useSourceInfoIfMissingFromForTree(oldBlockNode);
       functionNode.replaceChild(oldBlockNode, newBlockNode);
       compiler.reportCodeChange();
     }

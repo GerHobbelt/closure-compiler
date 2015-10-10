@@ -48,8 +48,6 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    super.enableLineNumberCheck(false);
-
     this.allowNonGlobalExports  = true;
   }
 
@@ -74,12 +72,14 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
   }
 
   public void testExportPrototypeProperty() {
-    test("function Foo() {}\n" +
-         "/** @export */ Foo.prototype.bar = function() {};",
-
-         "function Foo() {}\n" +
-         "Foo.prototype.bar = function(){};\n" +
-         "goog.exportProperty(Foo.prototype, 'bar', Foo.prototype.bar);");
+    test(
+        LINE_JOINER.join(
+            "function Foo() {}",
+            "/** @export */ Foo.prototype.bar = function() {};"),
+        LINE_JOINER.join(
+            "function Foo() {}",
+            "Foo.prototype.bar = function(){};",
+            "goog.exportProperty(Foo.prototype, 'bar', Foo.prototype.bar);"));
   }
 
   public void testExportSymbolAndConstantProperties() {
@@ -94,7 +94,25 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
   public void testExportVars() {
     test("/** @export */var FOO = 5",
          "var FOO=5;" +
-         "google_exportSymbol(\"FOO\",FOO)");
+         "google_exportSymbol('FOO',FOO)");
+  }
+
+  public void testExportLet() {
+    testEs6("/** @export */let FOO = 5",
+         "let FOO = 5;" +
+         "google_exportSymbol('FOO', FOO)");
+  }
+
+  public void testExportConst() {
+    testEs6("/** @export */const FOO = 5",
+         "const FOO = 5;" +
+         "google_exportSymbol('FOO', FOO)");
+  }
+
+  public void testExportEs6ArrowFunction() {
+    testEs6("/** @export */var fn = ()=>{};",
+          "var fn = ()=>{};"
+        + "google_exportSymbol('fn', fn)");
   }
 
   public void testNoExport() {
@@ -107,10 +125,15 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
    */
   public void testNestedVarAssign() {
     this.allowNonGlobalExports = false;
-    testError("var BAR;\n/** @export */var FOO = BAR = 5", FindExportableNodes.NON_GLOBAL_ERROR);
+    testError(LINE_JOINER.join(
+        "var BAR;",
+        "/** @export */ var FOO = BAR = 5"),
+        FindExportableNodes.NON_GLOBAL_ERROR);
 
     this.allowNonGlobalExports = true;
-    testError("var BAR;\n/** @export */var FOO = BAR = 5",
+    testError(LINE_JOINER.join(
+        "var BAR;",
+        "/** @export */ var FOO = BAR = 5"),
         FindExportableNodes.EXPORT_ANNOTATION_NOT_ALLOWED);
   }
 
@@ -120,17 +143,22 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
    */
   public void testNestedAssign() {
     this.allowNonGlobalExports = false;
-    testError("var BAR;var FOO = {};\n/** @export */FOO.test = BAR = 5",
+    testError(LINE_JOINER.join(
+        "var BAR;var FOO = {};",
+        "/** @export */FOO.test = BAR = 5"),
         FindExportableNodes.NON_GLOBAL_ERROR);
 
     this.allowNonGlobalExports = true;
-    testError("var BAR;var FOO = {};\n/** @export */FOO.test = BAR = 5",
+    testError(LINE_JOINER.join(
+        "var BAR;var FOO = {};",
+        "/** @export */FOO.test = BAR = 5"),
         FindExportableNodes.EXPORT_ANNOTATION_NOT_ALLOWED);
   }
 
   public void testNonGlobalScopeExport1() {
     this.allowNonGlobalExports = false;
-    testError("(function() { /** @export */var FOO = 5 })()", FindExportableNodes.NON_GLOBAL_ERROR);
+    testError("(function() { /** @export */var FOO = 5 })()",
+        FindExportableNodes.NON_GLOBAL_ERROR);
 
     this.allowNonGlobalExports = true;
     testError("(function() { /** @export */var FOO = 5 })()",
@@ -139,7 +167,8 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
 
   public void testNonGlobalScopeExport2() {
     this.allowNonGlobalExports = false;
-    testError("var x = {/** @export */ A:function() {}}", FindExportableNodes.NON_GLOBAL_ERROR);
+    testError("var x = {/** @export */ A:function() {}}",
+        FindExportableNodes.NON_GLOBAL_ERROR);
   }
 
   public void testExportClass() {
@@ -270,5 +299,4 @@ public final class GenerateExportsTest extends Es6CompilerTestCase {
     testSame(code);
     testExternChanges(code, "Object.prototype.foo;");
   }
-
 }

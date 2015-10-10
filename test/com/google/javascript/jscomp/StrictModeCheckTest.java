@@ -102,14 +102,6 @@ public final class StrictModeCheckTest extends Es6CompilerTestCase {
     testSame("var a; eval: while (true) { a = 3; }");
   }
 
-  public void testUnknownVariable() {
-    testSame("function foo(a) { a = b; }", StrictModeCheck.UNKNOWN_VARIABLE);
-  }
-
-  public void testUnknownVariable2() {
-    testSame("a: while (true) { a = 3; }", StrictModeCheck.UNKNOWN_VARIABLE);
-  }
-
   public void testUnknownVariable3() {
     testSame("try {} catch (ex) { ex = 3; }");
   }
@@ -226,9 +218,9 @@ public final class StrictModeCheckTest extends Es6CompilerTestCase {
         "};");
 
     disableTypeCheck();
-    testSameEs6("var x = {a: 2, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
-    testSameEs6("var x = {a, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
-    testSameEs6("var x = {a(){}, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
+    testWarningEs6("var x = {a: 2, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
+    testWarningEs6("var x = {a, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
+    testWarningEs6("var x = {a(){}, a(){}}", StrictModeCheck.DUPLICATE_OBJECT_KEY);
   }
 
   public void testFunctionDecl() {
@@ -291,19 +283,12 @@ public final class StrictModeCheckTest extends Es6CompilerTestCase {
         "}"));
 
     // Duplicate obj literal key in classes
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {",
         "    var obj = {a : 1, a : 2}",
         "  }",
         "}"), StrictModeCheck.DUPLICATE_OBJECT_KEY);
-
-    // Unknown variable test
-    testSameEs6(LINE_JOINER.join(
-        "class A {",
-        "  constructor() {this.a = 1;}",
-        "  method() {this.a = b}",
-        "}"), StrictModeCheck.UNKNOWN_VARIABLE);
 
     // Delete test. Class methods are configurable, thus deletable.
     testSameEs6(LINE_JOINER.join(
@@ -313,7 +298,7 @@ public final class StrictModeCheckTest extends Es6CompilerTestCase {
         "}"));
 
     // Use of with test
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  constructor() {this.x = 1;}",
         "  method() {",
@@ -322,37 +307,37 @@ public final class StrictModeCheckTest extends Es6CompilerTestCase {
         "}"), StrictModeCheck.USE_OF_WITH);
 
     // Eval errors test
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method(eval) {}",
         "}"), StrictModeCheck.EVAL_DECLARATION);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {var eval = 1;}",
         "}"), StrictModeCheck.EVAL_DECLARATION);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {eval = 1}",
         "}"), StrictModeCheck.EVAL_ASSIGNMENT);
 
     // Use of 'arguments'
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method(arguments) {}",
         "}"), StrictModeCheck.ARGUMENTS_DECLARATION);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {var arguments = 1;}",
         "}"), StrictModeCheck.ARGUMENTS_DECLARATION);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {arguments = 1}",
         "}"), StrictModeCheck.ARGUMENTS_ASSIGNMENT);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {arguments.callee}",
         "}"), StrictModeCheck.ARGUMENTS_CALLEE_FORBIDDEN);
-    testSameEs6(LINE_JOINER.join(
+    testWarningEs6(LINE_JOINER.join(
         "class A {",
         "  method() {arguments.caller}",
         "}"), StrictModeCheck.ARGUMENTS_CALLER_FORBIDDEN);
