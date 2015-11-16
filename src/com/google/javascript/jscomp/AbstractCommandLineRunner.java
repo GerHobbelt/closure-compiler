@@ -565,6 +565,19 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     }
   }
 
+  public List<JsonFileSpec> parseJsonFilesFromInputStream() throws IOException {
+    List<JsonFileSpec> jsonFiles = new ArrayList<>();
+    JsonReader reader = new JsonReader(new InputStreamReader(System.in, inputCharset));
+    reader.beginArray();
+    while (reader.hasNext()) {
+      JsonFileSpec jsonFile = gson.fromJson(reader, JsonFileSpec.class);
+      jsonFiles.add(jsonFile);
+    }
+    reader.endArray();
+    reader.close();
+    return jsonFiles;
+  }
+
   /**
    * Creates inputs from a list of files.
    *
@@ -589,12 +602,47 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    *
    * @param files A list of filenames.
    * @param zips A list of zip filenames.
+   * @param jsonFiles A list of json encoded files.
+   * @return An array of inputs
+   */
+  protected List<SourceFile> createInputs(List<String> files,
+      List<String> zips, List<JsonFileSpec> jsonFiles) throws FlagUsageException, IOException {
+    return createInputs(files, new ArrayList<String>() /* zips */, jsonFiles, false);
+  }
+
+  /**
+   * Creates inputs from a list of source files and zips.
+   *
+   * Can be overridden by subclasses who want to pull files from different
+   * places.
+   *
+   * @param files A list of filenames.
+   * @param zips A list of zip filenames.
    * @param allowStdIn Whether '-' is allowed appear as a filename to represent
    *        stdin. If true, '-' is only allowed to appear once.
    * @return An array of inputs
    */
   protected List<SourceFile> createInputs(List<String> files,
       List<String> zips, boolean allowStdIn) throws FlagUsageException, IOException {
+    return createInputs(files, zips, null, allowStdIn);
+  }
+
+  /**
+   * Creates inputs from a list of source files and zips.
+   *
+   * Can be overridden by subclasses who want to pull files from different
+   * places.
+   *
+   * @param files A list of filenames.
+   * @param zips A list of zip filenames.
+   * @param jsonFiles A list of json encoded files.
+   * @param allowStdIn Whether '-' is allowed appear as a filename to represent
+   *        stdin. If true, '-' is only allowed to appear once.
+   * @return An array of inputs
+   */
+  protected List<SourceFile> createInputs(List<String> files,
+      List<String> zips, List<JsonFileSpec> jsonFiles, boolean allowStdIn)
+      throws FlagUsageException, IOException {
     List<SourceFile> inputs = new ArrayList<>(files.size());
     boolean usingStdin = false;
     for (String filename : files) {
@@ -619,18 +667,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         }
 
         this.err.println(WAITING_FOR_INPUT_WARNING);
-        if (config.useJsonStreams) {
-          JsonReader reader = new JsonReader(new InputStreamReader(System.in, inputCharset));
-          reader.beginArray();
-          while (reader.hasNext()) {
-            JsonFileSpec jsonFile = gson.fromJson(reader, JsonFileSpec.class);
-            inputs.add(SourceFile.fromCode(jsonFile.getPath(), jsonFile.getSrc()));
-          }
-          reader.endArray();
-          reader.close();
-        } else {
-          inputs.add(SourceFile.fromInputStream("stdin", System.in, inputCharset));
-        }
+        inputs.add(SourceFile.fromInputStream("stdin", System.in, inputCharset));
         usingStdin = true;
       }
     }
@@ -640,23 +677,33 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         inputs.addAll(newFiles);
       }
     }
+    if (jsonFiles != null) {
+      for (JsonFileSpec jsonFile : jsonFiles) {
+        inputs.add(SourceFile.fromCode(jsonFile.getPath(), jsonFile.getSrc()));
+      }
+    }
     return inputs;
   }
 
   /**
    * Creates JS source code inputs from a list of files.
    */
-  private List<SourceFile> createSourceInputs(List<String> files, List<String> zips)
+  private List<SourceFile> createSourceInputs(List<String> files, List<String> zips,
+      List<JsonFileSpec> jsonFiles)
       throws FlagUsageException, IOException {
     if (isInTestMode()) {
       return inputsSupplierForTesting.get();
     }
-    if (files.isEmpty() && zips.isEmpty()) {
+    if (files.isEmpty() && zips.isEmpty() && jsonFiles == null) {
       // Request to read from stdin.
       files = Collections.singletonList("-");
     }
     try {
-      return createInputs(files, zips, true);
+      if (jsonFiles != null) {
+        return createInputs(files, zips, jsonFiles);
+      } else {
+        return createInputs(files, zips, true);
+      }
     } catch (FlagUsageException e) {
       throw new FlagUsageException("Bad --js flag. " + e.getMessage());
     }
@@ -992,6 +1039,30 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     List<String> jsFiles = config.js;
     List<String> moduleSpecs = config.module;
+    List<JsonFileSpec> jsonFiles = null;
+
+    if (config.useJsonStreams) {
+      jsonFiles = parseJsonFilesFromInputStream();
+
+      ImmutableMap.Builder<String, SourceMapInput> inputSourceMaps
+          = new ImmutableMap.Builder<>();
+
+      int jsonInputSourceMapCount = 0;
+      for (JsonFileSpec jsonFile : jsonFiles) {
+        if (jsonFile.getSourceMap() != null && jsonFile.getSourceMap().length() > 0) {
+          String sourceMapPath = jsonFile.getPath() + ".map";
+          SourceFile sourceMap = SourceFile.fromCode(sourceMapPath,
+              jsonFile.getSourceMap());
+          inputSourceMaps.put(sourceMapPath, new SourceMapInput(sourceMap));
+          jsonInputSourceMapCount++;
+        }
+      }
+
+      if (jsonInputSourceMapCount > 0) {
+        inputSourceMaps.putAll(options.inputSourceMaps);
+        options.inputSourceMaps = inputSourceMaps.build();
+      }
+    }
 
     boolean createCommonJsModules = false;
     if (options.processCommonJSModules
@@ -1011,7 +1082,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         result = compiler.compileModules(externs, modules, options);
       }
     } else {
-      List<SourceFile> inputs = createSourceInputs(jsFiles, config.jsZip);
+      List<SourceFile> inputs = createSourceInputs(jsFiles, config.jsZip, jsonFiles);
       if (config.skipNormalOutputs) {
         compiler.init(externs, inputs, options);
         compiler.hoistExterns();
