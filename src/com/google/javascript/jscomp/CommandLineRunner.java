@@ -599,6 +599,13 @@ public class CommandLineRunner extends
             usage = "A file containing an instrumentation template.")
         private String instrumentationFile = "";
 
+    @Option(name = "--json_streams",
+        hidden = true,
+        handler = BooleanOptionHandler.class,
+        usage = "Specifies that standard input and output streams will be "
+            + "a JSON array of sources. Each source will be an object of the "
+            + "form {path: filename, src: file_contents, srcmap: srcmap_contents }")
+    private boolean jsonStreams = false;
 
     @Argument
     private List<String> arguments = new ArrayList<>();
@@ -1116,7 +1123,8 @@ public class CommandLineRunner extends
           .setAngularPass(flags.angularPass)
           .setTracerMode(flags.tracerMode)
           .setInstrumentationTemplateFile(flags.instrumentationFile)
-          .setNewTypeInference(flags.useNewTypeInference);
+          .setNewTypeInference(flags.useNewTypeInference)
+          .setUseJsonStreams(flags.jsonStreams);
     }
     errorStream = null;
   }

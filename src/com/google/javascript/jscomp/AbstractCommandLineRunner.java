@@ -30,6 +30,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
+import com.google.gson.Gson;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 import com.google.javascript.jscomp.CompilerOptions.TweakProcessing;
 import com.google.javascript.jscomp.deps.ClosureBundler;
 import com.google.javascript.jscomp.deps.SourceCodeEscapers;
@@ -45,6 +48,7 @@ import java.io.FileOutputStream;
 import java.io.Flushable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
@@ -172,6 +176,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
   private Map<String, String> parsedModuleWrappers = null;
 
+  private final Gson gson;
+
   static final String OUTPUT_MARKER = "%output%";
   private static final String OUTPUT_MARKER_JS_STRING = "%output|jsstring%";
 
@@ -183,6 +189,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     this.config = new CommandLineConfig();
     this.defaultJsOutput = Preconditions.checkNotNull(out);
     this.err = Preconditions.checkNotNull(err);
+    this.gson = new Gson();
   }
 
   /**
@@ -280,6 +287,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           .setMoocherDropping(false)
           .setEntryPoints(closureEntryPoints);
     }
+
     return null;
   }
 
@@ -359,6 +367,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     if (config.createSourceMap.length() > 0) {
       options.sourceMapOutputPath = config.createSourceMap;
+    } else if (config.useJsonStreams) {
+      options.sourceMapOutputPath = "stdout";
     }
     options.sourceMapDetailLevel = config.sourceMapDetailLevel;
     options.sourceMapFormat = config.sourceMapFormat;
@@ -609,7 +619,18 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         }
 
         this.err.println(WAITING_FOR_INPUT_WARNING);
-        inputs.add(SourceFile.fromInputStream("stdin", System.in, inputCharset));
+        if (config.useJsonStreams) {
+          JsonReader reader = new JsonReader(new InputStreamReader(System.in, inputCharset));
+          reader.beginArray();
+          while (reader.hasNext()) {
+            JsonFileSpec jsonFile = gson.fromJson(reader, JsonFileSpec.class);
+            inputs.add(SourceFile.fromCode(jsonFile.getPath(), jsonFile.getSrc()));
+          }
+          reader.endArray();
+          reader.close();
+        } else {
+          inputs.add(SourceFile.fromInputStream("stdin", System.in, inputCharset));
+        }
         usingStdin = true;
       }
     }
@@ -1074,10 +1095,14 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     } else if (!options.checksOnly && result.success) {
       outputModuleGraphJson();
       if (modules == null) {
-        outputSingleBinary();
+        if (config.useJsonStreams) {
+          outputJsonStream();
+        } else {
+          outputSingleBinary();
 
-        // Output the source map if requested.
-        outputSourceMap(options, config.jsOutputFile);
+          // Output the source map if requested.
+          outputSourceMap(options, config.jsOutputFile);
+        }
       } else {
         outputModuleBinaryAndSourceMaps(modules, options);
       }
@@ -1118,6 +1143,39 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         jsOutput, compiler, compiler.toSource(), config.outputWrapper,
         marker, escaper);
     closeAppendable(jsOutput);
+  }
+
+  void outputJsonStream() throws IOException {
+    Function<String, String> escaper = null;
+    String marker = OUTPUT_MARKER;
+    if (config.outputWrapper.contains(OUTPUT_MARKER_JS_STRING)) {
+      marker = OUTPUT_MARKER_JS_STRING;
+      escaper = getJavascriptEscaper();
+    }
+
+    Appendable jsOutput = new StringWriter();
+    writeOutput(
+        jsOutput, compiler, compiler.toSource(), config.outputWrapper,
+        marker, escaper);
+    closeAppendable(jsOutput);
+
+    Appendable sourceMapOutput = new StringWriter();
+    compiler.getSourceMap().appendTo(sourceMapOutput, "stdout");
+    closeAppendable(sourceMapOutput);
+
+    JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(), "stdout",
+        sourceMapOutput.toString());
+
+    JsonWriter jsonWriter = new JsonWriter(
+        new BufferedWriter(new OutputStreamWriter(defaultJsOutput, "UTF-8")));
+    jsonWriter.beginArray();
+    jsonWriter.beginObject();
+    jsonWriter.name("src").value(jsonOutput.getSrc());
+    jsonWriter.name("path").value(jsonOutput.getPath());
+    jsonWriter.name("source_map").value(jsonOutput.getSourceMap());
+    jsonWriter.endObject();
+    jsonWriter.endArray();
+    jsonWriter.close();
   }
 
   private void outputModuleBinaryAndSourceMaps(
@@ -2264,6 +2322,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         return this;
     }
 
+    private boolean useJsonStreams = false;
+
+    CommandLineConfig setUseJsonStreams(boolean useJsonStreams) {
+      this.useJsonStreams = useJsonStreams;
+      return this;
+    }
+
   }
 
   /**
@@ -2291,5 +2356,38 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     protected void clear() {
       entries.clear();
     }
+  }
+
+  /**
+   * Representation of a source file from an encoded json stream input
+   */
+  private class JsonFileSpec {
+    private final String src;
+    private final String path;
+    private final String source_map;
+
+    public JsonFileSpec(String src) {
+      this(src, null, null);
+    }
+
+    public JsonFileSpec(String src, String path) {
+      this(src, path, null);
+    }
+
+    public JsonFileSpec(String src, String path, String source_map) {
+      this.src = src;
+      this.path = path;
+      this.source_map = source_map;
+    }
+
+    public String getSrc() {
+      return this.src;
+    }
+
+    public String getPath() {
+      return this.path;
+    }
+
+    public String getSourceMap() { return this.source_map; }
   }
 }
