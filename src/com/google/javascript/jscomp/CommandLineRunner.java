@@ -604,7 +604,8 @@ public class CommandLineRunner extends
         handler = BooleanOptionHandler.class,
         usage = "Specifies that standard input and output streams will be "
             + "a JSON array of sources. Each source will be an object of the "
-            + "form {path: filename, src: file_contents, srcmap: srcmap_contents }")
+            + "form {path: filename, src: file_contents, srcmap: srcmap_contents }. "
+            + "Intended for use by stream based build systems such as gulpjs.")
     private boolean jsonStreams = false;
 
     @Argument
