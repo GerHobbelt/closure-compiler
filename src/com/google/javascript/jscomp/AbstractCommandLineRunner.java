@@ -1234,7 +1234,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     compiler.getSourceMap().appendTo(sourceMapOutput, "stdout");
     closeAppendable(sourceMapOutput);
 
-    JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(), "stdout",
+    JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(),
+        config.jsOutputFile != null ? config.jsOutputFile : "stdout",
         sourceMapOutput.toString());
 
     JsonWriter jsonWriter = new JsonWriter(
