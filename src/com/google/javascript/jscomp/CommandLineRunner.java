@@ -360,6 +360,7 @@ public class CommandLineRunner extends
     private CompilationLevel compilationLevelParsed = null;
 
     @Option(name = "--checks-only",
+        handler = BooleanOptionHandler.class,
         usage = "Don't generate output. Run checks, but no compiler passes.")
     private boolean checksOnly = false;
 
@@ -404,6 +405,7 @@ public class CommandLineRunner extends
 
     @Option(name = "--process_common_js_modules",
         hidden = true,
+        handler = BooleanOptionHandler.class,
         usage = "Process CommonJS modules to a concatenable form.")
     private boolean processCommonJsModules = false;
 
@@ -429,6 +431,7 @@ public class CommandLineRunner extends
 
     @Option(name = "--transform_amd_modules",
         hidden = true,
+        handler = BooleanOptionHandler.class,
         usage = "Transform AMD to CommonJS modules.")
     private boolean transformAmdModules = false;
 
@@ -573,6 +576,7 @@ public class CommandLineRunner extends
 
     @Option(name = "--new_type_inf",
         hidden = true,
+        handler = BooleanOptionHandler.class,
         usage = "Checks for type errors using the new type inference algorithm.")
     private boolean useNewTypeInference = false;
 
