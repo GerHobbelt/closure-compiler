@@ -181,6 +181,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   static final String OUTPUT_MARKER = "%output%";
   private static final String OUTPUT_MARKER_JS_STRING = "%output|jsstring%";
 
+  private final List<JsonFileSpec> filesToStreamOut = new ArrayList<>();
+
   AbstractCommandLineRunner() {
     this(System.out, System.err);
   }
@@ -1166,12 +1168,12 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     } else if (!options.checksOnly && result.success) {
       outputModuleGraphJson();
       if (modules == null) {
-        if (config.useJsonStreams) {
-          outputJsonStream();
-        } else {
-          outputSingleBinary();
+        outputSingleBinary(options);
 
-          // Output the source map if requested.
+        // Output the source map if requested.
+        // If output files are being written to stdout as a JSON string,
+        // outputSingleBinary will have added the sourcemap to the output file
+        if (!config.useJsonStreams) {
           outputSourceMap(options, config.jsOutputFile);
         }
       } else {
@@ -1191,6 +1193,10 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       // Output the manifest and bundle files if requested.
       outputManifest();
       outputBundle();
+
+      if (config.useJsonStreams) {
+        outputJsonStream();
+      }
     }
 
     // return 0 if no errors, the error count otherwise
@@ -1201,7 +1207,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     return SourceCodeEscapers.javascriptEscaper().asFunction();
   }
 
-  void outputSingleBinary() throws IOException {
+  void outputSingleBinary(B options) throws IOException {
     Function<String, String> escaper = null;
     String marker = OUTPUT_MARKER;
     if (config.outputWrapper.contains(OUTPUT_MARKER_JS_STRING)) {
@@ -1209,43 +1215,44 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       escaper = getJavascriptEscaper();
     }
 
-    Appendable jsOutput = createDefaultOutput();
+    Appendable jsOutput;
+    if (config.useJsonStreams) {
+      jsOutput = new StringBuilder();
+    } else {
+      jsOutput = createDefaultOutput();
+    }
     writeOutput(
         jsOutput, compiler, compiler.toSource(), config.outputWrapper,
         marker, escaper);
     closeAppendable(jsOutput);
+
+    if (config.useJsonStreams) {
+      JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(),
+          config.jsOutputFile != null ? config.jsOutputFile : "stdout");
+
+      if (!Strings.isNullOrEmpty(options.sourceMapOutputPath)) {
+        StringBuilder sourcemap = new StringBuilder();
+        compiler.getSourceMap().appendTo(sourcemap, jsonOutput.getPath());
+        jsonOutput.setSourceMap(sourcemap.toString());
+      }
+
+      this.filesToStreamOut.add(jsonOutput);
+    }
   }
 
   void outputJsonStream() throws IOException {
-    Function<String, String> escaper = null;
-    String marker = OUTPUT_MARKER;
-    if (config.outputWrapper.contains(OUTPUT_MARKER_JS_STRING)) {
-      marker = OUTPUT_MARKER_JS_STRING;
-      escaper = getJavascriptEscaper();
-    }
-
-    Appendable jsOutput = new StringWriter();
-    writeOutput(
-        jsOutput, compiler, compiler.toSource(), config.outputWrapper,
-        marker, escaper);
-    closeAppendable(jsOutput);
-
-    Appendable sourceMapOutput = new StringWriter();
-    compiler.getSourceMap().appendTo(sourceMapOutput, "stdout");
-    closeAppendable(sourceMapOutput);
-
-    JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(),
-        config.jsOutputFile != null ? config.jsOutputFile : "stdout",
-        sourceMapOutput.toString());
-
     JsonWriter jsonWriter = new JsonWriter(
         new BufferedWriter(new OutputStreamWriter(defaultJsOutput, "UTF-8")));
     jsonWriter.beginArray();
-    jsonWriter.beginObject();
-    jsonWriter.name("src").value(jsonOutput.getSrc());
-    jsonWriter.name("path").value(jsonOutput.getPath());
-    jsonWriter.name("source_map").value(jsonOutput.getSourceMap());
-    jsonWriter.endObject();
+    for (JsonFileSpec jsonFile : this.filesToStreamOut) {
+      jsonWriter.beginObject();
+      jsonWriter.name("src").value(jsonFile.getSrc());
+      jsonWriter.name("path").value(jsonFile.getPath());
+      if (!Strings.isNullOrEmpty(jsonFile.getSourceMap())) {
+        jsonWriter.name("source_map").value(jsonFile.getSourceMap());
+      }
+      jsonWriter.endObject();
+    }
     jsonWriter.endArray();
     jsonWriter.close();
   }
@@ -1260,35 +1267,74 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     // If the source map path is in fact a pattern for each
     // module, create a stream per-module. Otherwise, create
     // a single source map.
-    Writer mapOut = null;
+    Writer mapFileOut = null;
+    StringBuilder mapStreamOut = null;
 
     if (!shouldGenerateMapPerModule(options)) {
-      mapOut = fileNameToOutputWriter2(expandSourceMapPath(options, null));
+      if (config.useJsonStreams) {
+        mapStreamOut = new StringBuilder();
+      } else {
+        mapFileOut = fileNameToOutputWriter2(
+            expandSourceMapPath(options, null));
+      }
     }
 
     for (JSModule m : modules) {
-      if (shouldGenerateMapPerModule(options)) {
-        mapOut = fileNameToOutputWriter2(expandSourceMapPath(options, m));
-      }
-
-      try (Writer writer = fileNameToLegacyOutputWriter(getModuleOutputFileName(m))) {
+      if (config.useJsonStreams) {
         if (options.sourceMapOutputPath != null) {
           compiler.getSourceMap().reset();
         }
-        writeModuleOutput(writer, m);
-        if (options.sourceMapOutputPath != null) {
-          compiler.getSourceMap().appendTo(mapOut, m.getName());
-        }
-      }
 
-      if (shouldGenerateMapPerModule(options) && mapOut != null) {
-        mapOut.close();
-        mapOut = null;
+        StringBuilder output = new StringBuilder();
+        writeModuleOutput(output, m);
+
+        JsonFileSpec jsonFile = new JsonFileSpec(output.toString(),
+            getModuleOutputFileName(m));
+
+        if (options.sourceMapOutputPath != null) {
+          StringBuilder moduleSourceMap =
+              mapStreamOut != null ? mapStreamOut : new StringBuilder();
+
+          compiler.getSourceMap().appendTo(moduleSourceMap, m.getName());
+
+          if (mapStreamOut == null) {
+            jsonFile.setSourceMap(moduleSourceMap.toString());
+          }
+        }
+
+        this.filesToStreamOut.add(jsonFile);
+      } else {
+        if (shouldGenerateMapPerModule(options)) {
+          mapFileOut = fileNameToOutputWriter2(expandSourceMapPath(options, m));
+        }
+
+        try (Writer writer = fileNameToLegacyOutputWriter(
+            getModuleOutputFileName(m))) {
+          if (options.sourceMapOutputPath != null) {
+            compiler.getSourceMap().reset();
+          }
+          writeModuleOutput(writer, m);
+          if (options.sourceMapOutputPath != null) {
+            compiler.getSourceMap().appendTo(mapFileOut, m.getName());
+          }
+        }
+
+        if (shouldGenerateMapPerModule(options) && mapFileOut != null) {
+          mapFileOut.close();
+          mapFileOut = null;
+        }
       }
     }
 
-    if (mapOut != null) {
-      mapOut.close();
+    if (mapFileOut != null) {
+      mapFileOut.close();
+    }
+
+    if (mapStreamOut != null) {
+      JsonFileSpec sourcemapFile = new JsonFileSpec(
+          mapStreamOut.toString(), expandSourceMapPath(options, null));
+
+      this.filesToStreamOut.add(sourcemapFile);
     }
   }
 
@@ -2436,7 +2482,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   private class JsonFileSpec {
     private final String src;
     private final String path;
-    private final String source_map;
+    private String source_map;
 
     public JsonFileSpec(String src) {
       this(src, null, null);
@@ -2461,5 +2507,10 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     public String getSourceMap() { return this.source_map; }
+
+    public void setSourceMap(String map) {
+      this.source_map = map;
+    }
+
   }
 }
