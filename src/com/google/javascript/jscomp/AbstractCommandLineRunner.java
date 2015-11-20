@@ -736,7 +736,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    * @return An array of module objects
    */
   List<JSModule> createJsModules(
-      List<String> specs, List<String> jsFiles)
+      List<String> specs, List<SourceFile> inputs)
       throws FlagUsageException, IOException {
     if (isInTestMode()) {
       return modulesSupplierForTesting.get();
@@ -744,7 +744,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     Preconditions.checkState(specs != null);
     Preconditions.checkState(!specs.isEmpty());
-    Preconditions.checkState(jsFiles != null);
+    Preconditions.checkState(inputs != null);
 
     List<String> moduleNames = new ArrayList<>(specs.size());
     Map<String, JSModule> modulesByName = new LinkedHashMap<>();
@@ -825,7 +825,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       modulesByName.put(name, module);
     }
 
-    final int totalNumJsFiles = jsFiles.size();
+    final int totalNumJsFiles = inputs.size();
 
     if (numJsFilesExpected >= 0 || minJsFilesRequired > totalNumJsFiles) {
       if (minJsFilesRequired > totalNumJsFiles) {
@@ -852,10 +852,9 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         numJsFiles = numJsFilesLeft;
       }
 
-      List<String> moduleJsFiles =
-          jsFiles.subList(numJsFilesLeft - numJsFiles, numJsFilesLeft);
-      for (SourceFile input :
-          createInputs(moduleJsFiles, false)) {
+      List<SourceFile> moduleFiles =
+          inputs.subList(numJsFilesLeft - numJsFiles, numJsFilesLeft);
+      for (SourceFile input : moduleFiles) {
         module.add(input);
       }
       numJsFilesLeft -= numJsFiles;
@@ -1072,8 +1071,9 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       createCommonJsModules = true;
       moduleSpecs.remove(0);
     }
+    List<SourceFile> inputs = createSourceInputs(jsFiles, config.jsZip, jsonFiles);
     if (!moduleSpecs.isEmpty()) {
-      modules = createJsModules(moduleSpecs, jsFiles);
+      modules = createJsModules(moduleSpecs, inputs);
       for (JSModule m : modules) {
         outputFileNames.add(getModuleOutputFileName(m));
       }
@@ -1084,7 +1084,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         result = compiler.compileModules(externs, modules, options);
       }
     } else {
-      List<SourceFile> inputs = createSourceInputs(jsFiles, config.jsZip, jsonFiles);
       if (config.skipNormalOutputs) {
         compiler.init(externs, inputs, options);
         compiler.hoistExterns();
