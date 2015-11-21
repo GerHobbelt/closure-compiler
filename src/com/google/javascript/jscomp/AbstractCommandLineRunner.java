@@ -1227,7 +1227,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     if (config.useJsonStreams) {
       JsonFileSpec jsonOutput = new JsonFileSpec(jsOutput.toString(),
-          config.jsOutputFile != null ? config.jsOutputFile : "stdout");
+          Strings.isNullOrEmpty(config.jsOutputFile) ?
+              "stdout" : config.jsOutputFile);
 
       if (!Strings.isNullOrEmpty(options.sourceMapOutputPath)) {
         StringBuilder sourcemap = new StringBuilder();
