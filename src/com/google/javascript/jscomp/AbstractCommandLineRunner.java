@@ -370,7 +370,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     if (config.createSourceMap.length() > 0) {
       options.sourceMapOutputPath = config.createSourceMap;
     } else if (config.useJsonStreams) {
-      options.sourceMapOutputPath = "stdout";
+      options.sourceMapOutputPath = "%outname%.map";
     }
     options.sourceMapDetailLevel = config.sourceMapDetailLevel;
     options.sourceMapFormat = config.sourceMapFormat;
