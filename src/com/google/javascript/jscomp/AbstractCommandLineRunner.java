@@ -370,7 +370,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     if (config.createSourceMap.length() > 0) {
       options.sourceMapOutputPath = config.createSourceMap;
     } else if (config.useJsonStreams) {
-      options.sourceMapOutputPath = "%outname%.map";
+      options.sourceMapOutputPath = "%outname%";
     }
     options.sourceMapDetailLevel = config.sourceMapDetailLevel;
     options.sourceMapFormat = config.sourceMapFormat;
@@ -1296,7 +1296,9 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           StringBuilder moduleSourceMap =
               mapStreamOut != null ? mapStreamOut : new StringBuilder();
 
-          compiler.getSourceMap().appendTo(moduleSourceMap, m.getName());
+          expandSourceMapPath(options, null);
+          compiler.getSourceMap().appendTo(moduleSourceMap,
+              getModuleOutputFileName(m));
 
           if (mapStreamOut == null) {
             jsonFile.setSourceMap(moduleSourceMap.toString());
