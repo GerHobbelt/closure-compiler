@@ -694,7 +694,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       List<JsonFileSpec> jsonFiles)
       throws FlagUsageException, IOException {
     if (isInTestMode()) {
-      return inputsSupplierForTesting.get();
+      return inputsSupplierForTesting != null ? inputsSupplierForTesting.get()
+          : null;
     }
     if (files.isEmpty() && zips.isEmpty() && jsonFiles == null) {
       // Request to read from stdin.
