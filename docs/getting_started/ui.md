@@ -24,9 +24,9 @@ leave the `@output_file_name` parameter unchanged at the top of the input field.
 feature as a quick way to test your compiled code by linking directly to the file from your test
 application. Do not link to it from production servers.
 
-Note: To prevent abuse, the Closure Compiler limits the number of consecutive compiles that you
+*Note: To prevent abuse, the Closure Compiler limits the number of consecutive compiles that you
 can run. If you see the message Too many compiles performed recently. Try again later, it means
-you've temporarily exceeded the limit.
+you've temporarily exceeded the limit.*
 
 ## Optimize a JavaScript file
 
@@ -55,5 +55,5 @@ service UI. Check out the
 additional webservice options.
 
 If you'd like to build the Closure Compiler service's JavaScript optimization process into a larger
-system, then you should talk directly to the Closure Compiler service API. Learn more at Getting
-Started with the Closure Compiler Service API.
+system, then you should talk directly to the Closure Compiler service API. Learn more at [Getting
+Started with the Closure Compiler Service API](api.md).

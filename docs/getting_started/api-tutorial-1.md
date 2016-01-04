@@ -3,7 +3,8 @@
 ## Overview
 
 The Closure Compiler service API provides programmatic access to Closure Compiler JavaScript
-compilation through a Web-based API. While the Closure Compiler UI gives you an easy way to use the
+compilation through a Web-based API. While the
+[Closure Compiler UI](http://closure-compiler.appspot.com/) gives you an easy way to use the
 compiler service through a simple form on a web page, copying output from this web page is not the
 most efficient way to work. With the Closure Compiler service API, you gain the versatility to
 build your own tools and create your own work flow.
@@ -18,7 +19,7 @@ to follow the example.
 
 ## How to Communciate with the API
 
- 1. Determine the Request Parameters
+ 1. **Determine the Request Parameters**
 
     You interact with the Closure Compiler service by making HTTP POST requests to the Closure
     Compiler server. With every request you must send at least the following parameters:
@@ -72,7 +73,7 @@ to follow the example.
     `WHITESPACE_ONLY`, asks for raw text output with an `output_format` of `text`, and asks for an
     `output_info` type of `compiled_code`.
 
- 2. Make a Post Request to the Closure Compiler Service
+ 2. **Make a Post Request to the Closure Compiler Service**
 
     To get output from the Closure Compiler service, send the parameters you chose in Step 1 in a
     POST request to the Closure Compiler service API URL. One way to do this is with a simple HTML
@@ -106,8 +107,8 @@ to follow the example.
     conn.close()
     ```
     
-    Note: To reproduce this example, Windows users may need to install Python. See the Python
-    Windows FAQ for instructions on installing and using Python under Windows.
+    *Note: To reproduce this example, Windows users may need to install Python. See the Python
+    Windows FAQ for instructions on installing and using Python under Windows.*
 
     This script optimizes JavaScript passed to it as a command line argument. Paste the above code
     into a file called compile.py, change the permissions of the file to make it executable, and

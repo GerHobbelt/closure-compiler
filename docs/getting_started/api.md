@@ -2,11 +2,11 @@
   
 ## The Hello World of the Closure Compiler Service API
 
-The Closure Compiler Service UI is good place to start for a few lines of JavaScript code or a few
-URLs, but if you'd like to automate the JavaScript optimization process or build the optimization
-process into a larger system (e.g. an IDE extension), then you should talk directly to the Closure
-Compiler service API. Follow the steps below for the Hello World of the Closure Compiler service
-API:
+The [Closure Compiler Service UI](ui.md) is good place to start for a few lines of JavaScript code
+or a few URLs, but if you'd like to automate the JavaScript optimization process or build the
+optimization process into a larger system (e.g. an IDE extension), then you should talk directly to
+the Closure Compiler service API. Follow the steps below for the Hello World of the Closure
+Compiler service API:
 
  1. **Create an HTML page**
     
@@ -57,4 +57,4 @@ API:
     and is much smaller. You can cut and paste the output from this page back into your source file.
 
 Now that you've seen the basics of the Closure Compiler service API, you can learn more about how
-to use and configure it in Communicating with the Closure Compiler Service API.
+to use and configure it in [Communicating with the Closure Compiler Service API](api-tutorial-1.md).
