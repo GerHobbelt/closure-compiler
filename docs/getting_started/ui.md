@@ -6,9 +6,9 @@ The easiest way to get familiar with the Closure Compiler service is by optimizi
 functions in the service's web UI.
 
  1. Access the Closure Compiler UI by opening this page in another tab or window:
-   [http://closure-compiler.appspot.com](http://closure-compiler.appspot.com).
+    [http://closure-compiler.appspot.com](http://closure-compiler.appspot.com).
  2. You should see the Closure Compiler UI prepopulated with a simple Hello World function:
-   ![UI screenshot](getting_started_UI.png)
+    ![UI screenshot](getting_started_UI.png)
  3. Click "Compile" to see the result: ![UI screenshot](getting_started_UI_result.png)
 
 That's it! You now have a much smaller version of the JavaScript code that functions identically to
