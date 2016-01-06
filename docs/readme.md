@@ -32,5 +32,5 @@ to maintain.
  * Work through the [API Hello World](getting_started/api.md).
  * [Download the application](https://dl.google.com/closure-compiler/compiler-latest.zip).
  * Work through the [Application Hello World](getting_started/app.md).
- * Read about Advanced compilation.
+ * Read about [Advanced compilation](getting_started/api-tutorial-3.md).
  * Explore the [project's source code](https://github.com/google/closure-compiler).

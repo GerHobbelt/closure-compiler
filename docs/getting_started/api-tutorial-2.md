@@ -209,5 +209,5 @@ example, `eval()` statements).
 Now that you're familiar with `SIMPLE_OPTIMIZATIONS` and the basic mechanics of using the service,
 the next step is to learn about the `ADVANCED_OPTIMIZATIONS` compilation level. This level
 requires some extra steps to ensure that your JavaScript works the same way before and after
-compilation, but it makes the JavaScript even smaller. See Advanced Compilation and Externs to
-learn about `ADVANCED_OPTIMIZATIONS`.
+compilation, but it makes the JavaScript even smaller. See [Advanced Compilation and
+Externs](api-tutorial-3.md) to learn about `ADVANCED_OPTIMIZATIONS`.
