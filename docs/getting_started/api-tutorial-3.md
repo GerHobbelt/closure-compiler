@@ -126,7 +126,7 @@ To enable `ADVANCED_OPTIMIZATIONS` for the Closure Compiler application, include
 flag `--compilation_level ADVANCED_OPTIMIZATIONS`, as in the following command:
 
 ```
-java -jar compiler.jar --compilation_level `ADVANCED_OPTIMIZATIONS` --js hello.js
+java -jar compiler.jar --compilation_level ADVANCED_OPTIMIZATIONS --js hello.js
 ```
 
 ## What to Watch Out for When Using `ADVANCED_OPTIMIZATIONS`
@@ -334,7 +334,7 @@ can pass library code and other code together in a single compilation request.
 
 *Note: This approach won't work if you need to mix compiled and uncompiled code. See [Broken
 References between Compiled and Uncompiled
-Code][#broken_references_between_compiled_and_uncompiled_code] for tips on handling this situation.*
+Code](#broken-references-between-compiled-and-uncompiled-code) for tips on handling this situation.*
 
 ### Broken References between Compiled and Uncompiled Code
 
@@ -361,7 +361,7 @@ If you have JavaScript code that you reuse as a library, you may want to use Clo
 shrink only the library while still allowing uncompiled code to call functions in the library.
 
 The solution in this situation is identical to the solution for unwanted code removal described in
-[Export the Symbols You Want to Keep](#solution_export_the_symbols_you_want_to_keep). Exporting
+[Export the Symbols You Want to Keep](#solution-export-the-symbols-you-want-to-keep). Exporting
 symbols not only keeps those symbols from being removed, but also makes them available to external
 code.
 
@@ -484,7 +484,7 @@ call functions in the file, you might think that you can just declare your API f
 externs file.
 
 Don't do this! Always use the exporting technique described in [Export the Symbols You Want to
-Keep](#solution_export_the_symbols_you_want_to_keep) to expose functions in your compiled files.
+Keep](#solution-export-the-symbols-you-want-to-keep) to expose functions in your compiled files.
 
 Exporting allows better compression than externs. Closure Compiler never renames symbols declared
 in externs, no matter how many times they appear in your code. This means that a single extern
