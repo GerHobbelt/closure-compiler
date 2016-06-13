@@ -97,6 +97,12 @@ public final class JSTypeCreatorFromJSDoc {
         "JSC_NTI_UNION_IS_UNINHABITABLE",
         "Union of {0} with {1} would create an impossible type.");
 
+  public static final DiagnosticType NEW_EXPECTS_OBJECT_OR_TYPEVAR =
+    DiagnosticType.warning(
+        "JSC_NTI_NEW_EXPECTS_OBJECT_OR_TYPEVAR",
+        "The \"new:\" annotation only accepts object types and type variables; "
+        + "found {0}.");
+
   private final CodingConvention convention;
 
   // Used to communicate state between methods when resolving enum types
@@ -449,8 +455,8 @@ public final class JSTypeCreatorFromJSDoc {
     return builder.build();
   }
 
-  // Don't confuse with getFunTypeFromAtTypeJsdoc; the function below computes a
-  // type that doesn't have an associated AST node.
+  // Computes a type from a jsdoc that includes a function type, rather than
+  // one that includes @param, @return, etc.
   private JSType getFunTypeHelper(Node jsdocNode, DeclaredTypeRegistry registry,
       ImmutableList<String> typeParameters) throws UnknownTypeException {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
@@ -463,16 +469,21 @@ public final class JSTypeCreatorFromJSDoc {
       ImmutableList<String> typeParameters, FunctionTypeBuilder builder)
       throws UnknownTypeException {
     Node child = jsdocNode.getFirstChild();
-    NominalType builtinObject = registry.getCommonTypes().getObjectType();
     if (child.getType() == Token.THIS) {
       if (ownerType == null) {
-        NominalType nt = getNominalType(child.getFirstChild(), registry, typeParameters);
-        builder.addReceiverType(nt == null ? builtinObject : nt);
+        builder.addReceiverType(
+            getThisOrNewType(child.getFirstChild(), registry, typeParameters));
       }
       child = child.getNext();
     } else if (child.getType() == Token.NEW) {
-      NominalType nt = getNominalType(child.getFirstChild(), registry, typeParameters);
-      builder.addNominalType(nt == null ? builtinObject : nt);
+      Node newTypeNode = child.getFirstChild();
+      JSType t = getThisOrNewType(newTypeNode, registry, typeParameters);
+      if (!t.isSubtypeOf(JSType.TOP_OBJECT)
+          && (!t.hasTypeVariable() || t.hasScalar())) {
+        warnings.add(JSError.make(
+            newTypeNode, NEW_EXPECTS_OBJECT_OR_TYPEVAR, t.toString()));
+      }
+      builder.addNominalType(t);
       child = child.getNext();
     }
     if (child.getType() == Token.PARAM_LIST) {
@@ -505,11 +516,9 @@ public final class JSTypeCreatorFromJSDoc {
         getTypeFromCommentHelper(child, registry, typeParameters));
   }
 
-  // May return null;
-  private NominalType getNominalType(Node n,
+  private JSType getThisOrNewType(Node n,
       DeclaredTypeRegistry registry, ImmutableList<String> typeParameters) {
-    return getTypeFromComment(n, registry, typeParameters)
-        .removeType(JSType.NULL).getNominalTypeIfSingletonObj();
+    return getTypeFromComment(n, registry, typeParameters).removeType(JSType.NULL);
   }
 
   private ImmutableSet<NominalType> getImplementedInterfaces(
@@ -574,7 +583,7 @@ public final class JSTypeCreatorFromJSDoc {
       DeclaredTypeRegistry registry) {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
     if (ownerType != null) {
-      builder.addReceiverType(ownerType.getAsNominalType());
+      builder.addReceiverType(ownerType.getInstanceAsJSType());
     }
     try {
       if (jsdoc != null && jsdoc.getType() != null) {
@@ -586,8 +595,8 @@ public final class JSTypeCreatorFromJSDoc {
         if (funType != null) {
           JSType slotType = simpleType.isFunctionType() ? null : simpleType;
           DeclaredFunctionType declType = funType.toDeclaredFunctionType();
-          if (ownerType != null) {
-            declType = declType.withReceiverType(ownerType.getAsNominalType());
+          if (ownerType != null && funType.getThisType() == null) {
+            declType = declType.withReceiverType(ownerType.getInstanceAsJSType());
           }
           return new FunctionAndSlotType(slotType, declType);
         } else {
@@ -716,25 +725,11 @@ public final class JSTypeCreatorFromJSDoc {
           funNode, IMPLEMENTS_WITHOUT_CONSTRUCTOR, functionName));
     }
 
-    if (jsdoc.hasThisType() && ownerType == null) {
+    if (jsdoc.hasThisType()) {
       Node thisRoot = jsdoc.getThisType().getRoot();
       Preconditions.checkState(thisRoot.getType() == Token.BANG);
-      Node thisNode = thisRoot.getFirstChild();
-      // JsDocInfoParser wraps @this types with !. But we warn when we see !T,
-      // and we don't want to warn for a ! that was automatically inserted.
-      // So, we bypass the ! here.
-      JSType thisType = getMaybeTypeFromComment(thisNode, registry, typeParameters);
-      if (thisType != null) {
-        thisType = thisType.removeType(JSType.NULL);
-      }
-      // TODO(dimvar): thisType may be non-null but have a null
-      // thisTypeAsNominal.
-      // We currently only support nominal types for the receiver type, but
-      // people use other types as well: unions, records, etc.
-      // For now, we just use the generic Object for these.
-      NominalType nt = thisType == null ? null : thisType.getNominalTypeIfSingletonObj();
-      NominalType builtinObject = registry.getCommonTypes().getObjectType();
-      builder.addReceiverType(nt == null ? builtinObject : nt);
+      builder.addReceiverType(
+          getThisOrNewType(thisRoot.getFirstChild(), registry, typeParameters));
     }
 
     return builder.buildDeclaration();
@@ -869,7 +864,7 @@ public final class JSTypeCreatorFromJSDoc {
     }
     boolean noCycles = constructorType.addInterfaces(implementedIntfs);
     Preconditions.checkState(noCycles);
-    builder.addNominalType(constructorType.getAsNominalType());
+    builder.addNominalType(constructorType.getInstanceAsJSType());
   }
 
   private void handleInterfaceAnnotation(
@@ -888,7 +883,7 @@ public final class JSTypeCreatorFromJSDoc {
       warnings.add(JSError.make(
           funNode, INHERITANCE_CYCLE, constructorType.toString()));
     }
-    builder.addNominalType(constructorType.getAsNominalType());
+    builder.addNominalType(constructorType.getInstanceAsJSType());
   }
 
   // /** @param {...?} var_args */ function f(var_args) { ... }
