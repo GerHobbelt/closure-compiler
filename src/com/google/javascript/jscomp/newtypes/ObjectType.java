@@ -73,7 +73,8 @@ final class ObjectType implements TypeWithProperties {
   private ObjectType(NominalType nominalType,
       PersistentMap<String, Property> props, FunctionType fn, boolean isLoose,
       ObjectKind objectKind) {
-    Preconditions.checkArgument(fn == null || fn.isLoose() == isLoose,
+    Preconditions.checkArgument(
+        fn == null || fn.isQmarkFunction() || fn.isLoose() == isLoose,
         "isLoose: %s, fn: %s", isLoose, fn);
     Preconditions.checkArgument(FunctionType.isInhabitable(fn));
     Preconditions.checkArgument(fn == null || nominalType != null,
@@ -223,7 +224,7 @@ final class ObjectType implements TypeWithProperties {
 
   ObjectType withFunction(FunctionType ft, NominalType fnNominal) {
     Preconditions.checkState(!this.isLoose);
-    Preconditions.checkState(!ft.isLoose());
+    Preconditions.checkState(!ft.isLoose() || ft.isQmarkFunction());
     return makeObjectType(fnNominal, this.props, ft, false, this.objectKind);
   }
 
@@ -845,8 +846,18 @@ final class ObjectType implements TypeWithProperties {
    * @return The unified type, or null if unification fails
    */
   static ObjectType unifyUnknowns(ObjectType t1, ObjectType t2) {
-    if (!Objects.equals(t1.nominalType, t2.nominalType)) {
+    NominalType nt1 = t1.nominalType;
+    NominalType nt2 = t2.nominalType;
+    NominalType nt;
+    if (nt1 == null && nt2 == null) {
+      nt = null;
+    } else if (nt1 == null || nt2 == null) {
       return null;
+    } else {
+      nt = NominalType.unifyUnknowns(nt1, nt2);
+      if (nt == null) {
+        return null;
+      }
     }
     FunctionType newFn = null;
     if (t1.fn != null || t2.fn != null) {
@@ -868,7 +879,7 @@ final class ObjectType implements TypeWithProperties {
       }
       newProps = newProps.with(propName, p);
     }
-    return makeObjectType(t1.nominalType, newProps, newFn,
+    return makeObjectType(nt, newProps, newFn,
         t1.isLoose || t2.isLoose,
         ObjectKind.join(t1.objectKind, t2.objectKind));
   }
