@@ -122,8 +122,7 @@ class AngularPass extends AbstractPostOrderCallback
       if (dependencies.isEmpty()) {
         continue;
       }
-      Node dependenciesArray = IR.arraylit(dependencies.toArray(
-          new Node[dependencies.size()]));
+      Node dependenciesArray = IR.arraylit(dependencies.toArray(new Node[0]));
       // creates `something.$inject = ['param1', 'param2']` node.
       Node statement = IR.exprResult(
           IR.assign(
@@ -237,6 +236,13 @@ class AngularPass extends AbstractPostOrderCallback
         name = NodeUtil.getName(n);
         fn = n;
         target = n;
+        if (n.getParent().isAssign()
+            && n.getParent().getJSDocInfo().isNgInject()) {
+          // This is a function assigned into a symbol, e.g. a regular function
+          // declaration in a goog.module or goog.scope.
+          // Skip in this traversal, it is handled when visiting the assign.
+          return;
+        }
         break;
 
       // handles var declaration cases like:

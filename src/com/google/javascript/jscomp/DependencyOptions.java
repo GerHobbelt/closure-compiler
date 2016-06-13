@@ -195,6 +195,7 @@ public final class DependencyOptions implements Serializable {
       return moduleName;
     }
 
+    @Override
     public String toString() {
       if (closureNamespace.equals(moduleName)) {
         return closureNamespace;

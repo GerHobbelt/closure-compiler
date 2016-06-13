@@ -2596,7 +2596,7 @@ public final class NodeUtil {
    */
   public static boolean isLValue(Node n) {
     Preconditions.checkArgument(
-        n.isName() || n.isGetProp() || n.isGetElem() || n.isStringKey() || n.isRest(),
+        n.isName() || n.isGetProp() || n.isGetElem() || n.isStringKey(),
         n);
     Node parent = n.getParent();
     if (parent == null) {
@@ -3230,6 +3230,7 @@ public final class NodeUtil {
       case Token.INSTANCEOF:
       case Token.TYPEOF:
       case Token.AND:
+      case Token.OR:
         return true;
 
       case Token.NE:

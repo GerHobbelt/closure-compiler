@@ -345,11 +345,8 @@ public final class JSModuleGraph {
    * @see DependencyOptions for more info on how this works.
    */
   public List<CompilerInput> manageDependencies(
-      List<DependencyOptions.ModuleIdentifier> entryPoints,
-      List<CompilerInput> inputs)
-      throws CircularDependencyException,
-          MissingModuleException,
-          MissingProvideException {
+      List<DependencyOptions.ModuleIdentifier> entryPoints, List<CompilerInput> inputs)
+      throws CircularDependencyException, MissingModuleException, MissingProvideException {
     DependencyOptions depOptions = new DependencyOptions();
     depOptions.setDependencySorting(true);
     depOptions.setDependencyPruning(true);

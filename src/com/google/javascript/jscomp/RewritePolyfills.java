@@ -254,23 +254,23 @@ public class RewritePolyfills implements HotSwapCompilerPass {
 
       // Implemented classes.
       .addClasses(ES6_IMPL, ES3, "$jscomp", "Map", "Set")
-      // (Soon-to-be implemented) Math methods.
-      .addStatics(ES6_IMPL, ES6_IMPL, "", "Math",
+      // Math methods.
+      .addStatics(ES6_IMPL, ES3, "$jscomp.math", "Math",
           "clz32", "imul", "sign", "log2", "log10", "log1p", "expm1", "cosh", "sinh", "tanh",
           "acosh", "asinh", "atanh", "hypot", "trunc", "cbrt")
-      // (Soon-to-be implemented) Number methods.
-      .addStatics(ES6_IMPL, ES6_IMPL, "", "Number",
+      // Number methods.
+      .addStatics(ES6_IMPL, ES3, "$jscomp.number", "Number",
           "isFinite", "isInteger", "isNaN", "isSafeInteger",
           "EPSILON", "MAX_SAFE_INTEGER", "MIN_SAFE_INTEGER")
       // Object methods.
       .addStatics(ES6_IMPL, ES3, "$jscomp.object", "Object", "assign", "is")
-      // (Soon-to-be implemented) String methods.
-      .addStatics(ES6_IMPL, ES6_IMPL, "", "String", "fromCodePoint")
-      .addMethods(ES6_IMPL, ES6_IMPL, "",
+      // String methods.
+      .addStatics(ES6_IMPL, ES3, "$jscomp.string", "String", "fromCodePoint")
+      .addMethods(ES6_IMPL, ES3, "$jscomp.string",
           "repeat", "codePointAt", "includes", "startsWith", "endsWith")
-      // (Soon-to-be implemented) Array methods.
-      .addStatics(ES6_IMPL, ES6_IMPL, "", "Array", "from", "of")
-      .addMethods(ES6_IMPL, ES6_IMPL, "",
+      // Array methods.
+      .addStatics(ES6_IMPL, ES3, "$jscomp.array", "Array", "from", "of")
+      .addMethods(ES6_IMPL, ES3, "$jscomp.array",
           "entries", "keys", "values", "copyWithin", "fill", "find", "findIndex")
       .build();
 

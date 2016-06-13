@@ -47,12 +47,11 @@ import org.kohsuke.args4j.spi.StringOptionHandler;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.lang.reflect.AnnotatedElement;
-import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -429,7 +428,8 @@ public class CommandLineRunner extends
     @Option(
       name = "--common_js_module_path_prefix",
       hidden = true,
-      usage = "Deprecated: use --js_module_root.")
+      usage = "Deprecated: use --js_module_root."
+    )
     private List<String> commonJsPathPrefix = new ArrayList<>();
 
     @Option(
@@ -439,9 +439,11 @@ public class CommandLineRunner extends
     )
     private List<String> moduleRoot = new ArrayList<>();
 
-    @Option(name = "--common_js_entry_module",
-        hidden = true,
-        usage = "Deprecated: use --entry_point.")
+    @Option(
+      name = "--common_js_entry_module",
+      hidden = true,
+      usage = "Deprecated: use --entry_point."
+    )
     private String commonJsEntryModule;
 
     @Option(name = "--transform_amd_modules",
@@ -458,21 +460,23 @@ public class CommandLineRunner extends
         + "True by default.")
     private boolean processClosurePrimitives = true;
 
-    @Option(name = "--manage_closure_dependencies",
-        hidden = true,
-        handler = BooleanOptionHandler.class,
-        usage = "Deprecated: use --dependency_mode=LOOSE.")
+    @Option(
+      name = "--manage_closure_dependencies",
+      hidden = true,
+      handler = BooleanOptionHandler.class,
+      usage = "Deprecated: use --dependency_mode=LOOSE."
+    )
     private boolean manageClosureDependencies = false;
 
-    @Option(name = "--only_closure_dependencies",
-        hidden = true,
-        handler = BooleanOptionHandler.class,
-        usage = "Deprecated: use --dependency_mode=STRICT.")
+    @Option(
+      name = "--only_closure_dependencies",
+      hidden = true,
+      handler = BooleanOptionHandler.class,
+      usage = "Deprecated: use --dependency_mode=STRICT."
+    )
     private boolean onlyClosureDependencies = false;
 
-    @Option(name = "--closure_entry_point",
-        hidden = true,
-        usage = "Deprecated: use --entry_point.")
+    @Option(name = "--closure_entry_point", hidden = true, usage = "Deprecated: use --entry_point.")
     private List<String> closureEntryPoint = new ArrayList<>();
 
     @Option(name = "--process_jquery_primitives",
@@ -507,14 +511,17 @@ public class CommandLineRunner extends
         usage = "Rewrite J2CL output to be compiler-friendly.")
     private boolean j2clPass = false;
 
-    @Option(name = "--output_manifest",
-        hidden = true,
-        usage = "Prints out a list of all the files in the compilation. "
-        + "If --dependency_mode=STRICT or LOOSE is specified, this will not include "
-        + "files that got dropped because they were not required. "
-        + "The %outname% placeholder expands to the JS output file. "
-        + "If you're using modularization, using %outname% will create "
-        + "a manifest for each module.")
+    @Option(
+      name = "--output_manifest",
+      hidden = true,
+      usage =
+          "Prints out a list of all the files in the compilation. "
+              + "If --dependency_mode=STRICT or LOOSE is specified, this will not include "
+              + "files that got dropped because they were not required. "
+              + "The %outname% placeholder expands to the JS output file. "
+              + "If you're using modularization, using %outname% will create "
+              + "a manifest for each module."
+    )
     private String outputManifest = "";
 
     @Option(name = "--output_module_dependencies",
@@ -637,26 +644,31 @@ public class CommandLineRunner extends
         usage = "Prevent injecting the named runtime libraries.")
     private List<String> noinjectLibrary = new ArrayList<>();
 
-    @Option(name = "--dependency_mode",
-        hidden = true,
-        usage = "Specifies how the compiler should determine the set and order "
-            + "of files for a compilation. Options: NONE the compiler will include all "
-            + "src files in the order listed, STRICT files will be included and sorted by "
-            + "starting from namespaces or files listed by the --entry_point flag - files "
-            + "will only be included if they are referenced by a goog.require or CommonJS "
-            + "require or ES6 import, LOOSE same as with STRICT but files which do not "
-            + "goog.provide a namespace and are not modules will be automatically added as "
-            + "--entry_point entries. Defaults to NONE.")
-    private CompilerOptions.DependencyMode dependencyMode =
-        CompilerOptions.DependencyMode.NONE;
+    @Option(
+      name = "--dependency_mode",
+      hidden = true,
+      usage =
+          "Specifies how the compiler should determine the set and order "
+              + "of files for a compilation. Options: NONE the compiler will include all "
+              + "src files in the order listed, STRICT files will be included and sorted by "
+              + "starting from namespaces or files listed by the --entry_point flag - files "
+              + "will only be included if they are referenced by a goog.require or CommonJS "
+              + "require or ES6 import, LOOSE same as with STRICT but files which do not "
+              + "goog.provide a namespace and are not modules will be automatically added as "
+              + "--entry_point entries. Defaults to NONE."
+    )
+    private CompilerOptions.DependencyMode dependencyMode = CompilerOptions.DependencyMode.NONE;
 
-    @Option(name = "--entry_point",
-        hidden = true,
-        usage = "A file or namespace to use as the starting point for determining "
-            + "which src files to include in the compilation. ES6 and CommonJS modules "
-            + "are specified as file paths (without the extension). Closure-library "
-            + "namespaces are specified with a \"goog:\" prefix. "
-            + "Example: --entry_point=goog:goog.Promise")
+    @Option(
+      name = "--entry_point",
+      hidden = true,
+      usage =
+          "A file or namespace to use as the starting point for determining "
+              + "which src files to include in the compilation. ES6 and CommonJS modules "
+              + "are specified as file paths (without the extension). Closure-library "
+              + "namespaces are specified with a \"goog:\" prefix. "
+              + "Example: --entry_point=goog:goog.Promise"
+    )
     private List<String> entryPoints = new ArrayList<>();
 
     @Option(name = "--custom_options_file",
@@ -1059,7 +1071,7 @@ public class CommandLineRunner extends
 
     flags.flagFile = "";
 
-    tokens = processArgs(tokens.toArray(new String[tokens.size()]));
+    tokens = processArgs(tokens.toArray(new String[0]));
 
     // Command-line warning levels should override flag file settings,
     // which means they should go last.
@@ -1171,7 +1183,7 @@ public class CommandLineRunner extends
         moduleRoots.add(ES6ModuleLoader.DEFAULT_FILENAME_PREFIX);
       }
 
-      for(String entryPoint : flags.entryPoints) {
+      for (String entryPoint : flags.entryPoints) {
         if (entryPoint.startsWith("goog:")) {
           entryPoints.add(DependencyOptions.ModuleIdentifier.forClosure(entryPoint));
         } else {
@@ -1180,16 +1192,19 @@ public class CommandLineRunner extends
       }
 
       if (flags.dependencyMode == CompilerOptions.DependencyMode.STRICT && entryPoints.isEmpty()) {
-          reportError("When --dependency_mode=STRICT, you must specify at least "
-              + "one --entry_point.");
+        reportError(
+            "When --dependency_mode=STRICT, you must specify at least " + "one --entry_point.");
       }
 
       CompilerOptions.DependencyMode depMode = flags.dependencyMode;
 
       if (flags.onlyClosureDependencies || flags.manageClosureDependencies) {
         if (flags.dependencyMode != CompilerOptions.DependencyMode.NONE) {
-          reportError((flags.onlyClosureDependencies ? "--only_closure_dependencies" :
-              "--manage_closure_dependencies") + " cannot be used with --dependency_mode.");
+          reportError(
+              (flags.onlyClosureDependencies
+                      ? "--only_closure_dependencies"
+                      : "--manage_closure_dependencies")
+                  + " cannot be used with --dependency_mode.");
         } else {
           if (flags.manageClosureDependencies) {
             depMode = CompilerOptions.DependencyMode.LOOSE;

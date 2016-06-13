@@ -19,10 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
 
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Unit tests for {@link ProcessCommonJSModules}
  */

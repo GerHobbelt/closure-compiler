@@ -41,17 +41,18 @@ $jscomp.Map = class {
     // TODO(sdh): DEFINE to assume not conformant (try-catch especially)
     // TODO(sdh): how to do this without using goog?
 
-    const /** function(new:Map, ...?) */ Map = $jscomp.global['Map'];
+    /** @type {function(new: Map, !Iterator)} */
+    const Map = $jscomp.global['Map'];
     if (!Map || !Map.prototype.entries || !Object.seal) return false;
     // Some implementations don't support constructor arguments.
     try {
-      const /** !Object */ key = Object.seal({x: 4});
+      const key = Object.seal({x: 4});
       const map = new Map($jscomp.makeIterator([[key, 's']]));
       if (map.get(key) != 's' || map.size != 1 || map.get({x: 4}) ||
           map.set({x: 4}, 't') != map || map.size != 2) {
         return false;
       }
-      const /** !Iterator<!Array<?>> */ iter = map.entries();
+      const iter = map.entries();
       let item = iter.next();
       if (item.done || item.value[0] != key || item.value[1] != 's') {
         return false;
@@ -133,7 +134,7 @@ $jscomp.Map = class {
     this.size = 0;
 
     if (opt_iterable) {
-      for (let item of opt_iterable) {
+      for (const item of opt_iterable) {
         this.set(/** @type {KEY} */ (item[0]), /** @type {VALUE} */ (item[1]));
       }
     }
@@ -175,9 +176,8 @@ $jscomp.Map = class {
    * @return {boolean} Whether the entry was deleted.
    */
   delete(key) {
-    // TODO(tbreisacher): Make this a 'const'.
-    let {id, list, index, entry} = this.maybeGetEntry_(key);
-    if (entry) {
+    const {id, list, index, entry} = this.maybeGetEntry_(key);
+    if (entry && list) {
       list.splice(index, 1);
       if (!list.length) delete this.data_[id];
       entry.previous.next = entry.next;
@@ -216,8 +216,7 @@ $jscomp.Map = class {
    * @return {VALUE|undefined}
    */
   get(key) {
-    const /** !$jscomp.Map.Entry_<KEY, VALUE>|undefined */ entry =
-        this.maybeGetEntry_(key).entry;
+    const {entry} = this.maybeGetEntry_(key);
     return entry && entry.value;
   }
 
@@ -232,11 +231,11 @@ $jscomp.Map = class {
    * @private
    */
   maybeGetEntry_(key) {
-    const /** string */ id = $jscomp.Map.getId_(key);
-    const /** !Array<!$jscomp.Map.Entry_<KEY, VALUE>> */ list = this.data_[id];
+    const id = $jscomp.Map.getId_(key);
+    const list = this.data_[id];
     if (list) {
       for (let index = 0; index < list.length; index++) {
-        let entry = list[index];
+        const entry = list[index];
         if ((key !== key && entry.key !== entry.key) || key === entry.key) {
           return {id, list, index, entry};
         }
@@ -281,7 +280,7 @@ $jscomp.Map = class {
    * @template THIS
    */
   forEach(callback, opt_thisArg = void 0) {
-    for (let entry of this.entries()) {
+    for (const entry of this.entries()) {
       callback.call(
           opt_thisArg,
           /** @type {VALUE} */ (entry[1]),
@@ -299,7 +298,7 @@ $jscomp.Map = class {
    * @private
    */
   iter_(func) {
-    const /** $jscomp.Map */ map = this;
+    const map = this;
     let entry = this.head_;
     return /** @type {!Iterator} */ ({
       next() {
@@ -392,7 +391,7 @@ $jscomp.Map$install = function() {
 
     /**
      * Fixed key used for storing generated object IDs.
-     * @private @const {!Symbol}
+     * @private @const {symbol}
      */
     $jscomp.Map.key_ = Symbol('map-id-key');
   }
