@@ -104,6 +104,12 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     // this case should be fixed
     assertPrint("new A.B('w').a()", "(new A.B(\"w\")).a()");
 
+    // calling new on the result of a call
+    assertPrintSame("new (a())");
+    assertPrint("new (a())()", "new (a())");
+    assertPrintSame("new (a.b())");
+    assertPrint("new (a.b())()", "new (a.b())");
+
     // Operators: make sure we don't convert binary + and unary + into ++
     assertPrint("x + +y", "x+ +y");
     assertPrint("x - (-y)", "x- -y");
@@ -948,6 +954,26 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         "/** @constructor */ function Foo(){}",
         "/**\n * @constructor\n */\n"
         + "function Foo() {\n}\n");
+  }
+
+  public void testNonNullTypes() {
+    assertTypeAnnotations(
+        Joiner.on("\n").join(
+            "/** @constructor */",
+            "function Foo() {}",
+            "/** @return {!Foo} */",
+            "Foo.prototype.f = function() { return new Foo; };"),
+        Joiner.on("\n").join(
+            "/**",
+            " * @constructor",
+            " */",
+            "function Foo() {\n}",
+            "/**",
+            " * @return {!Foo}",
+            " */",
+            "Foo.prototype.f = function() {",
+            "  return new Foo;",
+            "};\n"));
   }
 
   public void testTypeAnnotationsTypeDef() {

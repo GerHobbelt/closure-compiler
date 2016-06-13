@@ -910,6 +910,14 @@ public abstract class JSType implements TypeI, Serializable {
   }
 
   /**
+   * Tests whether this type explicitly allows undefined, as opposed to ? or *. This is required for
+   * a property to be optional.
+   */
+  public boolean isExplicitlyVoidable() {
+    return false;
+  }
+
+  /**
    * Gets the least supertype of this that's not a union.
    */
   public JSType collapseUnion() {
@@ -1474,6 +1482,12 @@ public abstract class JSType implements TypeI, Serializable {
    */
   public final String toAnnotationString() {
     return toStringHelper(true);
+  }
+
+  public final String toNonNullAnnotationString() {
+    return !isUnknownType() && !isTemplateType() && !isRecordType() && isObject()
+        ? "!" + toAnnotationString()
+        : toAnnotationString();
   }
 
   /**

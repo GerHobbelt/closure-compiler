@@ -57,7 +57,7 @@ enum CompilationParam {
   /**
    * If true, the input language is ES6. If false, it's ES5.
    */
-  LANG_IN_IS_ES6(false) {
+  LANG_IN_IS_ES6(true) {
     @Override
     void apply(CompilerOptions options, boolean value) {
       options.setLanguageIn(value ?
@@ -69,7 +69,7 @@ enum CompilationParam {
   /**
    * If true, the output language is ES5. If false, we skip transpilation.
    */
-  TRANSPILE {
+  TRANSPILE(true) {
     @Override
     void apply(CompilerOptions options, boolean value) {
       options.setLanguageOut(value ?
@@ -370,6 +370,14 @@ enum CompilationParam {
     @Override
     void apply(CompilerOptions options, boolean value) {
       options.setRemoveUnusedPrototypeProperties(value);
+    }
+  },
+
+  /** Removes unused static class prototypes */
+  REMOVE_UNUSED_CLASS_PROPERTIES {
+    @Override
+    void apply(CompilerOptions options, boolean value) {
+      options.setRemoveUnusedClassProperties(value);
     }
   },
 

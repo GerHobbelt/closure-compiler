@@ -737,6 +737,7 @@ public class IR {
       case Token.SUB:
       case Token.SUPER:
       case Token.TEMPLATELIT:
+      case Token.TAGGED_TEMPLATELIT:
       case Token.THIS:
       case Token.TYPEOF:
       case Token.TRUE:
