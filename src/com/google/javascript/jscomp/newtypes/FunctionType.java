@@ -419,7 +419,15 @@ public final class FunctionType {
         .addLoose().buildFunction();
   }
 
+  public boolean isValidOverride(FunctionType other) {
+    return isSubtypeOfHelper(other, false);
+  }
+
   public boolean isSubtypeOf(FunctionType other) {
+    return isSubtypeOfHelper(other, true);
+  }
+
+  private boolean isSubtypeOfHelper(FunctionType other, boolean checkThisType) {
     if (other.isTopFunction() ||
         other.isQmarkFunction() || this.isQmarkFunction()) {
       return true;
@@ -438,7 +446,8 @@ public final class FunctionType {
       // NOTE(dimvar): This is a bug. The code that triggers this should be rare
       // and the fix is not trivial, so for now we decided to not fix.
       // See unit tests in NewTypeInferenceES5OrLowerTest#testGenericsSubtyping
-      return instantiateGenericsWithUnknown(this).isSubtypeOf(other);
+      return instantiateGenericsWithUnknown(this)
+          .isSubtypeOfHelper(other, checkThisType);
     }
 
     // The subtype must have an equal or smaller number of required formals
@@ -483,11 +492,14 @@ public final class FunctionType {
       return false;
     }
 
-    // A function without @this can be a subtype of a function with @this.
-    if (this.receiverType != null && other.receiverType == null
-        || this.receiverType != null && other.receiverType != null
-           && !this.receiverType.isSubtypeOf(other.receiverType)) {
-      return false;
+    if (checkThisType) {
+      // A function without @this can be a subtype of a function with @this.
+      if (this.receiverType != null && other.receiverType == null
+          || this.receiverType != null && other.receiverType != null
+          // contravariance for the receiver type
+          && !other.receiverType.isSubtypeOf(this.receiverType)) {
+        return false;
+      }
     }
 
     // covariance in the return type
@@ -588,7 +600,7 @@ public final class FunctionType {
     }
     builder.addRetType(JSType.join(f1.returnType, f2.returnType));
     builder.addNominalType(joinNominalTypes(f1.nominalType, f2.nominalType));
-    builder.addReceiverType(joinNominalTypes(f1.receiverType, f2.receiverType));
+    builder.addReceiverType(meetNominalTypes(f1.receiverType, f2.receiverType));
     return builder.buildFunction();
   }
 
@@ -688,7 +700,7 @@ public final class FunctionType {
     // OTOH, it may be enough to detect that during GTI, and not implement the
     // more expensive methods (in NominalType or ObjectType).
     builder.addNominalType(meetNominalTypes(f1.nominalType, f2.nominalType));
-    builder.addReceiverType(meetNominalTypes(f1.receiverType, f2.receiverType));
+    builder.addReceiverType(joinNominalTypes(f1.receiverType, f2.receiverType));
     return builder.buildFunction();
   }
 
@@ -734,15 +746,25 @@ public final class FunctionType {
     for (int i = 0; i < maxNonInfiniteArity; i++) {
       JSType thisFormal = getFormalType(i);
       JSType otherFormal = other.getFormalType(i);
+      // NOTE(dimvar): The correct handling here would be to implement
+      // unifyWithSupertype for JSType, ObjectType, etc, to handle the
+      // contravariance here.
+      // But it's probably an overkill to do, so instead we just do a subtype
+      // check if unification fails. Same for restFormals and receiverType.
+      // Altenatively, maybe the unifyWith function could handle both subtype
+      // and supertype, and we'd catch type errors as invalid-argument-type
+      // after unification. (Not sure this is correct, I'd have to try it.)
       if (otherFormal != null
-          && !thisFormal.unifyWithSubtype(otherFormal, typeParameters, typeMultimap)) {
+          && !thisFormal.unifyWithSubtype(otherFormal, typeParameters, typeMultimap)
+          && !thisFormal.isSubtypeOf(otherFormal)) {
         return false;
       }
     }
     if (this.restFormals != null) {
       JSType otherRestFormals = other.getFormalType(maxNonInfiniteArity);
       if (otherRestFormals != null
-          && !this.restFormals.unifyWithSubtype(otherRestFormals, typeParameters, typeMultimap)) {
+          && !this.restFormals.unifyWithSubtype(otherRestFormals, typeParameters, typeMultimap)
+          && !this.restFormals.isSubtypeOf(otherRestFormals)) {
         return false;
       }
     }
@@ -760,11 +782,12 @@ public final class FunctionType {
     // unify.
     if (this.receiverType != null && other.receiverType != null
         && !this.receiverType.unifyWithSubtype(
-            other.receiverType, typeParameters, typeMultimap)) {
+            other.receiverType, typeParameters, typeMultimap)
+        && !this.receiverType.isSubtypeOf(other.receiverType)) {
       return false;
     }
 
-    return returnType.unifyWithSubtype(other.returnType, typeParameters, typeMultimap);
+    return this.returnType.unifyWithSubtype(other.returnType, typeParameters, typeMultimap);
   }
 
   private static FunctionType instantiateGenericsWithUnknown(FunctionType f) {

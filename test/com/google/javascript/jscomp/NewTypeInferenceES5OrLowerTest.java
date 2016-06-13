@@ -3828,6 +3828,24 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "Bar.prototype.method2 = function(x, y) {};",
         "Bar.prototype.method = Bar.prototype.method2;"),
         GlobalTypeInfo.INVALID_PROP_OVERRIDE);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @interface */",
+        "function Foo() {}",
+        "/** @type {string} */",
+        "Foo.prototype.prop;",
+        "/**",
+        " * @constructor",
+        " * @implements {Foo}",
+        " */",
+        "function Bar() {",
+        "  /** @type {?string} */",
+        "  this.prop = null;",
+        "}",
+        "Bar.prototype.method = function() {",
+        "  this.prop = null;",
+        "};"),
+        GlobalTypeInfo.INVALID_PROP_OVERRIDE);
   }
 
   public void testInheritingTheParentClassInterfaces() {
@@ -12611,6 +12629,28 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         " */",
         "function googPromiseReject(x, y) {}",
         "googPromiseReject(123, function(x) { x(123); } )"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {}",
+        "/** @type {number} */",
+        "Bar.prototype.length;",
+        "/**",
+        " * @template T",
+        " * @param {{length:number}|Foo<T>} x",
+        " */",
+        "function h(x) {}",
+        "h(new Bar);"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(x) {",
+        "  Array.prototype.slice.call(arguments, 1);",
+        "}"));
   }
 
   public void testArgumentsArray() {
@@ -14369,5 +14409,112 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "};",
         "var x = new Foo;",
         "x.m(1); x.m(2);"));
+  }
+
+  public void testUnificationWithOptionalProperties() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {{foo: (T|undefined)}} x",
+        " */",
+        "function g(x) {}",
+        "g({bar:1});"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {{foo: (T)}} x",
+        " */",
+        "function g(x) {}",
+        "g({bar:1});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+  }
+
+  public void testFunctionUnificationWithSubtyping() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {function(number,T)} x",
+        " */",
+        "function g(x) {}",
+        "function h(/** number|string */ x, /** number */ y) {}",
+        "g(h);"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {function(T, ...number)} x",
+        " */",
+        "function g(x) {}",
+        "/** @type {function(string, ...(number|string))} */",
+        "function h(x, var_args) {}",
+        "g(h);"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {function(T):(number|string)} x",
+        " */",
+        "function g(x) {}",
+        "/** @type {function(string):string} */",
+        "function h(x) { return x; }",
+        "g(h);"));
+
+    // This could unify without warnings; we'd have to implement
+    // a unifyWithSupertype function.
+    // Overkill for now.
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Parent() {}",
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " * @extends {Parent<T>}",
+        " */",
+        "function Child() {}",
+        "/**",
+        " * @template T",
+        " * @param {function(!Child<T>)} x",
+        " */",
+        "function g(x) {}",
+        "/** @type {function(!Parent<number>)} */",
+        "function h(x) {}",
+        "g(h);"),
+        NewTypeInference.FAILED_TO_UNIFY);
+  }
+
+  public void testNamespaceDefinitionInExternsWithoutConst() {
+    typeCheckCustomExterns(
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "var ns = {};"),
+        LINE_JOINER.join(
+            "/** @constructor */ ns.Foo = function() {};",
+            "var /** !ns.Foo */ x;"));
+
+    typeCheckCustomExterns(
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "var ns = {};",
+            "ns.subns = {};"),
+        LINE_JOINER.join(
+            "/** @constructor */ ns.subns.Foo = function() {};",
+            "var /** !ns.subns.Foo */ x = 123;"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testAllowComparisonBetweenEnumAndCorrespondingType() {
+    typeCheck(LINE_JOINER.join(
+        "/** @enum {number} */",
+        "var E = { A:1, B:2 };",
+        "123 < E.A;"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @enum {string} */",
+        "var E = { A:'a', B:'b' };",
+        "'c' < E.A;"));
   }
 }
