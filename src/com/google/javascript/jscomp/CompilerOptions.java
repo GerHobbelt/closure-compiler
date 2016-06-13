@@ -1553,7 +1553,7 @@ public class CompilerOptions {
    * This supersedes manageClosureDependencies.
    */
   public void setDependencyOptions(DependencyOptions options) {
-    Preconditions.checkNotNull(options);
+    options.setEs6ModuleOrder(this.languageIn.isEs6OrHigher());
     this.dependencyOptions = options;
   }
 
@@ -2359,6 +2359,13 @@ public class CompilerOptions {
    */
   public void setModuleRoots(List<String> moduleRoots) {
     this.moduleRoots = moduleRoots;
+  }
+
+  /**
+   * Sets whether to rewrite polyfills.
+   */
+  public void setRewritePolyfills(boolean rewritePolyfills) {
+    this.rewritePolyfills = rewritePolyfills;
   }
 
   /**

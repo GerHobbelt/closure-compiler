@@ -67,7 +67,7 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>19.0</version>
+      <version>20.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
@@ -206,6 +206,7 @@
         <configuration>
           <!-- <parallel>classes</parallel>
           <threadCount>4</threadCount> -->
+          <argLine>-Xmx1G</argLine>
         </configuration>
       </plugin>
 

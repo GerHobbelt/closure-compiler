@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
+
 import java.io.Serializable;
 import java.net.URI;
 import java.util.Collection;
@@ -42,6 +44,9 @@ public final class DependencyOptions implements Serializable {
   private boolean sortDependencies = false;
   private boolean pruneDependencies = false;
   private boolean dropMoochers = false;
+
+  // TODO(tbreisacher): Set this to true unconditionally, and get rid of the flag,
+  // once we check to make sure this won't break anyone.
   private boolean es6ModuleOrder = false;
   private final Set<ModuleIdentifier> entryPoints = new HashSet<>();
 
@@ -154,6 +159,17 @@ public final class DependencyOptions implements Serializable {
 
   Collection<ModuleIdentifier> getEntryPoints() {
     return entryPoints;
+  }
+
+  @Override
+  public String toString() {
+    return toStringHelper(this)
+        .add("sortDependencies", sortDependencies)
+        .add("pruneDependencies", pruneDependencies)
+        .add("dropMoochers", dropMoochers)
+        .add("es6ModuleOrder", es6ModuleOrder)
+        .add("entryPoints", entryPoints)
+        .toString();
   }
 
   /**

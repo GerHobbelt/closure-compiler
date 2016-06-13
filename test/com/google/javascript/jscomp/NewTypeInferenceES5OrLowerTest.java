@@ -10177,6 +10177,27 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
     typeCheckCustomExterns(
         DEFAULT_EXTERNS + "var NOT_A_CONST_DONT_WARN;",
         "");
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */ var ns = {};",
+        "/** @constructor */",
+        "ns.Foo = function() {};",
+        "/** @const */",
+        "var c = new ns.Foo();"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/**",
+        " * @constructor",
+        " * @param {T} x",
+        " * @template T",
+        " */",
+        "ns.Foo = function(x) {};",
+        "/** @const */",
+        "var c = new ns.Foo(123);",
+        "var /** !ns.Foo<string> */ x = c;"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testSuppressions() {
@@ -10992,6 +11013,18 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
 
     typeCheck(CLOSURE_BASE
         + "function f(x) { var /** boolean */ b = goog.isNull(x); }");
+  }
+
+  public void testIsArrayPredicate() {
+    typeCheck(LINE_JOINER.join(
+        "function f(/** (Array<number>|number) */ x) {",
+        "  var /** Array<number> */ a;",
+        "  if (Array.isArray(x)) {",
+        "    a = x;",
+        "  }",
+        "  a = x;",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testGoogIsPredicatesTrue() {
@@ -14521,6 +14554,19 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
             "var /** !Window */ n = window;",
             // ns is present on window
             "var x = window.ns;"));
+
+    typeCheckCustomExterns(
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "/** @constructor */",
+            "function Foo() {}",
+            "/** @type {number} */",
+            "Foo.prototype.prop;"),
+        LINE_JOINER.join(
+            "function f(/** !window.Foo */ x) {",
+            "  var /** string */ s = x.prop;",
+            "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testInstantiateToTheSuperType() {
@@ -14880,7 +14926,7 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
-  public void testAvoidInstantiatingWithLooseTypes() {
+  public void testInstantiatingWithLooseTypes() {
     typeCheck(LINE_JOINER.join(
         "/** @constructor */",
         "function Foo() {",
@@ -14921,6 +14967,41 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function g(x, y) { return x; }",
         "var /** !Bar */ obj = g(new Foo, f(new Foo));"),
         NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {T} x",
+        " * @param {T} y",
+        " */",
+        "function f(x, y) {}",
+        "/**",
+        " * @param {!Array<!Function|string>|!Function} f1",
+        " * @param {!Array<!Function|string>|!Function} f2",
+        " */",
+        "function g(f1, f2) {",
+        "  f(f1, f2);",
+        "}"));
+
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor @struct */ function Foo() {}",
+        "/**",
+        " * @template T",
+        " * @param {T} x",
+        " * @param {T} y",
+        " */",
+        "function f(x, y) {}",
+        "function g(x) {",
+        "  var z;",
+        "  if (1 < 2) {",
+        "    var /** number */ n = x.prop - 1;",
+        "    z = x;",
+        "  } else {",
+        "    z = new Foo;",
+        "  }",
+        "  f(z, z);",
+        "}"));
   }
 
   public void testDontCrashOnBottomRettypeFromLooseFun() {
@@ -15039,6 +15120,11 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function /** boolean */ f(/** !Foo */ x) {",
         "  return x.hasOwnProperty('asdf');",
         "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @interface */",
+        "function Foo() {}",
+        "Foo.prototype.toString = goog.abstractMethod;"));
   }
 
   public void testTrickySpecializationOfNamespaceProperties() {
@@ -15059,5 +15145,64 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "  }",
         "}"),
         NewTypeInference.NULLABLE_DEREFERENCE);
+  }
+
+  public void testMethodTypeParameterDoesntShadowClassTypeParameter() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template CLASST",
+        " * @param {CLASST} x",
+        " */",
+        "function Foo(x) {}",
+        "/**",
+        " * @template FUNT",
+        " * @param {CLASST} x",
+        " * @param {FUNT} y",
+        " * @return {CLASST}",
+        " */",
+        "Foo.prototype.method = function(x, y) { return x; };",
+        "/**",
+        " * @template FUNT",
+        " * @param {FUNT} x",
+        " * @param {!Foo<FUNT>} afoo",
+        " */",
+        "function f(x, afoo) {",
+        "  var /** string */ s = afoo.method(x, 123);",
+        "}",
+        "f(123, new Foo(123));"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testDontCrashWhenExtendingFunction() {
+    // We still don't handle this completely, since we give a non-callable
+    // warning even though Spy extends Function. But the unit test ensures that
+    // we at least don't crash.
+    typeCheck(LINE_JOINER.join(
+        "/** @const */ var jasmine = {};",
+        "/**",
+        " * @constructor",
+        " * @extends {Function}",
+        " */",
+        "jasmine.Spy = function() {};",
+        "var x = (new jasmine.Spy).length;",
+        "var /** null */ n = (new jasmine.Spy)();"),
+        NewTypeInference.NOT_CALLABLE);
+  }
+
+  public void testDontCrashOnInheritedMethodsWithIncompatibleReturns() {
+    typeCheck(LINE_JOINER.join(
+        "/** @interface */",
+        "function Foo() {}",
+        "/** @return {number} */",
+        "Foo.prototype.m = function() {};",
+        "/** @interface */",
+        "function Bar() {}",
+        "/** @return {string} */",
+        "Bar.prototype.m = function() {};",
+        "/** @constructor @implements {Foo} @implements {Bar} */",
+        "function Baz() {}",
+        "Baz.prototype.m = function() { return 123; };"),
+        GlobalTypeInfo.SUPER_INTERFACES_HAVE_INCOMPATIBLE_PROPERTIES);
   }
 }

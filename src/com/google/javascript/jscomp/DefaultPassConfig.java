@@ -32,7 +32,6 @@ import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.PassFactory.HotSwapPassFactory;
 import com.google.javascript.jscomp.lint.CheckArguments;
-import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
 import com.google.javascript.jscomp.lint.CheckForInOverArray;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
@@ -40,6 +39,7 @@ import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
 import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
 import com.google.javascript.jscomp.lint.CheckRequiresAndProvidesSorted;
+import com.google.javascript.jscomp.lint.CheckUselessBlocks;
 import com.google.javascript.jscomp.parsing.ParserRunner;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -186,6 +186,10 @@ public final class DefaultPassConfig extends PassConfig {
     // Verify JsDoc annotations
     checks.add(checkJsDoc);
 
+    if (options.enables(DiagnosticGroups.LINT_CHECKS)) {
+      checks.add(lintChecks);
+    }
+
     if (!options.skipNonTranspilationPasses && options.closurePass
         && options.enables(DiagnosticGroups.LINT_CHECKS)) {
       checks.add(checkRequiresAndProvidesSorted);
@@ -286,6 +290,7 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
+      checks.add(es6ExternsCheck);
       TranspilationPasses.addEs6EarlyPasses(checks);
     }
 
@@ -358,9 +363,9 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(checkAccessControls);
     }
 
-    // Lint checks must be run after typechecking.
-    if (options.enables(DiagnosticGroups.LINT_CHECKS)) {
-      checks.add(lintChecks);
+    // Analyzer checks must be run after typechecking.
+    if (options.enables(DiagnosticGroups.ANALYZER_CHECKS)) {
+      checks.add(analyzerChecks);
     }
 
     if (options.checkEventfulObjectDisposalPolicy !=
@@ -1154,6 +1159,14 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
+  private final PassFactory es6ExternsCheck =
+      new PassFactory("es6ExternsCheck", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new Es6ExternsCheck(compiler);
+        }
+      };
+
   /**
    * Desugars ES6_TYPED features into ES6 code.
    */
@@ -1526,14 +1539,23 @@ public final class DefaultPassConfig extends PassConfig {
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
           .add(new CheckArguments(compiler))
-          .add(new CheckEmptyStatements(compiler))
           .add(new CheckEnums(compiler))
           .add(new CheckInterfaces(compiler))
           .add(new CheckJSDocStyle(compiler))
-          .add(new CheckNullableReturn(compiler))
-          .add(new CheckForInOverArray(compiler))
           .add(new CheckPrototypeProperties(compiler))
           .add(new CheckUnusedPrivateProperties(compiler))
+          .add(new CheckUselessBlocks(compiler));
+      return combineChecks(compiler, callbacks.build());
+    }
+  };
+
+  private final HotSwapPassFactory analyzerChecks =
+      new HotSwapPassFactory("analyzerChecks", true) {
+    @Override
+    protected HotSwapCompilerPass create(AbstractCompiler compiler) {
+      ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
+          .add(new CheckNullableReturn(compiler))
+          .add(new CheckForInOverArray(compiler))
           .add(new ImplicitNullabilityCheck(compiler));
       return combineChecks(compiler, callbacks.build());
     }

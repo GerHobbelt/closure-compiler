@@ -24,7 +24,6 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
   @Override
   public void setUp() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    enableAstValidation(true);
     disableTypeCheck();
     runTypeCheckAfterProcessing = true;
   }
@@ -60,6 +59,20 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
             "var $jscomp$destructuring$var0 = foo();",
             "var a = $jscomp$destructuring$var0.a;",
             "var b = $jscomp$destructuring$var0.b;"));
+
+    test(
+        "let {a,b} = foo();",
+        LINE_JOINER.join(
+            "var $jscomp$destructuring$var0 = foo();",
+            "let a = $jscomp$destructuring$var0.a;",
+            "let b = $jscomp$destructuring$var0.b;"));
+
+    test(
+        "const {a,b} = foo();",
+        LINE_JOINER.join(
+            "/** @const */ var $jscomp$destructuring$var0 = foo();",
+            "const a = $jscomp$destructuring$var0.a;",
+            "const b = $jscomp$destructuring$var0.b;"));
 
     test(
         "var x; ({a: x} = foo());",

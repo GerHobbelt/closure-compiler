@@ -663,6 +663,8 @@ SQLResultSet.prototype.rows;
 
 /**
  * @constructor
+ * @implements {IArrayLike<!Object>}
+ * @see http://www.w3.org/TR/webdatabase/#sqlresultsetrowlist
  */
 function SQLResultSetRowList() {}
 
@@ -1155,7 +1157,7 @@ HTMLElement.prototype.dropzone;
 /**
  * @see http://www.w3.org/TR/html5/dom.html#dom-getelementsbyclassname
  * @param {string} classNames
- * @return {!NodeList}
+ * @return {!NodeList<!Element>}
  * @nosideeffects
  */
 HTMLElement.prototype.getElementsByClassName = function(classNames) {};
@@ -1187,7 +1189,7 @@ HTMLElement.prototype.shadowRoot;
 
 /**
  * @see http://www.w3.org/TR/shadow-dom/
- * @return {!NodeList}
+ * @return {!NodeList<!Node>}
  */
 HTMLElement.prototype.getDestinationInsertionPoints = function() {};
 
@@ -1546,7 +1548,7 @@ HTMLMediaElement.prototype.textTracks;
 
 /**
  * @see http://www.w3.org/TR/shadow-dom/
- * @return {!NodeList}
+ * @return {!NodeList<!Node>}
  */
 Text.prototype.getDestinationInsertionPoints = function() {};
 
@@ -1554,6 +1556,7 @@ Text.prototype.getDestinationInsertionPoints = function() {};
 /**
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/the-video-element.html#texttracklist
  * @constructor
+ * @implements {IArrayLike<!TextTrack>}
  */
 function TextTrackList() {}
 
@@ -1609,6 +1612,7 @@ TextTrack.prototype.removeEventListener = function(type, listener, useCapture)
 /**
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/the-video-element.html#texttrackcuelist
  * @constructor
+ * @implements {IArrayLike<!TextTrackCue>}
  */
 function TextTrackCueList() {}
 
@@ -1984,6 +1988,15 @@ var WheelEventInit;
  */
 function WheelEvent(type, opt_eventInitDict) {}
 
+/** @type {number} */
+WheelEvent.DOM_DELTA_PIXEL;
+
+/** @type {number} */
+WheelEvent.DOM_DELTA_LINE;
+
+/** @type {number} */
+WheelEvent.DOM_DELTA_PAGE;
+
 /** @const {number} */
 WheelEvent.prototype.deltaX;
 
@@ -2040,6 +2053,7 @@ DataTransferItem.prototype.webkitGetAsEntry = function() { return null; };
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/dnd.html
  * @see http://developers.whatwg.org/dnd.html#datatransferitem
  * @constructor
+ * @implements {IArrayLike<!DataTransferItem>}
  */
 function DataTransferItemList() {}
 
@@ -2561,6 +2575,9 @@ HTMLFormElement.prototype.noValidate;
 function ValidityState() {}
 
 /** @type {boolean} */
+ValidityState.prototype.badInput;
+
+/** @type {boolean} */
 ValidityState.prototype.customError;
 
 /** @type {boolean} */
@@ -2582,6 +2599,9 @@ ValidityState.prototype.typeMismatch;
 ValidityState.prototype.tooLong;
 
 /** @type {boolean} */
+ValidityState.prototype.tooShort;
+
+/** @type {boolean} */
 ValidityState.prototype.valid;
 
 /** @type {boolean} */
@@ -2593,7 +2613,7 @@ HTMLButtonElement.prototype.autofocus;
 
 /**
  * @const
- * @type {NodeList}
+ * @type {NodeList<!HTMLLabelElement>}
  */
 HTMLButtonElement.prototype.labels;
 
@@ -2674,7 +2694,7 @@ HTMLInputElement.prototype.formTarget;
 
 /**
  * @const
- * @type {NodeList}
+ * @type {NodeList<!HTMLLabelElement>}
  */
 HTMLInputElement.prototype.labels;
 
@@ -2707,11 +2727,11 @@ HTMLSelectElement.prototype.autofocus;
 
 /**
  * @const
- * @type {NodeList}
+ * @type {NodeList<!HTMLLabelElement>}
  */
 HTMLSelectElement.prototype.labels;
 
-/** @type {HTMLCollection} */
+/** @type {HTMLCollection<!HTMLOptionElement>} */
 HTMLSelectElement.prototype.selectedOptions;
 
 /** @type {string} */
@@ -2740,7 +2760,7 @@ HTMLTextAreaElement.prototype.autofocus;
 
 /**
  * @const
- * @type {NodeList}
+ * @type {NodeList<!HTMLLabelElement>}
  */
 HTMLTextAreaElement.prototype.labels;
 
@@ -2912,10 +2932,10 @@ MutationRecord.prototype.type;
 /** @type {Node} */
 MutationRecord.prototype.target;
 
-/** @type {NodeList} */
+/** @type {NodeList<!Node>} */
 MutationRecord.prototype.addedNodes;
 
-/** @type {NodeList} */
+/** @type {NodeList<!Node>} */
 MutationRecord.prototype.removedNodes;
 
 /** @type {Node} */
@@ -3063,7 +3083,7 @@ ShadowRoot.prototype.getElementById = function(id) {};
 
 /**
  * @param {string} className
- * @return {!NodeList}
+ * @return {!NodeList<!Element>}
  * @nosideeffects
  */
 ShadowRoot.prototype.getElementsByClassName = function(className) {};
@@ -3071,7 +3091,7 @@ ShadowRoot.prototype.getElementsByClassName = function(className) {};
 
 /**
  * @param {string} tagName
- * @return {!NodeList}
+ * @return {!NodeList<!Element>}
  * @nosideeffects
  */
 ShadowRoot.prototype.getElementsByTagName = function(tagName) {};
@@ -3080,7 +3100,7 @@ ShadowRoot.prototype.getElementsByTagName = function(tagName) {};
 /**
  * @param {string} namespace
  * @param {string} localName
- * @return {!NodeList}
+ * @return {!NodeList<!Element>}
  * @nosideeffects
  */
 ShadowRoot.prototype.getElementsByTagNameNS = function(namespace, localName) {};
@@ -3152,7 +3172,7 @@ function HTMLContentElement() {}
 HTMLContentElement.prototype.select;
 
 /**
- * @return {!NodeList}
+ * @return {!NodeList<!Node>}
  */
 HTMLContentElement.prototype.getDistributedNodes = function() {};
 
@@ -3165,7 +3185,7 @@ HTMLContentElement.prototype.getDistributedNodes = function() {};
 function HTMLShadowElement() {}
 
 /**
- * @return {!NodeList}
+ * @return {!NodeList<!Node>}
  */
 HTMLShadowElement.prototype.getDistributedNodes = function() {};
 

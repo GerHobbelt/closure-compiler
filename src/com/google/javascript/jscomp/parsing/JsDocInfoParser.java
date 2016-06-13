@@ -208,20 +208,35 @@ public final class JsDocInfoParser {
    * type if the parsing succeeded or {@code null} if it failed.
    */
   public static Node parseTypeString(String typeString) {
+    JsDocInfoParser parser = getParser(typeString);
+    return parser.parseTopLevelTypeExpression(parser.next());
+  }
+
+  /**
+   * Parses a string containing a JsDoc declaration, returning the entire JSDocInfo
+   * if the parsing succeeded or {@code null} if it failed.
+   */
+  public static JSDocInfo parseJsdoc(String toParse) {
+    JsDocInfoParser parser = getParser(toParse);
+    parser.parse();
+    return parser.retrieveAndResetParsedJSDocInfo();
+  }
+
+  private static JsDocInfoParser getParser(String toParse) {
     Config config = new Config(
         new HashSet<String>(),
         new HashSet<String>(),
         false,
         LanguageMode.ECMASCRIPT3);
     JsDocInfoParser parser = new JsDocInfoParser(
-        new JsDocTokenStream(typeString),
-        typeString,
+        new JsDocTokenStream(toParse),
+        toParse,
         0,
         null,
         config,
         NullErrorReporter.forOldRhino());
 
-    return parser.parseTopLevelTypeExpression(parser.next());
+    return parser;
   }
 
   /**
@@ -2309,11 +2324,7 @@ public final class JsDocInfoParser {
       if (expr != null) {
         skipEOLs();
         token = next();
-        Preconditions.checkState(
-            token == JsDocToken.PIPE || token == JsDocToken.COMMA);
-        if (token == JsDocToken.COMMA) {
-          reportTypeSyntaxWarning("msg.jsdoc.union.comma");
-        }
+        Preconditions.checkState(token == JsDocToken.PIPE);
 
         skipEOLs();
         token = next();
@@ -2324,8 +2335,7 @@ public final class JsDocInfoParser {
       }
 
       union.addChildToBack(expr);
-      // We support commas for backwards compatibility.
-    } while (match(JsDocToken.PIPE, JsDocToken.COMMA));
+    } while (match(JsDocToken.PIPE));
 
     if (alternate == null) {
       skipEOLs();

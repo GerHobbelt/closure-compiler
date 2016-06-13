@@ -36,7 +36,9 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * Rewrites all the library polyfills.
+ * Rewrites calls to ES6 library functions to use compiler-provided polyfills,
+ * e.g., <code>var m = new Map();</code> becomes
+ * <code>$jscomp.Map$install(); var m = new $jscomp.Map();</code>
  */
 public class RewritePolyfills implements HotSwapCompilerPass {
 
@@ -359,7 +361,7 @@ public class RewritePolyfills implements HotSwapCompilerPass {
                 INSUFFICIENT_OUTPUT_VERSION_ERROR,
                 name,
                 compiler.getOptions().getLanguageOut().toString(),
-                polyfill.polyfillVersion.toString());
+                polyfill.polyfillVersion.toLanguageModeString());
           }
           if (!languageOutIsAtLeast(polyfill.nativeVersion)) {
 

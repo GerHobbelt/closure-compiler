@@ -67,7 +67,7 @@
 
 @param {!Iterator<T>} iterator
 @return {!Array<T>} */$jscomp.arrayFromIterator = function(iterator) {
-  var i = undefined;
+  var i;
   /**@const */var arr = [];
   while (!(i = iterator.next()).done) {
     arr.push(i.value);
@@ -173,7 +173,7 @@
     $jscomp.initSymbol();
     $jscomp.initSymbolIterator();
     /**@const */var iter = arrayLike[Symbol.iterator]();
-    var next = undefined;
+    var next;
     while (!(next = iter.next()).done) {
       result.push(opt_mapFn.call(opt_thisArg, next.value));
     }
@@ -409,7 +409,7 @@
 /**
 @param {KEY} key
 @return {boolean} */$jscomp.Map.prototype["delete"] = function(key) {
-  var $jscomp$destructuring$var1 = this.maybeGetEntry_(key);
+  /**@const */var $jscomp$destructuring$var1 = this.maybeGetEntry_(key);
   /**@const */var id = $jscomp$destructuring$var1.id;
   /**@const */var list = $jscomp$destructuring$var1.list;
   /**@const */var index = $jscomp$destructuring$var1.index;
@@ -440,7 +440,7 @@
 /**
 @param {*} key
 @return {(VALUE|undefined)} */$jscomp.Map.prototype.get = function(key) {
-  var $jscomp$destructuring$var2 = this.maybeGetEntry_(key);
+  /**@const */var $jscomp$destructuring$var2 = this.maybeGetEntry_(key);
   /**@const */var entry = $jscomp$destructuring$var2.entry;
   return entry && entry.value;
 };
@@ -896,7 +896,7 @@
 @param {*} str
 @param {string} func */$jscomp.string.noRegExp_ = function(str, func) {
   if (str instanceof RegExp) {
-    throw new TypeError("First argument to String.prototype." + func + " must not be a regular expression");
+    throw new TypeError("First argument to String.prototype." + func + " " + "must not be a regular expression");
   }
 };
 /**
