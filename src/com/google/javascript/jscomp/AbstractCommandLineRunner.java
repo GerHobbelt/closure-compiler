@@ -1299,7 +1299,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           }
           writeModuleOutput(writer, m);
           if (options.sourceMapOutputPath != null) {
-            compiler.getSourceMap().appendTo(mapFileOut, m.getName());
+            compiler.getSourceMap().appendTo(mapFileOut, getModuleOutputFileName(m));
           }
         }
 
