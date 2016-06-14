@@ -102,6 +102,7 @@ public final class CompileTask
 
   public CompileTask() {
     this.languageIn = CompilerOptions.LanguageMode.ECMASCRIPT3;
+    this.languageOut = CompilerOptions.LanguageMode.NO_TRANSPILE;
     this.warningLevel = WarningLevel.DEFAULT;
     this.debugOptions = false;
     this.compilationLevel = CompilationLevel.SIMPLE_OPTIMIZATIONS;
@@ -123,7 +124,7 @@ public final class CompileTask
     this.warnings = new LinkedList<>();
   }
 
-  private static CompilerOptions.LanguageMode parseLanguageMode(String value) {
+  private static CompilerOptions.LanguageMode parseLanguageMode(String value, String errorSubjectName) {
     switch (value) {
       case "ECMASCRIPT6_STRICT":
       case "ES6_STRICT":
@@ -142,26 +143,34 @@ public final class CompileTask
         return CompilerOptions.LanguageMode.ECMASCRIPT3;
       default:
         throw new BuildException(
-            "Unrecognized 'languageIn' option value (" + value + ")");
+            "Unrecognized '" + errorSubjectName + "' option value (" + value + ")");
     }
   }
 
   /**
    * Set the language to which input sources conform.
    * @param value The name of the language.
-   *     (ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT).
+   *     (ECMASCRIPT3, ES3,
+   *     ECMASCRIPT5, ES5,
+   *     ECMASCRIPT5_STRICT, ES5_STRICT,
+   *     ECMASCRIPT6, ES6,
+   *     ECMASCRIPT6_STRICT, ES6_STRICT).
    */
   public void setLanguageIn(String value) {
-    this.languageIn = parseLanguageMode(value);
+    this.languageIn = parseLanguageMode(value, "LanguageIn");
   }
 
   /**
    * Set the language to which output sources conform.
    * @param value The name of the language.
-   *     (ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT).
+   *     (ECMASCRIPT3, ES3,
+   *     ECMASCRIPT5, ES5,
+   *     ECMASCRIPT5_STRICT, ES5_STRICT,
+   *     ECMASCRIPT6, ES6,
+   *     ECMASCRIPT6_STRICT, ES6_STRICT).
    */
   public void setLanguageOut(String value) {
-    this.languageOut = parseLanguageMode(value);
+    this.languageOut = parseLanguageMode(value, "LanguageOut");
   }
 
   /**
