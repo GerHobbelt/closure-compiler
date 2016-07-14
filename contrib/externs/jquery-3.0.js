@@ -177,7 +177,7 @@ jQuery.prototype.addBack = function(arg1) {};
 jQuery.prototype.addClass = function(arg1) {};
 
 /**
- * @param {(string|Element|jQuery|function(number)|function(number,string))} arg1
+ * @param {(string|Element|Array<Element>|jQuery|function(this:Element,number,string):(string|!Element|!jQuery))} arg1
  * @param {...(string|Element|Array<Element>|jQuery)} content
  * @return {!jQuery}
  */
@@ -293,7 +293,7 @@ jQuery.prototype.appendTo = function(target) {};
 jQuery.prototype.attr = function(arg1, arg2) {};
 
 /**
- * @param {(string|Element|jQuery|function(number)|function(number,string))} arg1
+ * @param {(string|Element|Array<Element>|jQuery|function(this:Element,number,string=):(string|!Element|!jQuery))} arg1
  * @param {...(string|Element|Array<Element>|jQuery)} content
  * @return {!jQuery}
  */
@@ -416,7 +416,6 @@ jQuery.prototype.click = function(arg1, handler) {};
  * @param {boolean=} withDataAndEvents
  * @param {boolean=} deepWithDataAndEvents
  * @return {!jQuery}
- * @nosideeffects
  * @suppress {checkTypes} see https://code.google.com/p/closure-compiler/issues/detail?id=583
  */
 jQuery.prototype.clone = function(withDataAndEvents, deepWithDataAndEvents) {};
