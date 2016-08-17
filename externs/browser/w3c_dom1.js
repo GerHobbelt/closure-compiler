@@ -117,24 +117,13 @@ DOMImplementation.prototype.hasFeature = function(feature, version) {};
  */
 function Node() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Node.prototype.addEventListener = function(type, listener, opt_useCapture) {};
+/** @inheritDoc */
+Node.prototype.addEventListener = function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Node.prototype.removeEventListener = function(type, listener, opt_useCapture) {};
+/** @inheritDoc */
+Node.prototype.removeEventListener = function(type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 Node.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -844,25 +833,14 @@ ProcessingInstruction.prototype.target;
 function Window() {}
 Window.prototype.Window;
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Window.prototype.addEventListener = function(type, listener, opt_useCapture) {};
+/** @inheritDoc */
+Window.prototype.addEventListener = function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Window.prototype.removeEventListener = function(type, listener, opt_useCapture)
+/** @inheritDoc */
+Window.prototype.removeEventListener = function(type, listener, opt_options)
     {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 Window.prototype.dispatchEvent = function(evt) {};
 
 /** @type {?function (Event)} */ Window.prototype.onabort;

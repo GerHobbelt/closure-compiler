@@ -85,27 +85,17 @@ PermissionStatus.prototype.status;
 /** @type {?function(!Event)} */
 PermissionStatus.prototype.onchange;
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 PermissionStatus.prototype.addEventListener = function(type,
                                                        listener,
-                                                       opt_useCapture) {};
+                                                       opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 PermissionStatus.prototype.removeEventListener = function(type,
                                                           listener,
-                                                          opt_useCapture) {};
-/**
- * @override
- * @return {boolean}
- */
+                                                          opt_options) {};
+
+/** @inheritDoc */
 PermissionStatus.prototype.dispatchEvent = function(evt) {};
 
 
