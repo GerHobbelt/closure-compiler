@@ -29,6 +29,7 @@ import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,6 +46,7 @@ import javax.annotation.Nullable;
  *
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
+// TODO(tbreisacher): This class does too many things. Break it into smaller passes.
 public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapCompilerPass {
   private final AbstractCompiler compiler;
 
@@ -88,7 +90,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
 
   private static final String ITER_RESULT = "$jscomp$key$";
 
-  // These functions are defined in js/es6_runtime.js
+  // This function is defined in js/es6/util/inherits.js
   static final String INHERITS = "$jscomp.inherits";
 
   public Es6ToEs3Converter(AbstractCompiler compiler) {
@@ -204,7 +206,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
    * Inserts a call to $jscomp.initSymbol() before {@code n}.
    */
   private void initSymbolBefore(Node n) {
-    compiler.ensureLibraryInjected("es6_runtime", false);
+    compiler.ensureLibraryInjected("es6/symbol", false);
     Node statement = NodeUtil.getEnclosingStatement(n);
     Node initSymbol = IR.exprResult(IR.call(NodeUtil.newQName(compiler, "$jscomp.initSymbol")));
     statement.getParent().addChildBefore(initSymbol.useSourceInfoFromForTree(statement), statement);
@@ -217,7 +219,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
       return;
     }
     if (isGlobalSymbol(t, n.getFirstChild())) {
-      compiler.ensureLibraryInjected("es6_runtime", false);
+      compiler.ensureLibraryInjected("es6/symbol", false);
       Node statement = NodeUtil.getEnclosingStatement(n);
       Node init = IR.exprResult(IR.call(NodeUtil.newQName(compiler, "$jscomp.initSymbolIterator")));
       statement.getParent().addChildBefore(init.useSourceInfoFromForTree(statement), statement);
@@ -544,9 +546,9 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
     ClassDeclarationMetadata metadata = ClassDeclarationMetadata.create(classNode, parent);
 
     if (metadata == null || metadata.fullClassName == null) {
-      cannotConvert(parent, "Can only convert classes that are declarations or the right hand"
-          + " side of a simple assignment.");
-      return;
+      throw new IllegalStateException(
+          "Can only convert classes that are declarations or the right hand"
+          + " side of a simple assignment: " + classNode);
     }
     if (metadata.hasSuperClass() && !metadata.superClassNameNode.isQualifiedName()) {
       compiler.report(JSError.make(metadata.superClassNameNode, DYNAMIC_EXTENDS_TYPE));
@@ -634,7 +636,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
               NodeUtil.newQName(compiler, metadata.fullClassName),
               NodeUtil.newQName(compiler, superClassString));
           Node inheritsCall = IR.exprResult(inherits);
-          compiler.ensureLibraryInjected("es6_runtime", false);
+          compiler.ensureLibraryInjected("es6/util/inherits", false);
 
           inheritsCall.useSourceInfoIfMissingFromForTree(classNode);
           enclosingStatement.getParent().addChildAfter(inheritsCall, enclosingStatement);
@@ -971,7 +973,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
 
   private static Node callEs6RuntimeFunction(
       AbstractCompiler compiler, Node iterable, String function) {
-    compiler.ensureLibraryInjected("es6_runtime", false);
+    compiler.ensureLibraryInjected("es6/util/" + function.toLowerCase(Locale.US), false);
     return IR.call(
         NodeUtil.newQName(compiler, "$jscomp." + function),
         iterable);

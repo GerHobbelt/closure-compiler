@@ -164,6 +164,8 @@ public enum Token {
 
     YIELD, // generators
 
+    AWAIT, // async functions
+
     IMPORT, // modules
     IMPORT_SPECS,
     IMPORT_SPEC,
@@ -171,6 +173,7 @@ public enum Token {
     EXPORT,
     EXPORT_SPECS,
     EXPORT_SPEC,
+    MODULE_BODY,
 
     REST, // "..." in formal parameters, or an array pattern.
     SPREAD, // "..." in a call expression, or an array literal.
@@ -235,11 +238,6 @@ public enum Token {
     // an AST is invalid while these are present.
     PLACEHOLDER1,
     PLACEHOLDER2;
-
-  @Deprecated
-  public static String name(Token token) {
-    return token.toString();
-  }
 
   /** If the arity isn't always the same, this function returns -1 */
   public static int arity(Token token) {

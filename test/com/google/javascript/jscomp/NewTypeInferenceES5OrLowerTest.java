@@ -356,7 +356,7 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
   public void testForLoopInference() {
     typeCheck(LINE_JOINER.join(
         "var x = 5;",
-        "for (;true;) {",
+        "for (;x < 10;) {",
         "  x = 'str';",
         "}",
         "var /** (string|number) */ y = x;",
@@ -365,7 +365,7 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
 
     typeCheck(LINE_JOINER.join(
         "var x = 5;",
-        "while (true) {",
+        "while (x < 10) {",
         "  x = 'str';",
         "}",
         "(function(/** string */ s){})(x);",
@@ -373,7 +373,7 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         NewTypeInference.INVALID_ARGUMENT_TYPE);
 
     typeCheck(LINE_JOINER.join(
-        "while (true) {",
+        "while (true || false) {",
         "  var x = 'str';",
         "}",
         "var /** (string|undefined) */ y = x;",
@@ -3204,6 +3204,13 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function Bar() {}",
         "(new Bar).method('asdf');"),
         NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "function f(ns) {",
+        "  return ns.prototype = {",
+        "    method: function(x, y) {}",
+        "  };",
+        "}"));
   }
 
   public void testAssignmentsToPrototype() {
@@ -3918,8 +3925,7 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function Child() {}",
         "Child.prototype = new Parent();",
         "/** @type {number} */ Child.prototype.prop = 5;"),
-        GlobalTypeInfo.INVALID_PROP_OVERRIDE,
-        NewTypeInference.MISTYPED_ASSIGN_RHS);
+        GlobalTypeInfo.INVALID_PROP_OVERRIDE);
 
     typeCheck(LINE_JOINER.join(
         "/** @constructor */",
@@ -5762,6 +5768,10 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "  }",
         "}"),
         NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheckCustomExterns(
+        DEFAULT_EXTERNS + "function f() {}",
+        "try {} catch (f) {}");
   }
 
   public void testIn() {
@@ -16088,8 +16098,9 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
   public void testIObjectSubtyping() {
     typeCheck(LINE_JOINER.join(
         "function f(/** !IObject */ x) {}",
-        "f({});"),
-        NewTypeInference.INVALID_ARGUMENT_TYPE);
+        "f({});"));
+
+    typeCheck("var /** !IObject<number, string> */ x = {};");
 
     typeCheck(LINE_JOINER.join(
         "/**",
@@ -17091,7 +17102,8 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         NewTypeInference.INVALID_OPERAND_TYPE);
 
     // When the TRY can throw, only use the TRY's type env in the CATCH
-    typeCheck(LINE_JOINER.join("function f(/** (number|string) */ x) {",
+    typeCheck(LINE_JOINER.join(
+        "function f(/** (number|string) */ x) {",
         "  try {",
         "    x = 123;",
         "    throw 'asdf';",
@@ -17099,5 +17111,86 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "    var /** number */ n = x;",
         "  }",
         "}"));
+  }
+
+  public void testGetterSetterPrototypeProperties() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() { this.prop = 123; }",
+        "Foo.prototype = {",
+        "  set a(x) { this.prop = x; },",
+        "  get a() { return this.prop + 1; }",
+        "};"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() { this.prop = 123; }",
+        "Foo.prototype = {",
+        "  set a(x) { this.prop = x; },",
+        "  /** @return {number} */",
+        "  get a() { return this.prop + 1; }",
+        "};",
+        "var /** string */ s = (new Foo).a;"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() { this.prop = 123; }",
+        "Foo.prototype = {",
+        "  /** @param {number} x*/",
+        "  set a(x) { this.prop = x; },",
+        "  get a() { return this.prop + 1; }",
+        "};",
+        "(new Foo).a = 'asdf';"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testWith() {
+    typeCheck(LINE_JOINER.join(
+        "var a;",
+        "with (a) {}"));
+
+    typeCheck(LINE_JOINER.join(
+        "var a;",
+        "with (a) {",
+        "  var x = b;",
+        "}"));
+  }
+
+  public void testMeetingWithTruthyFalsy() {
+    typeCheck(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  if (!x) return null;",
+            "  return /** @type {number} */ (x);",
+            "}"));
+
+    typeCheck(
+        "function f(x) { if (!x) { return /** @type {number} */ (x); } }");
+  }
+
+  public void testPropAccessOnTruthy() {
+    typeCheck(LINE_JOINER.join(
+        "function f(/** !Function */ x) {",
+        "  return x.superClass_ ? x.superClass_.constructor : null;",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** !Function */ x) {",
+        "  if (x.superClass_) { x.superClass_.constructor = null; }",
+        "}"));
+  }
+
+  public void testIObjectExternMissing() {
+    // For old projects that are missing IObject in their externs
+    typeCheckCustomExterns(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Object() {}",
+            "/** @constructor */",
+            "function Function() {}",
+            "/** @constructor */",
+            "function Symbol() {}"),
+        "var x = {};");
   }
 }

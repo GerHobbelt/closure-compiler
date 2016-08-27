@@ -192,21 +192,6 @@ public class CompilerOptions {
   /** Checks types on expressions */
   public boolean checkTypes;
 
-  // When compiling to JS from other languages (eg Java), we can be lenient
-  // around null and undefined in types.
-  // NOTE(dimvar): IN DEVELOPMENT, DO NOT USE!
-  // This flag is temporary while developing the feature.
-  // The final version will check this on a per-file basis.
-  private boolean checkTypesModuloNullUndefined;
-
-  void setTypecheckModuloNullUndefined(boolean ignoreNull) {
-    this.checkTypesModuloNullUndefined = ignoreNull;
-  }
-
-  boolean getTypecheckModuloNullUndefined() {
-    return this.checkTypesModuloNullUndefined;
-  }
-
   public CheckLevel reportMissingOverride;
 
   /**
@@ -361,7 +346,7 @@ public class CompilerOptions {
   boolean assumeClosuresOnlyCaptureReferences;
 
   /** Inlines properties */
-  boolean inlineProperties;
+  private boolean inlineProperties;
 
   /** Move code to a deeper module */
   public boolean crossModuleCodeMotion;
@@ -591,10 +576,10 @@ public class CompilerOptions {
    * Rename properties to disambiguate between unrelated fields based on
    * type information.
    */
-  public boolean disambiguateProperties;
+  private boolean disambiguateProperties;
 
   /** Rename unrelated properties to the same name to reduce code size. */
-  public boolean ambiguateProperties;
+  private boolean ambiguateProperties;
 
   /** Input sourcemap files, indexed by the JS files they refer to */
   ImmutableMap<String, SourceMapInput> inputSourceMaps;
@@ -793,6 +778,9 @@ public class CompilerOptions {
 
   /** Id generators to replace. */
   ImmutableMap<String, RenamingMap> idGenerators;
+
+  /** Hash function to use for xid generation. */
+  Xid.HashFunction xidHashFunction;
 
   /**
    * A previous map of ids (serialized to a string by a previous compile).
@@ -1051,7 +1039,6 @@ public class CompilerOptions {
     checkSymbols = false;
     checkSuspiciousCode = false;
     checkTypes = false;
-    checkTypesModuloNullUndefined = false;
     reportMissingOverride = CheckLevel.OFF;
     checkGlobalNamesLevel = CheckLevel.OFF;
     brokenClosureRequiresLevel = CheckLevel.ERROR;
@@ -1424,6 +1411,13 @@ public class CompilerOptions {
   }
 
   /**
+   * Sets the hash function to use for Xid
+   */
+  public void setXidHashFunction(Xid.HashFunction xidHashFunction) {
+    this.xidHashFunction = xidHashFunction;
+  }
+
+  /**
    * Sets the id generators to replace.
    */
   public void setIdGenerators(Map<String, RenamingMap> idGenerators) {
@@ -1493,6 +1487,10 @@ public class CompilerOptions {
    */
   public void setInlineProperties(boolean enable) {
     inlineProperties = enable;
+  }
+
+  boolean shouldInlineProperties() {
+    return useTypesForOptimization || inlineProperties;
   }
 
   /**
@@ -1959,8 +1957,9 @@ public class CompilerOptions {
   }
 
   /**
-   * Skip all passes (other than transpilation, if requested). Don't inject es6_runtime.js
-   * or do any checks/optimizations (this is useful for per-file transpilation).
+   * Skip all passes (other than transpilation, if requested). Don't inject any
+   * runtime libraries (unless explicitly requested) or do any checks/optimizations
+   * (this is useful for per-file transpilation).
    */
   public void setSkipNonTranspilationPasses(boolean skipNonTranspilationPasses) {
     this.skipNonTranspilationPasses = skipNonTranspilationPasses;
@@ -2222,8 +2221,16 @@ public class CompilerOptions {
     this.disambiguateProperties = disambiguateProperties;
   }
 
+  boolean shouldDisambiguateProperties() {
+    return this.useTypesForOptimization || this.disambiguateProperties;
+  }
+
   public void setAmbiguateProperties(boolean ambiguateProperties) {
     this.ambiguateProperties = ambiguateProperties;
+  }
+
+  boolean shouldAmbiguateProperties() {
+    return this.useTypesForOptimization || this.ambiguateProperties;
   }
 
   public void setAnonymousFunctionNaming(

@@ -31,10 +31,10 @@ import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.PassFactory.HotSwapPassFactory;
+import com.google.javascript.jscomp.lint.CheckArrayWithGoogObject;
 import com.google.javascript.jscomp.lint.CheckDuplicateCase;
 import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
-import com.google.javascript.jscomp.lint.CheckForInOverArray;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckMissingSemicolon;
@@ -264,7 +264,10 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(closureRewriteClass);
     }
 
+    // TODO(tbreisacher): Move this to before closureCheckModule so that it can operate on the
+    // original source tree, instead of the goog.scope/goog.module-rewritten one.
     if (options.enables(DiagnosticGroups.MISSING_REQUIRE)
+        || options.enables(DiagnosticGroups.STRICT_MISSING_REQUIRE)
         || options.enables(DiagnosticGroups.EXTRA_REQUIRE)) {
       checks.add(checkRequires);
     }
@@ -576,7 +579,7 @@ public final class DefaultPassConfig extends PassConfig {
     // soon after type checking, both so that it can make use of type
     // information and so that other passes can take advantage of the renamed
     // properties.
-    if (options.disambiguateProperties) {
+    if (options.shouldDisambiguateProperties()) {
       passes.add(disambiguateProperties);
     }
 
@@ -728,7 +731,7 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(extractPrototypeMemberDeclarations);
     }
 
-    if (options.ambiguateProperties &&
+    if (options.shouldAmbiguateProperties() &&
         (options.propertyRenaming == PropertyRenamingPolicy.ALL_UNQUOTED)) {
       passes.add(ambiguateProperties);
     }
@@ -859,7 +862,7 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(inlineFunctions);
     }
 
-    if (options.inlineProperties) {
+    if (options.shouldInlineProperties()) {
       passes.add(inlineProperties);
     }
 
@@ -1690,7 +1693,7 @@ public final class DefaultPassConfig extends PassConfig {
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
           .add(new CheckNullableReturn(compiler))
-          .add(new CheckForInOverArray(compiler))
+          .add(new CheckArrayWithGoogObject(compiler))
           .add(new ImplicitNullabilityCheck(compiler));
       return combineChecks(compiler, callbacks.build());
     }
@@ -1879,7 +1882,7 @@ public final class DefaultPassConfig extends PassConfig {
           ReplaceIdGenerators pass =
               new ReplaceIdGenerators(
                   compiler, options.idGenerators, options.generatePseudoNames,
-                  options.idGeneratorsMapSerialized);
+                  options.idGeneratorsMapSerialized, options.xidHashFunction);
           pass.process(externs, root);
           idGeneratorMap = pass.getSerializedIdMappings();
         }

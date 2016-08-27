@@ -46,6 +46,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.ArrayLiteralExpressionT
 import com.google.javascript.jscomp.parsing.parser.trees.ArrayPatternTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ArrayTypeTree;
 import com.google.javascript.jscomp.parsing.parser.trees.AssignmentRestElementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.AwaitExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BinaryOperatorTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BlockTree;
 import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
@@ -1022,12 +1023,34 @@ class IRFactory {
     }
 
     Node processAstRoot(ProgramTree rootNode) {
-      Node node = newNode(Token.SCRIPT);
+      Node scriptNode = newNode(Token.SCRIPT);
       for (ParseTree child : rootNode.sourceElements) {
-        node.addChildToBack(transform(child));
+        scriptNode.addChildToBack(transform(child));
       }
-      parseDirectives(node);
-      return node;
+      parseDirectives(scriptNode);
+      if (isGoogModuleFile(scriptNode)) {
+        Node moduleNode = new Node(Token.MODULE_BODY);
+        setSourceInfo(moduleNode, rootNode);
+        moduleNode.addChildrenToBack(scriptNode.removeChildren());
+        scriptNode.addChildToBack(moduleNode);
+      }
+      return scriptNode;
+    }
+
+    private boolean isGoogModuleFile(Node scriptNode) {
+      Preconditions.checkArgument(scriptNode.isScript());
+      if (!scriptNode.hasChildren()) {
+        return false;
+      }
+      Node exprResult = scriptNode.getFirstChild();
+      if (!exprResult.isExprResult()) {
+        return false;
+      }
+      Node call = exprResult.getFirstChild();
+      if (!call.isCall()) {
+        return false;
+      }
+      return call.getFirstChild().matchesQualifiedName("goog.module");
     }
 
     /**
@@ -2161,6 +2184,13 @@ class IRFactory {
       return yield;
     }
 
+    Node processAwait(AwaitExpressionTree tree) {
+      maybeWarnForFeature(tree, Feature.ASYNC_FUNCTIONS);
+      Node await = newNode(Token.AWAIT);
+      await.addChildToBack(transform(tree.expression));
+      return await;
+    }
+
     Node processExportDecl(ExportDeclarationTree tree) {
       maybeWarnForFeature(tree, Feature.MODULES);
       Node decls = null;
@@ -2732,6 +2762,8 @@ class IRFactory {
           return processNewTarget(node.asNewTargetExpression());
         case YIELD_EXPRESSION:
           return processYield(node.asYieldStatement());
+        case AWAIT_EXPRESSION:
+          return processAwait(node.asAwaitExpression());
         case FOR_OF_STATEMENT:
           return processForOf(node.asForOfStatement());
 

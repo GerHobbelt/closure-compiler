@@ -218,7 +218,7 @@ public final class SuggestedFix {
           length = (child.getSourceOffset() + child.getLength()) - startPosition;
         }
         if (n.getParent().getLastChild() == n && n != n.getParent().getFirstChild()) {
-          Node previousSibling = n.getParent().getChildBefore(n);
+          Node previousSibling = n.getPrevious();
           if (previousSibling.hasChildren()) {
             Node child = previousSibling.getFirstChild();
             int startPositionDiff = startPosition - (child.getSourceOffset() + child.getLength());
@@ -237,7 +237,7 @@ public final class SuggestedFix {
       if (deleteWhitespaceBefore
           && parent != null
           && (parent.isScript() || parent.isBlock())) {
-        Node previousSibling = parent.getChildBefore(n);
+        Node previousSibling = n.getPrevious();
         if (previousSibling != null) {
           int previousSiblingEndPosition =
               previousSibling.getSourceOffset() + previousSibling.getLength();

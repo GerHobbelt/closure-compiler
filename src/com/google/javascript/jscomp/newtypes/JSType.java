@@ -24,6 +24,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
 import com.google.javascript.rhino.FunctionTypeI;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 import com.google.javascript.rhino.TypeI;
@@ -900,14 +901,30 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   private static JSType meetHelper(JSType lhs, JSType rhs) {
     if (lhs.isTop()) {
       return rhs;
-    } else if (rhs.isTop()) {
+    }
+    if (rhs.isTop()) {
       return lhs;
-    } else if (lhs.isUnknown()) {
+    }
+    if (lhs.isUnknown()) {
       return rhs;
-    } else if (rhs.isUnknown()) {
+    }
+    if (rhs.isUnknown()) {
       return lhs;
-    } else if (lhs.isBottom() || rhs.isBottom()) {
+    }
+    if (lhs.isBottom() || rhs.isBottom()) {
       return BOTTOM;
+    }
+    if (lhs.hasTruthyMask()) {
+      return rhs.makeTruthy();
+    }
+    if (lhs.hasFalsyMask()) {
+      return rhs.makeFalsy();
+    }
+    if (rhs.hasTruthyMask()) {
+      return lhs.makeTruthy();
+    }
+    if (rhs.hasFalsyMask()) {
+      return lhs.makeFalsy();
     }
     int newMask = lhs.getMask() & rhs.getMask();
     String newTypevar;
@@ -1255,11 +1272,11 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   }
 
   public JSType getProp(QualifiedName qname) {
-    if (isBottom() || isUnknown()) {
+    if (isBottom() || isUnknown() || hasTruthyMask()) {
       return UNKNOWN;
     }
     Preconditions.checkState(!getObjs().isEmpty() || !getEnums().isEmpty(),
-        "Can't getProp of type %s", this);
+        "Can't getProp %s of type %s", qname, this);
     return nullAcceptingJoin(
         TypeWithPropertiesStatics.getProp(getObjs(), qname),
         TypeWithPropertiesStatics.getProp(getEnums(), qname));
@@ -1296,6 +1313,18 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
     Preconditions.checkArgument(pname.isIdentifier());
     return TypeWithPropertiesStatics.hasConstantProp(getObjs(), pname) ||
         TypeWithPropertiesStatics.hasConstantProp(getEnums(), pname);
+  }
+
+  @Override
+  public boolean containsArray() {
+    ObjectType arrayType = commonTypes.getArrayInstance().getObjTypeIfSingletonObj();
+    Preconditions.checkNotNull(arrayType);
+    for (ObjectType objType : this.getObjs()) {
+      if (objType.isSubtypeOf(arrayType, SubtypeCache.create())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public JSType withoutProperty(QualifiedName qname) {
@@ -1478,6 +1507,11 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   }
 
   @Override
+  public boolean isOriginalConstructor() {
+    throw new UnsupportedOperationException("isOriginalConstructor not implemented yet.");
+  }
+
+  @Override
   public boolean isEquivalentTo(TypeI type) {
     return equals(type);
   }
@@ -1513,6 +1547,11 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   }
 
   @Override
+  public JSType autoboxAndGetObject() {
+    throw new UnsupportedOperationException("autoboxAndGetObject not implemented yet");
+  }
+
+  @Override
   public boolean equals(Object o) {
     if (o == null) {
       return false;
@@ -1530,6 +1569,11 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   @Override
   public int hashCode() {
     return Objects.hash(getMask(), getObjs(), getEnums(), getTypeVar());
+  }
+
+  @Override
+  public String getDisplayName() {
+    throw new UnsupportedOperationException("getDisplayName not implemented yet");
   }
 
   @Override
@@ -1584,6 +1628,56 @@ public abstract class JSType implements FunctionTypeI, ObjectTypeI {
   @Override
   public FunctionTypeI getConstructor() {
     throw new UnsupportedOperationException("getConstructor not implemented yet");
+  }
+
+  @Override
+  public JSType getPrototypeObject() {
+    throw new UnsupportedOperationException("getPrototypeObject not implemented yet");
+  }
+
+  @Override
+  public JSDocInfo getJSDocInfo() {
+    throw new UnsupportedOperationException("getJSDocInfo not implemented yet");
+  }
+
+  @Override
+  public JSDocInfo getOwnPropertyJSDocInfo(String propertyName) {
+    throw new UnsupportedOperationException("getOwnPropertyJSDocInfo not implemented yet");
+  }
+
+  @Override
+  public Node getOwnPropertyDefsite(String propertyName) {
+    throw new UnsupportedOperationException("getOwnPropertyDefsite not implemented yet");
+  }
+
+  @Override
+  public Node getPropertyDefsite(String propertyName) {
+    throw new UnsupportedOperationException("getPropertyDefsite not implemented yet");
+  }
+
+  @Override
+  public JSType getLowestSupertypeWithProperty(String propertyName, boolean isOverride) {
+    throw new UnsupportedOperationException("getLowestSupertypeWithProperty not implemented yet");
+  }
+
+  @Override
+  public boolean isPrototypeObject() {
+    throw new UnsupportedOperationException("isPrototypeObject not implemented yet");
+  }
+
+  @Override
+  public boolean isInstanceofObject() {
+    throw new UnsupportedOperationException("isObjectLiteral not implemented yet");
+  }
+
+  @Override
+  public boolean isInstanceType() {
+    throw new UnsupportedOperationException("isInstanceType not implemented yet");
+  }
+
+  @Override
+  public boolean hasProperty(String propertyName) {
+    throw new UnsupportedOperationException("hasProperty not implemented yet");
   }
 }
 

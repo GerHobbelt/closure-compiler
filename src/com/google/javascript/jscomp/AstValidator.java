@@ -92,8 +92,23 @@ public final class AstValidator implements CompilerPass {
     validateNodeType(Token.SCRIPT, n);
     validateHasSourceName(n);
     validateHasInputId(n);
-    for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
-      validateStatement(c);
+    if (n.hasChildren() && n.getFirstChild().isModuleBody()) {
+      validateChildCount(n, 1);
+      validateModuleContents(n.getFirstChild());
+    } else {
+      validateStatements(n.getFirstChild());
+    }
+  }
+
+  public void validateModuleContents(Node n) {
+    validateNodeType(Token.MODULE_BODY, n);
+    validateStatements(n.getFirstChild());
+  }
+
+  public void validateStatements(Node n) {
+    while (n != null) {
+      validateStatement(n);
+      n = n.getNext();
     }
   }
 
@@ -329,6 +344,10 @@ public final class AstValidator implements CompilerPass {
         validateYield(n);
         return;
 
+      case AWAIT:
+        validateAwait(n);
+        return;
+
       default:
         violation("Expected expression but was " + n.getType(), n);
     }
@@ -340,6 +359,19 @@ public final class AstValidator implements CompilerPass {
     validateChildCountIn(n, 0, 1);
     if (n.hasChildren()) {
       validateExpression(n.getFirstChild());
+    }
+  }
+
+  private void validateAwait(Node n) {
+    validateEs6Feature("async function", n);
+    validateNodeType(Token.AWAIT, n);
+    validateWithinAsyncFunction(n);
+  }
+
+  private void validateWithinAsyncFunction(Node n) {
+    Node parentFunction = NodeUtil.getEnclosingFunction(n);
+    if (parentFunction == null || !parentFunction.isAsyncFunction()) {
+      violation("'await' expression is not within an async function", n);
     }
   }
 

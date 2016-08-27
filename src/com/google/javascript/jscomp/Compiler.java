@@ -256,7 +256,7 @@ public class Compiler extends AbstractCompiler {
    */
   public Compiler(PrintStream stream) {
     addChangeHandler(recentChange);
-    outStream = stream;
+    this.outStream = stream;
   }
 
   /**
@@ -301,12 +301,12 @@ public class Compiler extends AbstractCompiler {
     this.options = options;
     this.languageMode = options.getLanguageIn();
     if (errorManager == null) {
-      if (outStream == null) {
+      if (this.outStream == null) {
         setErrorManager(
             new LoggerErrorManager(createMessageFormatter(), logger));
       } else {
         PrintStreamErrorManager printer =
-            new PrintStreamErrorManager(createMessageFormatter(), outStream);
+            new PrintStreamErrorManager(createMessageFormatter(), this.outStream);
         printer.setSummaryDetailLevel(options.summaryDetailLevel);
         setErrorManager(printer);
       }
@@ -314,9 +314,17 @@ public class Compiler extends AbstractCompiler {
 
     reconcileOptionsWithGuards();
 
+    // Turn off type-based optimizations when type checking is off
+    if (!options.checkTypes) {
+      options.setDisambiguateProperties(false);
+      options.setAmbiguateProperties(false);
+      options.setInlineProperties(false);
+      options.setUseTypesForOptimization(false);
+    }
+
     if (options.legacyCodeCompile) {
-      options.disambiguateProperties = false;
-      options.ambiguateProperties = false;
+      options.setDisambiguateProperties(false);
+      options.setAmbiguateProperties(false);
       options.useNonStrictWarningsGuard();
     }
 
@@ -738,7 +746,7 @@ public class Compiler extends AbstractCompiler {
     setProgress(1.0, "recordFunctionInformation");
 
     if (tracker != null) {
-      tracker.outputTracerReport(outStream == null ? System.out : outStream);
+      tracker.outputTracerReport();
     }
   }
 
@@ -1035,8 +1043,8 @@ public class Compiler extends AbstractCompiler {
 
   @Override
   boolean areNodesEqualForInlining(Node n1, Node n2) {
-    if (options.ambiguateProperties ||
-        options.disambiguateProperties) {
+    if (options.shouldAmbiguateProperties() ||
+        options.shouldDisambiguateProperties()) {
       // The type based optimizations require that type information is preserved
       // during other optimizations.
       return n1.isEquivalentToTyped(n2);
@@ -1361,7 +1369,7 @@ public class Compiler extends AbstractCompiler {
     jsRoot.detachChildren();
 
     if (options.tracer.isOn()) {
-      tracker = new PerformanceTracker(jsRoot, options.tracer);
+      tracker = new PerformanceTracker(jsRoot, options.tracer, this.outStream);
       addChangeHandler(tracker.getCodeChangeHandler());
     }
 

@@ -1485,6 +1485,7 @@ public final class NodeUtil {
       case MUL:
       case MOD:
       case DIV:    return 13;
+      case AWAIT:
       case INC:
       case DEC:
       case NEW:
@@ -2368,7 +2369,7 @@ public final class NodeUtil {
    * @return Whether the node is of a type that contain other statements.
    */
   public static boolean isStatementBlock(Node n) {
-    return n.isScript() || n.isBlock();
+    return n.isScript() || n.isBlock() || n.isModuleBody();
   }
 
   /**
@@ -2404,6 +2405,7 @@ public final class NodeUtil {
     switch (n.getType()) {
       case FUNCTION:
       case SCRIPT:
+      case MODULE_BODY:
         return true;
       case BLOCK:
         // Only valid for top level synthetic block
@@ -2436,6 +2438,7 @@ public final class NodeUtil {
     Preconditions.checkState(parent != null);
     switch (parent.getType()) {
       case SCRIPT:
+      case MODULE_BODY:
       case BLOCK:
       case LABEL:
       case NAMESPACE_ELEMENTS: // The body of TypeScript namespace is also a statement parent
@@ -2481,7 +2484,7 @@ public final class NodeUtil {
         && parent.getSecondChild() == n;
   }
 
-  // TODO(tbreisacher): Add a method for detecting nodes under es6_runtime.js
+  // TODO(tbreisacher): Add a method for detecting nodes injected as runtime libraries.
   static boolean isInSyntheticScript(Node n) {
     return n.getSourceFileName() != null && n.getSourceFileName().startsWith(" [synthetic:");
   }
@@ -2615,9 +2618,11 @@ public final class NodeUtil {
    * See {@link #isFunctionDeclaration}).
    */
   public static boolean isHoistedFunctionDeclaration(Node n) {
-    return isFunctionDeclaration(n)
-        && (n.getParent().isScript()
-            || n.getGrandparent().isFunction());
+    if (isFunctionDeclaration(n)) {
+      Node parent = n.getParent();
+      return parent.isScript() || parent.isModuleBody() || parent.getParent().isFunction();
+    }
+    return false;
   }
 
   static boolean isBlockScopedFunctionDeclaration(Node n) {
@@ -2633,6 +2638,7 @@ public final class NodeUtil {
         case SCRIPT:
         case DECLARE:
         case EXPORT:
+        case MODULE_BODY:
           return false;
         default:
           Preconditions.checkState(current.isLabel());
@@ -3056,20 +3062,23 @@ public final class NodeUtil {
   private static Node getAddingRoot(Node n) {
     Node addingRoot = null;
     Node ancestor = n;
-    while (null != (ancestor = ancestor.getParent())) {
-      Token type = ancestor.getType();
-      if (type == Token.SCRIPT) {
-        addingRoot = ancestor;
-        break;
-      } else if (type == Token.FUNCTION) {
-        addingRoot = ancestor.getLastChild();
-        break;
+    crawl_ancestors: while (null != (ancestor = ancestor.getParent())) {
+      switch (ancestor.getType()) {
+        case SCRIPT:
+        case MODULE_BODY:
+          addingRoot = ancestor;
+          break crawl_ancestors;
+        case FUNCTION:
+          addingRoot = ancestor.getLastChild();
+          break crawl_ancestors;
+        default:
+          continue crawl_ancestors;
       }
     }
 
     // make sure that the adding root looks ok
-    Preconditions.checkState(addingRoot.isBlock() ||
-        addingRoot.isScript());
+    Preconditions.checkState(addingRoot.isBlock() || addingRoot.isModuleBody()
+        || addingRoot.isScript());
     Preconditions.checkState(addingRoot.getFirstChild() == null ||
         !addingRoot.getFirstChild().isScript());
     return addingRoot;
@@ -3274,12 +3283,6 @@ public final class NodeUtil {
         isLatin(name);
   }
 
-  @Deprecated
-  public static boolean isValidQualifiedName(String name) {
-    return isValidQualifiedName(LanguageMode.ECMASCRIPT3, name);
-  }
-
-
   /**
    * Determines whether the given name is a valid qualified name.
    */
@@ -3466,8 +3469,7 @@ public final class NodeUtil {
     }
     Node parent = getProp.getParent();
     return parent.isAssign() && parent.getFirstChild() == getProp
-        && parent.getFirstChild().getLastChild().getString().equals("prototype")
-        && parent.getLastChild().isObjectLit();
+        && parent.getFirstChild().getLastChild().getString().equals("prototype");
   }
 
   /**
@@ -4484,6 +4486,30 @@ public final class NodeUtil {
     return false;
   }
 
+  static boolean isModuleScopeRoot(Node n) {
+    return n.isModuleBody() || isBundledGoogModuleScopeRoot(n);
+  }
+
+  private static boolean isBundledGoogModuleScopeRoot(Node n) {
+    if (!n.isBlock() || !n.hasChildren() || !isGoogModuleCall(n.getFirstChild())) {
+      return false;
+    }
+    Node function = n.getParent();
+    if (function == null
+        || !function.isFunction()
+        || getFunctionParameters(function).getChildCount() != 1
+        || !getFunctionParameters(function).getFirstChild().matchesQualifiedName("exports")) {
+      return false;
+    }
+    Node call = function.getParent();
+    if (!call.isCall()
+        || call.getChildCount() != 2
+        || !call.getFirstChild().matchesQualifiedName("goog.loadModule")) {
+      return false;
+    }
+    return call.getParent().isExprResult() && call.getGrandparent().isScript();
+  }
+
   private static boolean isGoogModuleDeclareLegacyNamespaceCall(Node n) {
     if (isExprCall(n)) {
       Node target = n.getFirstFirstChild();
@@ -4492,11 +4518,16 @@ public final class NodeUtil {
     return false;
   }
 
+  public static boolean isTopLevel(Node n) {
+    return n.isScript() || n.isModuleBody();
+  }
+
   /**
    * @return Whether the node is a goog.module file's SCRIPT node.
    */
   static boolean isGoogModuleFile(Node n) {
-    return n.isScript() && n.hasChildren() && isGoogModuleCall(n.getFirstChild());
+    return n.isScript() && n.hasChildren() && n.getFirstChild().isModuleBody()
+        && isGoogModuleCall(n.getFirstFirstChild());
   }
 
   /**
@@ -4504,7 +4535,8 @@ public final class NodeUtil {
    *     declareLegacyNamespace call.
    */
   static boolean isLegacyGoogModuleFile(Node n) {
-    return isGoogModuleFile(n) && isGoogModuleDeclareLegacyNamespaceCall(n.getSecondChild());
+    return isGoogModuleFile(n)
+        && isGoogModuleDeclareLegacyNamespaceCall(n.getFirstChild().getSecondChild());
   }
 
   static boolean isConstructor(Node fnNode) {
@@ -4537,5 +4569,4 @@ public final class NodeUtil {
     String keyName = propNode.getString();
     return keyName.equals("get") || keyName.equals("set");
   }
-
 }

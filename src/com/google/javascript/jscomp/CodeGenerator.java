@@ -534,6 +534,10 @@ public class CodeGenerator {
             add("*");
           }
 
+          if (n.isMemberFunctionDef() && n.getFirstChild().isAsyncFunction()) {
+            add("async ");
+          }
+
           switch (type) {
             case GETTER_DEF:
               // Get methods have no parameters.
@@ -595,6 +599,7 @@ public class CodeGenerator {
         }
 
       case SCRIPT:
+      case MODULE_BODY:
       case BLOCK:
         {
           if (n.getClass() != Node.class) {
@@ -850,6 +855,11 @@ public class CodeGenerator {
         }
         break;
 
+      case AWAIT:
+        add("await ");
+        addExpr(first, NodeUtil.precedence(type), Context.OTHER);
+        break;
+
       case FALSE:
         Preconditions.checkState(childCount == 0);
         cc.addConstant("false");
@@ -973,6 +983,8 @@ public class CodeGenerator {
           add("set ");
         } else if (last.getBooleanProp(Node.GENERATOR_FN)) {
           add("*");
+        } else if (last.isAsyncFunction()) {
+          add("async");
         }
         add("[");
         add(first);

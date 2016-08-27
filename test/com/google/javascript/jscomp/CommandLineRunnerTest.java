@@ -307,6 +307,7 @@ public final class CommandLineRunnerTest extends TestCase {
 
   public void testTypedAdvanced() {
     args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
+    args.add("--jscomp_warning=checkTypes");
     test(
         "/** @constructor */\n" +
         "function Foo() {}\n" +
@@ -1502,7 +1503,7 @@ public final class CommandLineRunnerTest extends TestCase {
   }
 
   public void testES6TranspiledByDefault() {
-    test("var x = class X {};", "var x = function() {};");
+    test("var x = class {};", "var x = function() {};");
   }
 
   public void testES5ChecksByDefault() {

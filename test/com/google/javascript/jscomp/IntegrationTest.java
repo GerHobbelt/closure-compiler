@@ -3231,6 +3231,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testInlineProperties() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
+    options.setCheckTypes(true);
     level.setOptionsForCompilationLevel(options);
     level.setTypeBasedOptimizationOptions(options);
 
@@ -3239,7 +3240,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         "/** @constructor */\n" +
         "ns.C = function () {this.someProperty = 1}\n" +
         "alert(new ns.C().someProperty + new ns.C().someProperty);\n";
-    assertTrue(options.inlineProperties);
+    assertTrue(options.shouldInlineProperties());
     assertTrue(options.collapseProperties);
     // CollapseProperties used to prevent inlining this property.
     test(options, code, "alert(2);");
@@ -3248,6 +3249,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testGoogDefineClass1() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
+    options.setCheckTypes(true);
     level.setOptionsForCompilationLevel(options);
     level.setTypeBasedOptimizationOptions(options);
 
@@ -3258,7 +3260,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         "  constructor: function () {this.someProperty = 1}\n" +
         "});\n" +
         "alert(new ns.C().someProperty + new ns.C().someProperty);\n";
-    assertTrue(options.inlineProperties);
+    assertTrue(options.shouldInlineProperties());
     assertTrue(options.collapseProperties);
     // CollapseProperties used to prevent inlining this property.
     test(options, code, "alert(2);");
@@ -3267,6 +3269,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testGoogDefineClass2() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
+    options.setCheckTypes(true);
     level.setOptionsForCompilationLevel(options);
     level.setTypeBasedOptimizationOptions(options);
 
@@ -3276,7 +3279,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         "  constructor: function () {this.someProperty = 1}\n" +
         "});\n" +
         "alert(new C().someProperty + new C().someProperty);\n";
-    assertTrue(options.inlineProperties);
+    assertTrue(options.shouldInlineProperties());
     assertTrue(options.collapseProperties);
     // CollapseProperties used to prevent inlining this property.
     test(options, code, "alert(2);");
@@ -3301,7 +3304,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         "});" +
         "var x = new C();\n" +
         "x.someMethod(x.someProperty);\n";
-    assertTrue(options.inlineProperties);
+    assertTrue(options.shouldInlineProperties());
     assertTrue(options.collapseProperties);
     // CollapseProperties used to prevent inlining this property.
     test(options, code, TypeValidator.TYPE_MISMATCH_WARNING);
@@ -3410,6 +3413,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setLanguageOut(LanguageMode.ECMASCRIPT3);
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     Compiler compiler = compile(options, js);
+    assertThat(compiler.getErrors()).isEmpty();
     String result = compiler.toSource(compiler.getJsRoot());
     assertThat(result).isNotEmpty();
     assertThat(result).doesNotContain("No one ever calls me");

@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.TypeCheck.INSTANTIATE_ABSTRACT_CLASS;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -297,6 +298,22 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "found   : boolean\n" +
         "required: Enum<string>",
         false);
+  }
+
+  public void testDontCrashOnRecursiveTemplateReference() {
+    testTypesWithExtraExterns(
+        LINE_JOINER.join(
+          "/**",
+          " * @constructor @struct",
+          " * @implements {Iterable<!Array<KEY|VAL>>}",
+          " * @template KEY, VAL",
+          " */",
+          "function Map(opt_iterable) {}"),
+        LINE_JOINER.join(
+          "/** @constructor @implements {Iterable<VALUE>} @template VALUE */",
+          "function Foo() {",
+          "  /** @type {!Map<VALUE, VALUE>} */ this.map = new Map;",
+          "}"));
   }
 
   public void testTemplatizedArray1() {
@@ -7882,6 +7899,12 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     testTypes("var goog = {};" +
               "/** @constructor */ goog.F = function() {};" +
               "/** @constructor */ goog.G = goog.F;");
+  }
+
+  public void testNew19() {
+    testTypes(
+        "/** @constructor @abstract */ var Foo = function() {}; var foo = new Foo();",
+        INSTANTIATE_ABSTRACT_CLASS);
   }
 
   public void testName1() {
@@ -16636,119 +16659,19 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         + "original definition at [testcode]:5 with type (null|rec<string>)");
   }
 
-  public void testModuloNullUndef1() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "function f(/** number */ to, /** (number|null) */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef2() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "function f(/** number */ to, /** (number|undefined) */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef3() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @constructor */",
-        "function Foo() {}",
-        "function f(/** !Foo */ to, /** ?Foo */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef4() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @constructor */",
-        "function Foo() {}",
-        "/** @constructor @extends {Foo} */",
-        "function Bar() {}",
-        "function f(/** !Foo */ to, /** ?Bar */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef5() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "function f(/** {a: number} */ to, /** {a: (null|number)} */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef6() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "function f(/** {a: number} */ to, /** ?{a: (null|number)} */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef7() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @constructor */",
-        "function Foo() {}",
-        "function f(/** function():!Foo */ to, /** function():?Foo */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef8() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @constructor */",
-        "function Foo() {}",
-        "function f(/** !Array<!Foo> */ to, /** !Array<?Foo> */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef9() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/**",
-        " * @constructor",
-        " * @template T",
-        " */",
-        "function Foo() {}",
-        "function f(/** !Foo<number> */ to, /** !Foo<(number|null)> */ from) {",
-        "  to = from;",
-        "}"));
-  }
-
-  public void testModuloNullUndef10() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @interface */",
-        "function Foo() {}",
-        "/** @type {function(?number)} */",
-        "Foo.prototype.prop;",
-        "/** @constructor @implements {Foo} */",
-        "function Bar() {}",
-        "/** @type {function(number)} */",
-        "Bar.prototype.prop;"));
-  }
-
-  public void testModuloNullUndef11() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "/** @constructor */",
-        "function Bar() {}",
-        "/** @type {!number} */",
-        "Bar.prototype.prop;",
-        "function f(/** ?number*/ n) {",
-        "  (new Bar).prop = n;",
-        "}"));
-  }
-
-  public void testModuloNullUndef12() {
-    testTypesModuloNullUndefined(LINE_JOINER.join(
-        "function f(/** number */ n) {}",
-        "f(/** @type {?number} */ (null));"));
-  }
-
   public void testModuloNullUndefThatWorkedWithoutSpecialSubtypingRules() {
     testTypes(LINE_JOINER.join(
         "/** @constructor */",
         "function Foo() {}",
         "function f(/** function(?Foo, !Foo) */ x) {",
         "  return /** @type {function(!Foo, ?Foo)} */ (x);",
+        "}"));
+
+    testTypes(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "function f(/** !Array<!Foo> */ to, /** !Array<?Foo> */ from) {",
+        "  to = from;",
         "}"));
 
     testTypes(LINE_JOINER.join(
@@ -16760,12 +16683,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "function f(/** ?Function */ x) {",
         "  return x();",
         "}"));
-  }
-
-  private void testTypesModuloNullUndefined(String js) {
-    compiler.getOptions().setTypecheckModuloNullUndefined(true);
-    testTypes(js);
-    compiler.getOptions().setTypecheckModuloNullUndefined(false);
   }
 
   private void testTypes(String js) {

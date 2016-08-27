@@ -61,6 +61,7 @@ delete Number.isNaN;
 delete Number.isSafeInteger;
 
 delete Object.assign;
+delete Object.getOwnPropertySymbols;
 delete Object.is;
 
 delete Set;
@@ -73,3 +74,6 @@ delete String.prototype.startsWith;
 delete String.prototype.endsWith;
 
 delete Symbol;
+
+delete WeakMap;
+delete WeakSet;

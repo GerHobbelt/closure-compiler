@@ -119,6 +119,7 @@ public abstract class JSType implements TypeI, Serializable {
    * attached to arbitrary types. This must be overridden for
    * programmer-defined types.
    */
+  @Override
   public JSDocInfo getJSDocInfo() {
     return null;
   }
@@ -132,6 +133,7 @@ public abstract class JSType implements TypeI, Serializable {
    *
    * @return the display name of the type, or null if one is not available
    */
+  @Override
   public String getDisplayName() {
     return null;
   }
@@ -181,6 +183,11 @@ public abstract class JSType implements TypeI, Serializable {
   /** Whether this is the prototype of a function. */
   public boolean isFunctionPrototypeType() {
     return false;
+  }
+
+  @Override
+  public boolean isPrototypeObject() {
+    return isFunctionPrototypeType();
   }
 
   public boolean isStringObjectType() {
@@ -258,6 +265,29 @@ public abstract class JSType implements TypeI, Serializable {
     return toMaybeUnionType() != null;
   }
 
+  @Override
+  public boolean containsArray() {
+    // Check if this is itself an array
+    if (this.isArrayType()) {
+      return true;
+    }
+    TemplatizedType templatizedType = this.toMaybeTemplatizedType();
+    if (templatizedType != null && templatizedType.getReferencedType().isArrayType()) {
+      return true;
+    }
+
+    // Check if this is a union that contains an array
+    if (this.isUnionType()) {
+      JSType arrayType = registry.getNativeType(JSTypeNative.ARRAY_TYPE);
+      for (JSType alternate : this.toMaybeUnionType().getAlternates()) {
+        if (alternate.isSubtype(arrayType)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /**
    * Returns true iff {@code this} can be a {@code struct}.
    * UnionType overrides the method, assume {@code this} is not a union here.
@@ -305,6 +335,11 @@ public abstract class JSType implements TypeI, Serializable {
         return ctor.makesDicts();
       }
     }
+    return false;
+  }
+
+  @Override
+  public boolean isInstanceofObject() {
     return false;
   }
 
@@ -504,6 +539,11 @@ public abstract class JSType implements TypeI, Serializable {
       return fn.isNativeObjectType();
     }
     return false;
+  }
+
+  @Override
+  public boolean isOriginalConstructor() {
+    return isNominalConstructor();
   }
 
   /**
@@ -811,6 +851,11 @@ public abstract class JSType implements TypeI, Serializable {
    */
   public final ObjectType dereference() {
     return autobox().toObjectType();
+  }
+
+  @Override
+  public final ObjectType autoboxAndGetObject() {
+    return dereference();
   }
 
   /**

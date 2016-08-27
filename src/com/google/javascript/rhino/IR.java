@@ -702,6 +702,7 @@ public class IR {
       case ASSIGN_MUL:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
+      case AWAIT:
       case BITAND:
       case BITOR:
       case BITNOT:

@@ -348,8 +348,6 @@ final class NewTypeInference implements CompilerPass {
   // RETVAL_ID is used when we calculate the summary type of a function
   private static final String RETVAL_ID = "%return";
   private static final String THIS_ID = "this";
-  private static final String GETTER_PREFIX = "%getter_fun";
-  private static final String SETTER_PREFIX = "%setter_fun";
   private final String ABSTRACT_METHOD_NAME;
   private final Map<String, AssertionFunctionSpec> assertionFunctionsMap;
   // To avoid creating warning objects for disabled warnings
@@ -427,6 +425,14 @@ final class NewTypeInference implements CompilerPass {
       }
       System.out.println(b);
     }
+  }
+
+  static String createGetterPropName(String originalPropName) {
+    return "%getter_fun" + originalPropName;
+  }
+
+  static String createSetterPropName(String originalPropName) {
+    return "%setter_fun" + originalPropName;
   }
 
   private TypeEnv getInEnv(DiGraphNode<Node, ControlFlowGraph.Branch> dn) {
@@ -571,8 +577,17 @@ final class NewTypeInference implements CompilerPass {
     }
     // Functions defined in externs have no summary, so use the declared type
     fnType = currentScope.getDeclaredTypeOf(name);
-    Preconditions.checkState(fnType.getFunType() != null,
-        "Needed function but found %s", fnType);
+    if (fnType.getFunType() == null) {
+      // Can happen when a function defined in externs clashes with a variable
+      // defined by a catch block.
+      // TODO(dimvar): once we fix scoping for catch blocks, uncomment the
+      // precondition below.
+      Preconditions.checkState(fnType.isUnknown());
+      return this.commonTypes.qmarkFunction();
+      // Preconditions.checkState(fnType.getFunType() != null,
+      //   "Needed function but found %s", fnType);
+    }
+
     return changeTypeIfFunctionNamespace(fnScope, fnType);
   }
 
@@ -795,6 +810,7 @@ final class NewTypeInference implements CompilerPass {
         case EMPTY:
         case SCRIPT:
         case TRY:
+        case WITH:
           inEnv = outEnv;
           break;
         case DO:
@@ -853,6 +869,7 @@ final class NewTypeInference implements CompilerPass {
         case FUNCTION:
         case SCRIPT:
         case TRY:
+        case WITH: // We don't typecheck WITH, we just avoid crashing.
           outEnv = inEnv;
           break;
         case CATCH:
@@ -2462,10 +2479,10 @@ final class NewTypeInference implements CompilerPass {
         String specialPropName;
         JSType propType;
         if (prop.isGetterDef()) {
-          specialPropName = GETTER_PREFIX + pname;
+          specialPropName = createGetterPropName(pname);
           propType = funType.getReturnType();
         } else {
-          specialPropName = SETTER_PREFIX + pname;
+          specialPropName = createSetterPropName(pname);
           propType = pair.type;
         }
         result = result.withProperty(new QualifiedName(specialPropName), propType);
@@ -2911,7 +2928,7 @@ final class NewTypeInference implements CompilerPass {
     pair = mayWarnAboutNullableReferenceAndTighten(
         receiver, pair.type, recvSpecType, pair.env);
     JSType recvType = pair.type.autobox();
-    if (recvType.isUnknown()
+    if (recvType.isUnknown() || recvType.isTrueOrTruthy()
         || mayWarnAboutNonObject(receiver, recvType, specializedType)) {
       return new EnvTypePair(pair.env, requiredType);
     }
@@ -2939,7 +2956,7 @@ final class NewTypeInference implements CompilerPass {
       recvType = JSType.TOP_OBJECT;
     }
     // Then, analyze the property access.
-    QualifiedName getterPname = new QualifiedName(GETTER_PREFIX + pname);
+    QualifiedName getterPname = new QualifiedName(createGetterPropName(pname));
     if (recvType.hasProp(getterPname)) {
       return new EnvTypePair(pair.env, recvType.getProp(getterPname));
     }
@@ -3559,7 +3576,7 @@ final class NewTypeInference implements CompilerPass {
     JSType result = pickReqObjType(objLit);
     for (Node prop = objLit.getLastChild();
          prop != null;
-         prop = objLit.getChildBefore(prop)) {
+         prop = prop.getPrevious()) {
       QualifiedName pname =
           new QualifiedName(NodeUtil.getObjectLitKeyName(prop));
       if (prop.isGetterDef() || prop.isSetterDef()) {
@@ -3596,7 +3613,7 @@ final class NewTypeInference implements CompilerPass {
     TypeEnv env = outEnv;
     for (Node prop = objLit.getLastChild();
          prop != null;
-         prop = objLit.getChildBefore(prop)) {
+         prop = prop.getPrevious()) {
       env = analyzeExprBwd(prop.getFirstChild(), env, enumeratedType).env;
     }
     return new EnvTypePair(env, requiredType);
@@ -3773,9 +3790,8 @@ final class NewTypeInference implements CompilerPass {
   }
 
   private void maybeSetTypeI(Node n, JSType t) {
-    TypeI ti = n.getTypeI();
-    Preconditions.checkState(ti == null || ti instanceof JSType);
-    JSType oldType = (JSType) ti;
+    TypeI oldType = n.getTypeI();
+    Preconditions.checkState(oldType == null || oldType instanceof JSType);
     // When creating a function summary, we set a precise type on the function's
     // name node. Since we're visiting inner scopes first, the name node is
     // revisited after the function's scope is analyzed, and its type then can
@@ -3954,7 +3970,7 @@ final class NewTypeInference implements CompilerPass {
       mayWarnAboutDictPropAccess(obj, recvType);
     }
     QualifiedName setterPname =
-        new QualifiedName(SETTER_PREFIX + pname.getLeftmostName());
+        new QualifiedName(createSetterPropName(pname.getLeftmostName()));
     if (recvType.hasProp(setterPname)) {
       FunctionType funType = recvType.getProp(setterPname).getFunType();
       Preconditions.checkNotNull(funType);
@@ -4075,7 +4091,7 @@ final class NewTypeInference implements CompilerPass {
     return lvalue;
   }
 
-  private static JSType pickReqObjType(Node expr) {
+  private JSType pickReqObjType(Node expr) {
     Token exprKind = expr.getType();
     switch (exprKind) {
       case OBJECTLIT: {
@@ -4086,7 +4102,8 @@ final class NewTypeInference implements CompilerPass {
         if (jsdoc != null && jsdoc.makesDicts()) {
           return JSType.TOP_DICT;
         }
-        return JSType.TOP_OBJECT;
+        return expr.hasChildren()
+            ? JSType.TOP_OBJECT : this.commonTypes.getIObjectAnyAny();
       }
       case FOR:
         Preconditions.checkState(NodeUtil.isForIn(expr));

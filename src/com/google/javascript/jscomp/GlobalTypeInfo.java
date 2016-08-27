@@ -117,7 +117,9 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       DiagnosticType.warning(
           "JSC_NTI_COULD_NOT_INFER_CONST_TYPE",
           "All constants must be typed. The compiler could not infer the type "
-          + "of this constant. Please use an explicit type annotation.");
+          + "of this constant. Please use an explicit type annotation. "
+          + "For more information, see:\n"
+          + "https://github.com/google/closure-compiler/wiki/Using-NTI-(new-type-inference)#warnings-about-uninferred-constants");
 
   static final DiagnosticType MISPLACED_CONST_ANNOTATION =
       DiagnosticType.warning(
@@ -456,8 +458,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
     return result.build();
   }
 
-  private PropertyDef getPropDefFromClass(
-      NominalType nominalType, String pname) {
+  private PropertyDef getPropDefFromClass(NominalType nominalType, String pname) {
     while (nominalType.getPropDeclaredType(pname) != null) {
       Preconditions.checkArgument(nominalType.isFinalized());
       Preconditions.checkArgument(nominalType.isClass());
@@ -934,9 +935,9 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       }
       currentScope.addNamespace(qnameNode,
           EnumType.make(
+              commonTypes,
               qnameNode.getQualifiedName(),
-              jsdoc.getEnumParameterType(),
-              ImmutableSet.copyOf(propNames)));
+              jsdoc.getEnumParameterType(), ImmutableSet.copyOf(propNames)));
     }
 
     private void visitFunctionEarly(Node fn) {
@@ -1040,15 +1041,20 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         ImmutableList<String> typeParameters = builder.build();
         RawNominalType rawType;
         if (fnDoc.usesImplicitMatch()) {
-          rawType = RawNominalType.makeStructuralInterface(defSite, qname, typeParameters);
+          rawType = RawNominalType.makeStructuralInterface(
+              commonTypes, defSite, qname, typeParameters);
         } else if (fnDoc.isInterface()) {
-          rawType = RawNominalType.makeNominalInterface(defSite, qname, typeParameters);
+          rawType = RawNominalType.makeNominalInterface(
+              commonTypes, defSite, qname, typeParameters);
         } else if (fnDoc.makesStructs()) {
-          rawType = RawNominalType.makeStructClass(defSite, qname, typeParameters);
+          rawType = RawNominalType.makeStructClass(
+              commonTypes, defSite, qname, typeParameters);
         } else if (fnDoc.makesDicts()) {
-          rawType = RawNominalType.makeDictClass(defSite, qname, typeParameters);
+          rawType = RawNominalType.makeDictClass(
+              commonTypes, defSite, qname, typeParameters);
         } else {
-          rawType = RawNominalType.makeUnrestrictedClass(defSite, qname, typeParameters);
+          rawType = RawNominalType.makeUnrestrictedClass(
+              commonTypes, defSite, qname, typeParameters);
         }
         nominaltypesByNode.put(defSite, rawType);
         if (isRedeclaration) {
@@ -1141,7 +1147,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       QualifiedName pname = new QualifiedName(funQname.getLastChild().getString());
       if (!ns.isDefined(pname)) {
         ns.addNamespace(pname,
-            new FunctionNamespace(funQname.getQualifiedName(), s));
+            new FunctionNamespace(commonTypes, funQname.getQualifiedName(), s));
       }
     }
 
@@ -1390,6 +1396,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       }
       // Direct assignment to the prototype
       else if (NodeUtil.isPrototypeAssignment(getProp)) {
+        getProp.putBooleanProp(Node.ANALYZED_DURING_GTI, true);
         visitPrototypeAssignment(getProp);
       }
       // "Static" property on constructor
@@ -1506,14 +1513,24 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
     private void visitPrototypeAssignment(Node getProp) {
       Preconditions.checkArgument(getProp.isGetProp());
+      Node protoObjNode = getProp.getParent().getLastChild();
+      if (!protoObjNode.isObjectLit()) {
+        return;
+      }
       Node ctorNameNode = NodeUtil.getPrototypeClassName(getProp);
       QualifiedName ctorQname = QualifiedName.fromNode(ctorNameNode);
       RawNominalType rawType = currentScope.getNominalType(ctorQname);
       if (rawType == null) {
+        for (Node objLitChild : protoObjNode.children()) {
+          Node initializer = objLitChild.getLastChild();
+          if (initializer != null && initializer.isFunction()) {
+            visitFunctionLate(initializer, null);
+          }
+        }
         return;
       }
       getProp.putBooleanProp(Node.ANALYZED_DURING_GTI, true);
-      for (Node objLitChild : getProp.getParent().getLastChild().children()) {
+      for (Node objLitChild : protoObjNode.children()) {
         mayAddPropToPrototype(rawType, objLitChild.getString(), objLitChild,
             objLitChild.getLastChild());
       }
@@ -2187,6 +2204,11 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       if (initializer != null && initializer.isFunction()) {
         methodScope = visitFunctionLate(initializer, rawType);
         methodType = methodScope.getDeclaredFunctionType();
+        if (defSite.isGetterDef()) {
+          pname = NewTypeInference.createGetterPropName(pname);
+        } else if (defSite.isSetterDef()) {
+          pname = NewTypeInference.createSetterPropName(pname);
+        }
       } else if (jsdoc != null && jsdoc.containsFunctionDeclaration()) {
         // We're parsing a function declaration without a function initializer
         methodType = computeFnDeclaredType(jsdoc, pname, defSite, rawType, currentScope);
@@ -2197,6 +2219,12 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         propDeclType = typeParser.getDeclaredTypeOfNode(jsdoc, rawType, currentScope);
       } else if (methodType != null) {
         propDeclType = commonTypes.fromFunctionType(methodType.toFunctionType());
+      }
+      if (defSite.isGetterDef()) {
+        FunctionType ft = propDeclType.getFunTypeIfSingletonObj();
+        if (ft != null) {
+          propDeclType = ft.getReturnType();
+        }
       }
       propertyDefs.put(rawType, pname, new PropertyDef(defSite, methodType, methodScope));
 
@@ -2324,7 +2352,16 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         && isPrototypeProperty(n.getFirstFirstChild())) {
       return true;
     }
+    // We are looking for either an object literal being assigned to a
+    // prototype, or an object literal being lent to a prototype.
     if (n.isObjectLit()) {
+      Node parent = n.getParent();
+      if (parent.isAssign()
+          && parent.getParent().isExprResult()
+          && parent.getFirstChild().isGetProp()
+          && parent.getFirstChild().getLastChild().getString().equals("prototype")) {
+        return true;
+      }
       JSDocInfo jsdoc = n.getJSDocInfo();
       return jsdoc != null && jsdoc.getLendsName() != null
           && jsdoc.getLendsName().endsWith("prototype");

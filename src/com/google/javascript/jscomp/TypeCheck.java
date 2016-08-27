@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.CodingConvention.SubclassType;
+import com.google.javascript.jscomp.TypeValidator.SubtypingMode;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
@@ -114,6 +115,11 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       DiagnosticType.warning(
           "JSC_NOT_A_CONSTRUCTOR",
           "cannot instantiate non-constructor");
+
+  static final DiagnosticType INSTANTIATE_ABSTRACT_CLASS =
+      DiagnosticType.warning(
+          "JSC_INSTANTIATE_ABSTRACT_CLASS",
+          "cannot instantiate abstract class");
 
   static final DiagnosticType BIT_OPERATION =
       DiagnosticType.warning(
@@ -264,6 +270,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       POSSIBLE_INEXISTENT_PROPERTY,
       INEXISTENT_PROPERTY_WITH_SUGGESTION,
       NOT_A_CONSTRUCTOR,
+      INSTANTIATE_ABSTRACT_CLASS,
       BIT_OPERATION,
       NOT_CALLABLE,
       CONSTRUCTOR_NOT_CALLABLE,
@@ -432,8 +439,15 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   }
 
   @Override
-  public boolean shouldTraverse(
-      NodeTraversal t, Node n, Node parent) {
+  public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
+    if (n.isScript()) {
+      String filename = n.getSourceFileName();
+      if (filename != null && filename.endsWith(".java.js")) {
+        this.validator.setSubtypingMode(SubtypingMode.IGNORE_NULL_UNDEFINED);
+      } else {
+        this.validator.setSubtypingMode(SubtypingMode.NORMAL);
+      }
+    }
     switch (n.getType()) {
       case FUNCTION:
         // normal type checking
@@ -1574,18 +1588,28 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   private void visitNew(NodeTraversal t, Node n) {
     Node constructor = n.getFirstChild();
     JSType type = getJSType(constructor).restrictByNotNullOrUndefined();
-    if (type.isConstructor() || type.isEmptyType() || type.isUnknownType()) {
-      FunctionType fnType = type.toMaybeFunctionType();
-      if (fnType != null && fnType.hasInstanceType()) {
-        visitParameterList(t, n, fnType);
-        ensureTyped(t, n, fnType.getInstanceType());
-      } else {
-        ensureTyped(t, n);
-      }
-    } else {
+    if (!couldBeAConstructor(type)) {
       report(t, n, NOT_A_CONSTRUCTOR);
       ensureTyped(t, n);
+      return;
     }
+
+    Var var = t.getScope().getVar(constructor.getQualifiedName());
+    if (var != null && var.getJSDocInfo() != null && var.getJSDocInfo().isAbstract()) {
+      report(t, n, INSTANTIATE_ABSTRACT_CLASS);
+    }
+
+    FunctionType fnType = type.toMaybeFunctionType();
+    if (fnType != null && fnType.hasInstanceType()) {
+      visitParameterList(t, n, fnType);
+      ensureTyped(t, n, fnType.getInstanceType());
+    } else {
+      ensureTyped(t, n);
+    }
+  }
+
+  private boolean couldBeAConstructor(JSType type) {
+    return type.isConstructor() || type.isEmptyType() || type.isUnknownType();
   }
 
   /**
