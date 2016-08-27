@@ -138,7 +138,7 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements
       if (n == null) {
         continue;
       }
-      switch (n.getType()) {
+      switch (n.getToken()) {
         case IF:
         case WHILE:
         case DO:
@@ -157,7 +157,9 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements
             tryRemoveAssignment(t, n.getFirstChild(), state);
           }
           continue;
-        // TODO(user): case VAR: Remove var a=1;a=2;.....
+          // TODO(user): case VAR: Remove var a=1;a=2;.....
+        default:
+          break;
       }
 
       tryRemoveAssignment(t, n, state);
@@ -320,7 +322,7 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements
       Node n, Node exprRoot, String variable) {
     while (n != exprRoot) {
       VariableLiveness state = VariableLiveness.MAYBE_LIVE;
-      switch (n.getParent().getType()) {
+      switch (n.getParent().getToken()) {
         case OR:
         case AND:
           // If the currently node is the first child of
@@ -401,7 +403,7 @@ class DeadAssignmentsElimination extends AbstractPostOrderCallback implements
       }
     }
 
-    switch (n.getType()) {
+    switch (n.getToken()) {
       // Conditionals
       case OR:
       case AND:

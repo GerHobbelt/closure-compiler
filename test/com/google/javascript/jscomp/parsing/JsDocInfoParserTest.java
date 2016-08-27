@@ -25,7 +25,6 @@ import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.parsing.Config.JsDocParsing;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.Config.RunMode;
-import com.google.javascript.jscomp.parsing.Config.SourceLocationInformation;
 import com.google.javascript.jscomp.parsing.ParserRunner.ParseResult;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfo.Marker;
@@ -41,7 +40,6 @@ import com.google.javascript.rhino.jstype.ObjectType;
 import com.google.javascript.rhino.jstype.TemplateType;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
 import com.google.javascript.rhino.testing.TestErrorReporter;
-
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
@@ -979,6 +977,13 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
     assertThat(info).isNull();
   }
 
+  public void testParseParam28() throws Exception {
+    JSDocInfo info = parse("@param {...} index */");
+    assertThat(info.getParameterCount()).isEqualTo(1);
+    assertTypeEquals(registry.createOptionalType(UNKNOWN_TYPE), info.getParameterType("index"));
+    assertThat(info.getParameterType("index").isVarArgs()).isTrue();
+  }
+
   public void testParseThrows1() throws Exception {
     JSDocInfo info = parse("@throws {number} Some number */");
     assertThat(info.getThrownTypes()).hasSize(1);
@@ -1201,7 +1206,7 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
   public void testParseEnum4() throws Exception {
     JSDocInfo jsdoc = parse(" @enum {Foo} */");
     Node enumTypeNode = jsdoc.getEnumParameterType().getRoot();
-    assertThat(enumTypeNode.getType()).isEqualTo(Token.BANG);
+    assertThat(enumTypeNode.getToken()).isEqualTo(Token.BANG);
   }
 
   public void testParseBadEnumNoCrash() throws Exception {
@@ -1369,6 +1374,22 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
         "Bad type annotation. type annotation incompatible with other annotations");
   }
 
+  public void testParseAbstract_abstractAndNotPrivate() throws Exception {
+    JSDocInfo info1 = parse("* @public \n * @abstract */");
+    assertTrue(info1.isAbstract());
+
+    JSDocInfo info2 = parse("* @protected \n * @abstract */");
+    assertTrue(info2.isAbstract());
+
+    JSDocInfo info3 = parse("* @package \n * @abstract */");
+    assertTrue(info3.isAbstract());
+  }
+
+  public void testParseAbstract_abstractAndPrivate() throws Exception {
+    parse("* @private \n * @abstract */",
+        "Bad type annotation. type annotation incompatible with other annotations");
+  }
+
   public void testStackedAnnotation() throws Exception {
     JSDocInfo info = parse("@const @type {string}*/");
     assertThat(info.isConstant()).isTrue();
@@ -1455,6 +1476,18 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
     assertThat(info.hasType()).isFalse();
     assertThat(info.getVisibility()).isEqualTo(Visibility.PRIVATE);
     assertThat(info.isConstant()).isTrue();
+  }
+
+  public void testStackedAnnotation13() throws Exception {
+    JSDocInfo info = parse("@final @constructor */", true);
+    assertThat(info.isConstructor()).isTrue();
+    assertThat(info.isFinal()).isTrue();
+  }
+
+  public void testStackedAnnotation14() throws Exception {
+    JSDocInfo info = parse("@constructor @final */", true);
+    assertThat(info.isConstructor()).isTrue();
+    assertThat(info.isFinal()).isTrue();
   }
 
   public void testParsePreserve() throws Exception {
@@ -1581,6 +1614,18 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
     parse(
         "@define {string}\n @type {string} */",
         "Bad type annotation. " + "type annotation incompatible with other annotations");
+  }
+
+  public void testParseFinal1() throws Exception {
+    assertThat(parse("@final*/").isFinal()).isTrue();
+  }
+
+  public void testParseFinal2() throws Exception {
+    parse("@final\n@final*/", "Bad type annotation. extra @final tag");
+  }
+
+  public void testParseFinal3() throws Exception {
+    assertThat(parse("@final*/").isConstant()).isTrue();
   }
 
   public void testParseOverride1() throws Exception {
@@ -1710,7 +1755,7 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
         " *\n" +
         "\n" +
         " **********\n" +
-        " * @final\n" +
+        " * @const\n" +
         " */";
 
     JSDocInfo info = parse(comment, MISSING_TYPE_DECL_WARNING_TEXT);
@@ -1724,7 +1769,6 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
     String comment =
         " * @const\n" +
         " * @hidden\n" +
-        " * @preserveTry\n" +
         " * @constructor\n" +
         " */";
 
@@ -1733,7 +1777,6 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
     assertThat(info.isDefine()).isFalse();
     assertThat(info.isConstructor()).isTrue();
     assertThat(info.isHidden()).isTrue();
-    assertThat(info.shouldPreserveTry()).isTrue();
   }
 
   public void testRegression5() throws Exception {
@@ -2824,6 +2867,11 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
 
   public void testConstType() throws Exception {
     JSDocInfo jsdoc = parse("@const {string} */");
+    assertTypeEquals(STRING_TYPE, jsdoc.getType());
+  }
+
+  public void testFinalType() throws Exception {
+    JSDocInfo jsdoc = parse("@final {string} */");
     assertTypeEquals(STRING_TYPE, jsdoc.getType());
   }
 
@@ -4450,7 +4498,6 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
         new Config(
             extraAnnotations,
             JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE,
-            SourceLocationInformation.PRESERVE,
             RunMode.KEEP_GOING,
             extraSuppressions,
             LanguageMode.ECMASCRIPT3);
@@ -4501,7 +4548,6 @@ public final class JsDocInfoParserTest extends BaseJSTypeTestCase {
         new Config(
             extraAnnotations,
             parseDocumentation,
-            SourceLocationInformation.DISCARD,
             RunMode.STOP_AFTER_ERROR,
             extraSuppressions,
             LanguageMode.ECMASCRIPT3);

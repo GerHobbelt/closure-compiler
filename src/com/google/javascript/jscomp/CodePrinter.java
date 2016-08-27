@@ -382,7 +382,7 @@ public final class CodePrinter {
       Preconditions.checkState(n.isBlock(), n);
       Node parent = n.getParent();
       if (parent != null) {
-        Token type = parent.getType();
+        Token type = parent.getToken();
         switch (type) {
           case DO:
             // Don't break before 'while' in DO-WHILE statements.
@@ -399,6 +399,8 @@ public final class CodePrinter {
           case IF:
             // Don't break before else
             return n == parent.getLastChild();
+          default:
+            break;
         }
       }
       return true;

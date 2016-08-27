@@ -87,7 +87,6 @@ import com.google.javascript.jscomp.parsing.parser.trees.ParameterizedTypeTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTreeType;
-import com.google.javascript.jscomp.parsing.parser.trees.PostfixExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
 import com.google.javascript.jscomp.parsing.parser.trees.RecordTypeTree;
@@ -109,6 +108,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.TypeQueryTree;
 import com.google.javascript.jscomp.parsing.parser.trees.TypedParameterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.UnaryExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.UnionTypeTree;
+import com.google.javascript.jscomp.parsing.parser.trees.UpdateExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
@@ -212,27 +212,31 @@ public class Parser {
      */
     // TODO(bradfordcsmith): Make sure all of the type syntax handling code is avoided when
     //     this is false.
-    public final boolean parseTypeSyntax;
-    public final boolean atLeast6;
-    public final boolean atLeast5;
-    public final boolean isStrictMode;
-    public final boolean warnTrailingCommas;
-    public final boolean warnLineContinuations;
-    public final boolean warnES6NumberLiteral;
+    private final boolean parseTypeSyntax;
+    private final boolean atLeast6;
+    private final boolean atLeast5;
+    private final boolean isStrictMode;
+    private final boolean warnTrailingCommas;
 
     public Config(Mode mode) {
       parseTypeSyntax = mode == Mode.ES6_TYPED;
-      atLeast6 = mode == Mode.ES6 || mode == Mode.ES6_STRICT
+      atLeast6 =
+          mode == Mode.ES8
+          || mode == Mode.ES7
+          || mode == Mode.ES6
+          || mode == Mode.ES6_STRICT
           || mode == Mode.ES6_TYPED;
       atLeast5 = atLeast6 || mode == Mode.ES5 || mode == Mode.ES5_STRICT;
-      this.isStrictMode = mode == Mode.ES5_STRICT || mode == Mode.ES6_STRICT
-          || mode == Mode.ES6_TYPED;
+      this.isStrictMode =
+          mode == Mode.ES5_STRICT
+          || mode == Mode.ES6_STRICT
+          || mode == Mode.ES6_TYPED
+          || mode == Mode.ES7
+          || mode == Mode.ES8;
 
       // Generally, we allow everything that is valid in any mode
       // we only warn about things that are not represented in the AST.
       this.warnTrailingCommas = !atLeast5;
-      this.warnLineContinuations = !atLeast6;
-      this.warnES6NumberLiteral = !atLeast6;
     }
   }
 
@@ -2802,6 +2806,9 @@ public class Parser {
         reportError("invalid assignment target");
       }
       Token operator = nextToken();
+      if (TokenType.STAR_STAR_EQUAL.equals(operator.type)) {
+        features = features.require(Feature.EXPONENT_OP);
+      }
       ParseTree right = parseAssignment(expressionIn);
       return new BinaryOperatorTree(getTreeLocation(start), left, operator, right);
     }
@@ -2977,6 +2984,7 @@ public class Parser {
     switch (peekType()) {
     case EQUAL:
     case STAR_EQUAL:
+      case STAR_STAR_EQUAL:
     case SLASH_EQUAL:
     case PERCENT_EQUAL:
     case PLUS_EQUAL:
@@ -3189,7 +3197,7 @@ public class Parser {
   // 11.5 Multiplicative Expression
   private ParseTree parseMultiplicativeExpression() {
     SourcePosition start = getTreeStartLocation();
-    ParseTree left = parseUnaryExpression();
+    ParseTree left = parseExponentiationExpression();
     while (peekMultiplicativeOperator()) {
       Token operator = nextToken();
       ParseTree right = parseUnaryExpression();
@@ -3209,6 +3217,29 @@ public class Parser {
     }
   }
 
+  private ParseTree parseExponentiationExpression() {
+    SourcePosition start = getTreeStartLocation();
+    ParseTree left = parseUnaryExpression();
+    if (peek(TokenType.STAR_STAR)) {
+      // ExponentiationExpression does not allow a UnaryExpression before '**'.
+      // Parentheses are required to disambiguate:
+      //   (-x)**y is valid
+      //   -(x**y) is valid
+      //   -x**y is a syntax error
+      if (left.type == ParseTreeType.UNARY_EXPRESSION) {
+        reportError(
+            "Unary operator '%s' requires parentheses before '**'",
+            left.asUnaryExpression().operator);
+      }
+      features = features.require(Feature.EXPONENT_OP);
+      Token operator = nextToken();
+      ParseTree right = parseExponentiationExpression();
+      return new BinaryOperatorTree(getTreeLocation(start), left, operator, right);
+    } else {
+      return left;
+    }
+  }
+
   // 11.4 Unary Operator
   private ParseTree parseUnaryExpression() {
     SourcePosition start = getTreeStartLocation();
@@ -3219,7 +3250,7 @@ public class Parser {
     } else if (peekAwaitExpression()) {
       return parseAwaitExpression();
     } else {
-      return parsePostfixExpression();
+      return parseUpdateExpression();
     }
   }
 
@@ -3228,8 +3259,6 @@ public class Parser {
     case DELETE:
     case VOID:
     case TYPEOF:
-    case PLUS_PLUS:
-    case MINUS_MINUS:
     case PLUS:
     case MINUS:
     case TILDE:
@@ -3255,27 +3284,31 @@ public class Parser {
     return new AwaitExpressionTree(getTreeLocation(start), expression);
   }
 
-  // 11.3 Postfix Expression
-  private ParseTree parsePostfixExpression() {
+  private ParseTree parseUpdateExpression() {
     SourcePosition start = getTreeStartLocation();
-    ParseTree operand = parseLeftHandSideExpression();
-    while (peekPostfixOperator()) {
+    if (peekUpdateOperator()) {
       Token operator = nextToken();
-      operand = new PostfixExpressionTree(getTreeLocation(start), operand, operator);
+      ParseTree operand = parseUnaryExpression();
+      return UpdateExpressionTree.prefix(getTreeLocation(start), operator, operand);
+    } else {
+      ParseTree lhs = parseLeftHandSideExpression();
+      if (peekUpdateOperator() && !peekImplicitSemiColon()) {
+        // newline not allowed before an update operator.
+        Token operator = nextToken();
+        return UpdateExpressionTree.postfix(getTreeLocation(start), operator, lhs);
+      } else {
+        return lhs;
+      }
     }
-    return operand;
   }
 
-  private boolean peekPostfixOperator() {
-    if (peekImplicitSemiColon()) {
-      return false;
-    }
+  private boolean peekUpdateOperator() {
     switch (peekType()) {
-    case PLUS_PLUS:
-    case MINUS_MINUS:
-      return true;
-    default:
-      return false;
+      case PLUS_PLUS:
+      case MINUS_MINUS:
+        return true;
+      default:
+        return false;
     }
   }
 

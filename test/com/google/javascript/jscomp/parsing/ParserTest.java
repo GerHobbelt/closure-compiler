@@ -66,6 +66,8 @@ public final class ParserTest extends BaseJSTypeTestCase {
 
   private static final String INVALID_ASSIGNMENT_TARGET = "invalid assignment target";
 
+  private static final String SEMICOLON_EXPECTED = "Semi-colon expected";
+
   private Config.LanguageMode mode;
   private boolean isIdeMode = false;
   private FeatureSet expectedFeatures;
@@ -76,6 +78,35 @@ public final class ParserTest extends BaseJSTypeTestCase {
     mode = LanguageMode.ECMASCRIPT3;
     isIdeMode = false;
     expectedFeatures = FeatureSet.ES3;
+  }
+
+  public void testExponentOperator() {
+    mode = LanguageMode.ECMASCRIPT7;
+    expectFeatures(Feature.EXPONENT_OP);
+    parse("x**y");
+
+    // Parentheses are required for disambiguation when a unary expression is desired as
+    // the left operand.
+    parse("-(x**y)");
+    parse("(-x)**y");
+    parseError("-x**y", "Unary operator '-' requires parentheses before '**'");
+    // Parens are not required for unary operator on the right operand
+    parse("x**-y");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    expectFeatures(Feature.EXPONENT_OP);
+    parseWarning(
+        "x**y", requiresLanguageModeMessage(LanguageMode.ECMASCRIPT7, Feature.EXPONENT_OP));
+  }
+
+  public void testExponentAssignmentOperator() {
+    mode = LanguageMode.ECMASCRIPT7;
+    expectFeatures(Feature.EXPONENT_OP);
+    parse("x**=y;");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseWarning(
+        "x**=y;", requiresLanguageModeMessage(LanguageMode.ECMASCRIPT7, Feature.EXPONENT_OP));
   }
 
   public void testFunction() {
@@ -1024,7 +1055,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
    * http://www.ecma-international.org/ecma-262/5.1/#sec-7.9.2
    */
   public void testAutomaticSemicolonInsertionExamplesFromSpec() {
-    parseError("{ 1 2 } 3", "Semi-colon expected");
+    parseError("{ 1 2 } 3", SEMICOLON_EXPECTED);
 
     assertNodeEquality(
         parse("{ 1\n2 } 3"),
@@ -1520,10 +1551,10 @@ public final class ParserTest extends BaseJSTypeTestCase {
     Node n = parse("var a = {12345678901234567890: 2}");
 
     Node objectLit = n.getFirstChild().getFirstChild().getFirstChild();
-    assertThat(objectLit.getType()).isEqualTo(Token.OBJECTLIT);
+    assertThat(objectLit.getToken()).isEqualTo(Token.OBJECTLIT);
 
     Node number = objectLit.getFirstChild();
-    assertThat(number.getType()).isEqualTo(Token.STRING_KEY);
+    assertThat(number.getToken()).isEqualTo(Token.STRING_KEY);
     assertThat(number.getString()).isEqualTo("12345678901234567000");
   }
 
@@ -2001,14 +2032,12 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parse("10E10");
     parse("10E-10");
     parse("1.0E1");
-    parseError("01E0",
-        "Semi-colon expected");
+    parseError("01E0", SEMICOLON_EXPECTED);
     parseError("0E",
         "Exponent part must contain at least one digit");
     parseError("1E-",
         "Exponent part must contain at least one digit");
-    parseError("1E1.1",
-        "Semi-colon expected");
+    parseError("1E1.1", SEMICOLON_EXPECTED);
   }
 
   public void testBinaryLiterals() {
@@ -2344,8 +2373,8 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parseError("var \\u{defgRestOfIdentifier", "Invalid escape sequence");
     parseError("var \\u03b5}", "primary expression expected");
     parseError("var \\u{03b5}}}", "primary expression expected");
-    parseError("var \\u{03b5}{}", "Semi-colon expected");
-    parseError("var \\u0043{43}", "Semi-colon expected");
+    parseError("var \\u{03b5}{}", SEMICOLON_EXPECTED);
+    parseError("var \\u0043{43}", SEMICOLON_EXPECTED);
     parseError("var \\u{DEFG}", "Invalid escape sequence");
     parseError("Js\\u{}ompiler", "Invalid escape sequence");
     // Legal unicode but invalid in identifier
@@ -2812,7 +2841,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
 
     expectFeatures(Feature.ARROW_FUNCTIONS);
     // async requires parens
-    parseError("f = async x => x + 1;", "Semi-colon expected");
+    parseError("f = async x => x + 1;", SEMICOLON_EXPECTED);
   }
 
   public void testAsyncMethod() {
@@ -3334,7 +3363,6 @@ public final class ParserTest extends BaseJSTypeTestCase {
       return ParserRunner.createConfig(
           mode,
           Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE,
-          Config.SourceLocationInformation.PRESERVE,
           Config.RunMode.KEEP_GOING,
           null);
     } else {

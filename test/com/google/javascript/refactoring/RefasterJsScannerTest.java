@@ -344,8 +344,8 @@ public class RefasterJsScannerTest {
   @Test
   public void test_returnStatement() throws Exception {
     String externs = "/** @return {string} */ function getFoo() {return 'foo';}";
-    String originalCode = "function() { return getFoo(); }";
-    String expectedCode = "function() { return getBar(); }";
+    String originalCode = "function f() { return getFoo(); }";
+    String expectedCode = "function f() { return getBar(); }";
     String template = ""
         + "function before_template() {\n"
         + "  getFoo();\n"
@@ -355,8 +355,8 @@ public class RefasterJsScannerTest {
         + "}\n";
     assertChanges(externs, originalCode, expectedCode, template);
 
-    originalCode = "function() { return getFoo() == 'foo'; }";
-    expectedCode = "function() { return getBar() == 'foo'; }";
+    originalCode = "function f() { return getFoo() == 'foo'; }";
+    expectedCode = "function f() { return getBar() == 'foo'; }";
     assertChanges(externs, originalCode, expectedCode, template);
   }
 
@@ -607,6 +607,119 @@ public class RefasterJsScannerTest {
     assertChanges(externs, originalCode, expectedCode, template);
   }
 
+  @Test
+  public void test_es6() throws Exception {
+    String externs = ""
+        + "/** @constructor */\n"
+        + "function FooType() {}\n"
+        + "/** @param {string} str */"
+        + "FooType.prototype.bar = function(str) {};\n"
+        + "/** @param {string} str */"
+        + "FooType.prototype.baz = function(str) {};\n";
+    String template = ""
+        + "/**\n"
+        + " * @param {FooType} foo\n"
+        + " * @param {string} str\n"
+        + " */\n"
+        + "function before_foo(foo, str) {\n"
+        + "  foo.bar(str);\n"
+        + "};\n"
+        + "/**\n"
+        + " * @param {FooType} foo\n"
+        + " * @param {string} str\n"
+        + " */\n"
+        + "function after_foo(foo, str) {\n"
+        + "  foo.baz(str);\n"
+        + "}\n";
+    String originalCode = ""
+        + "goog.module('foo.bar');\n"
+        + "const STR = '3';\n"
+        + "const Clazz = class {\n"
+        + "  constructor() { /** @const */ this.obj = new FooType(); }\n"
+        + "  someMethod() { this.obj.bar(STR); }\n"
+        + "};\n"
+        + "exports.Clazz = Clazz;\n";
+    String expectedCode = ""
+        + "goog.module('foo.bar');\n"
+        + "const STR = '3';\n"
+        + "const Clazz = class {\n"
+        + "  constructor() { /** @const */ this.obj = new FooType(); }\n"
+        + "  someMethod() { this.obj.baz(STR); }\n"
+        + "};\n"
+        + "exports.Clazz = Clazz;\n";
+    assertChanges(externs, originalCode, expectedCode, template);
+  }
+
+  @Test
+  public void test_unknownTemplateTypes() throws Exception {
+    // By declaring a new type in the template code that does not appear in the original code,
+    // the result of this refactoring should be a no-op. However, if template type matching isn't
+    // correct, the template type could be treated as an unknown type which would incorrectly
+    // match the original code. This test ensures this behavior is right.
+    String externs = "";
+    String originalCode = ""
+        + "/** @constructor */\n"
+        + "function Clazz() {};\n"
+        + "var cls = new Clazz();\n"
+        + "cls.showError('boo');\n";
+    String template = ""
+        + "/** @constructor */\n"
+        + "function SomeClassNotInCompilationUnit() {};\n"
+        + "var foo = new SomeClassNotInCompilationUnit();\n"
+        + "foo.showError('bar');\n"
+        + "\n"
+        + "/**"
+        + " * @param {SomeClassNotInCompilationUnit} obj\n"
+        + " * @param {string} msg\n"
+        + " */\n"
+        + "function before_template(obj, msg) {\n"
+        + "  obj.showError(msg);\n"
+        + "}\n"
+        + "/**"
+        + " * @param {SomeClassNotInCompilationUnit} obj\n"
+        + " * @param {string} msg\n"
+        + " */\n"
+        + "function after_template(obj, msg) {\n"
+        + "  obj.showError(msg, false);\n"
+        + "}\n";
+    assertChanges(externs, originalCode, null, template);
+  }
+
+  @Test
+  public void test_unknownTemplateTypesNonNullable() throws Exception {
+    // By declaring a new type in the template code that does not appear in the original code,
+    // the result of this refactoring should be a no-op. However, if template type matching isn't
+    // correct, the template type could be treated as an unknown type which would incorrectly
+    // match the original code. This test ensures this behavior is right.
+    String externs = "";
+    String originalCode = ""
+        + "/** @constructor */\n"
+        + "function Clazz() {};\n"
+        + "var cls = new Clazz();\n"
+        + "cls.showError('boo');\n";
+    String template = ""
+        + "/** @constructor */\n"
+        + "function SomeClassNotInCompilationUnit() {};\n"
+        + "var foo = new SomeClassNotInCompilationUnit();\n"
+        + "foo.showError('bar');\n"
+        + "\n"
+        + "/**"
+        + " * @param {!SomeClassNotInCompilationUnit} obj\n"
+        + " * @param {string} msg\n"
+        + " */\n"
+        + "function before_template(obj, msg) {\n"
+        + "  obj.showError(msg);\n"
+        + "}\n"
+        + "/**"
+        + " * @param {!SomeClassNotInCompilationUnit} obj\n"
+        + " * @param {string} msg\n"
+        + " */\n"
+        + "function after_template(obj, msg) {\n"
+        + "  obj.showError(msg, false);\n"
+        + "}\n";
+    assertChanges(externs, originalCode, null, template);
+  }
+
   private Compiler createCompiler() {
     return new Compiler();
   }
@@ -621,7 +734,7 @@ public class RefasterJsScannerTest {
   private void compileTestCode(Compiler compiler, String testCode, String externs) {
     CompilerOptions options = RefactoringDriver.getCompilerOptions();
     compiler.compile(
-        ImmutableList.of(SourceFile.fromCode("externs", externs)),
+        ImmutableList.of(SourceFile.fromCode("externs", "function Symbol() {};" + externs)),
         ImmutableList.of(SourceFile.fromCode("test", testCode)),
         options);
   }
@@ -633,7 +746,7 @@ public class RefasterJsScannerTest {
     scanner.loadRefasterJsTemplateFromCode(refasterJsTemplate);
 
     RefactoringDriver driver = new RefactoringDriver.Builder(scanner)
-        .addExternsFromCode(externs)
+        .addExternsFromCode("function Symbol() {};" + externs)
         .addInputsFromCode(originalCode)
         .build();
     List<SuggestedFix> fixes = driver.drive();

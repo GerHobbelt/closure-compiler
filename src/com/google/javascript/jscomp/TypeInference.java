@@ -283,7 +283,7 @@ class TypeInference
                   reverseInterpreter.getPreciserScopeKnowingConditionOutcome(
                       condition,
                       conditionOutcomes.getOutcomeFlowScope(
-                          condition.getType(), branch == Branch.ON_TRUE),
+                          condition.getToken(), branch == Branch.ON_TRUE),
                       branch == Branch.ON_TRUE);
             } else {
               // conditionFlowScope is cached from previous iterations
@@ -298,6 +298,8 @@ class TypeInference
             }
           }
           break;
+        default:
+          break;
       }
 
       result.add(newScope.optimize());
@@ -306,7 +308,7 @@ class TypeInference
   }
 
   private FlowScope traverse(Node n, FlowScope scope) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case ASSIGN:
         scope = traverseAssign(n, scope);
         break;
@@ -457,6 +459,8 @@ class TypeInference
           n.setJSType(info.getType().evaluate(syntacticScope, registry));
         }
         break;
+      default:
+        break;
     }
 
     return scope;
@@ -522,7 +526,7 @@ class TypeInference
   private void updateScopeForTypeChange(
       FlowScope scope, Node left, JSType leftType, JSType resultType) {
     Preconditions.checkNotNull(resultType);
-    switch (left.getType()) {
+    switch (left.getToken()) {
       case NAME:
         String varName = left.getString();
         TypedVar var = syntacticScope.getVar(varName);
@@ -608,6 +612,8 @@ class TypeInference
 
         left.setJSType(resultType);
         ensurePropertyDefined(left, resultType);
+        break;
+      default:
         break;
     }
   }
@@ -1152,7 +1158,7 @@ class TypeInference
       Node obj = callTarget.getFirstChild();
       maybeResolveTemplatedType(
           fnType.getTypeOfThis(),
-          getJSType(obj),
+          getJSType(obj).restrictByNotNullOrUndefined(),
           resolvedTypes,
           seenTypes);
     }
@@ -1592,10 +1598,9 @@ class TypeInference
 
     // reverse abstract interpret the left node to produce the correct
     // scope in which to verify the right node
-    FlowScope rightScope = reverseInterpreter.
-        getPreciserScopeKnowingConditionOutcome(left,
-            leftOutcome.getOutcomeFlowScope(left.getType(), nIsAnd),
-            nIsAnd);
+    FlowScope rightScope =
+        reverseInterpreter.getPreciserScopeKnowingConditionOutcome(
+            left, leftOutcome.getOutcomeFlowScope(left.getToken(), nIsAnd), nIsAnd);
 
     // type the right node
     BooleanOutcomePair rightOutcome = traverseWithinShortCircuitingBinOp(
@@ -1646,7 +1651,7 @@ class TypeInference
 
   private BooleanOutcomePair traverseWithinShortCircuitingBinOp(
       Node n, FlowScope scope) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case AND:
         return traverseAnd(n, scope);
 

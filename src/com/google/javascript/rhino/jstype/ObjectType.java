@@ -47,8 +47,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.JSDocInfo;
-import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 
@@ -272,6 +272,16 @@ public abstract class ObjectType
   @Override
   public abstract FunctionType getConstructor();
 
+  @Override
+  public FunctionTypeI getSuperClassConstructor() {
+    ObjectTypeI iproto = getPrototypeObject();
+    if (iproto == null) {
+      return null;
+    }
+    iproto = iproto.getPrototypeObject();
+    return iproto == null ? null : iproto.getConstructor();
+  }
+
   /**
    * Gets the implicit prototype (a.k.a. the {@code [[Prototype]]} property).
    */
@@ -389,8 +399,14 @@ public abstract class ObjectType
   }
 
   @Override
-  public Node getPropertyDefsite(String propertyName) {
+  public Node getPropertyDefSite(String propertyName) {
     return getPropertyNode(propertyName);
+  }
+
+  @Override
+  public JSDocInfo getPropertyJSDocInfo(String propertyName) {
+    Property p = getSlot(propertyName);
+    return p == null ? null : p.getJSDocInfo();
   }
 
   /**
@@ -405,7 +421,7 @@ public abstract class ObjectType
   }
 
   @Override
-  public Node getOwnPropertyDefsite(String propertyName) {
+  public Node getOwnPropertyDefSite(String propertyName) {
     Property p = getOwnSlot(propertyName);
     return p == null ? null : p.getNode();
   }
@@ -474,6 +490,7 @@ public abstract class ObjectType
    *
    * Overridden by FunctionType to add "prototype".
    */
+  @Override
   public Set<String> getOwnPropertyNames() {
     return getPropertyMap().getOwnPropertyNames();
   }
@@ -753,18 +770,5 @@ public abstract class ObjectType
       propTypeMap.put(name, this.getPropertyType(name));
     }
     return propTypeMap.build();
-  }
-
-  @Override
-  public ObjectType getLowestSupertypeWithProperty(String propertyName, boolean isOverride) {
-    // Find the lowest property defined on a class with visibility information.
-    ObjectType objectType = isOverride ? this.getImplicitPrototype() : this;
-    for (; objectType != null; objectType = objectType.getImplicitPrototype()) {
-      JSDocInfo docInfo = objectType.getOwnPropertyJSDocInfo(propertyName);
-      if (docInfo != null && docInfo.getVisibility() != Visibility.INHERITED) {
-        return objectType;
-      }
-    }
-    return null;
   }
 }

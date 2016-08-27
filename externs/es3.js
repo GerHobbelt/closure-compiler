@@ -25,7 +25,104 @@
  */
 
 
-// These built-ins are still needed for compilation.
+// START ES6 RETROFIT CODE
+// symbol, Symbol and Symbol.iterator are actually ES6 types but some
+// Some types require them to be part of their definition (such as Array).
+
+
+// TODO(johnlenz): symbol should be a primitive type.
+/** @typedef {?} */
+var symbol;
+
+/**
+ * @param {string=} opt_description
+ * @return {symbol}
+ */
+function Symbol(opt_description) {}
+
+
+/**
+ * @param {string} sym
+ * @return {symbol|undefined}
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/for
+ */
+Symbol.for;
+
+
+/**
+ * @param {symbol} sym
+ * @return {string|undefined}
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/keyFor
+ */
+Symbol.keyFor;
+
+
+// Well known symbols
+
+/** @const {symbol} */
+Symbol.iterator;
+
+/** @const {symbol} */
+Symbol.toStringTag;
+
+/** @const {symbol} */
+Symbol.unscopables;
+
+
+/**
+ * @record
+ * @template VALUE
+ */
+function IIterableResult() {};
+
+/** @type {boolean} */
+IIterableResult.prototype.done;
+
+/** @type {VALUE} */
+IIterableResult.prototype.value;
+
+
+
+/**
+ * @interface
+ * @template VALUE
+ */
+function Iterable() {}
+
+// TODO(johnlenz): remove this when the compiler understands "symbol" natively
+/**
+ * @return {Iterator<VALUE>}
+ * @suppress {externsValidation}
+ */
+Iterable.prototype[Symbol.iterator] = function() {};
+
+
+
+/**
+ * @interface
+ * @template VALUE
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/The_Iterator_protocol
+ */
+function Iterator() {}
+
+/**
+ * @param {VALUE=} value
+ * @return {!IIterableResult<VALUE>}
+ */
+Iterator.prototype.next;
+
+
+/**
+ * Use this to indicate a type is both an Iterator and an Iterable.
+ * @interface
+ * @extends {Iterator<T>}
+ * @extends {Iterable<T>}
+ * @template T
+ */
+function IteratorIterable() {}
+
+// END ES6 RETROFIT CODE
+
 
 /**
  * @interface
@@ -227,6 +324,7 @@ Object.prototype.constructor = function() {};
  * @param {Function} fun
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineGetter
+ * @return {undefined}
  */
 Object.prototype.__defineGetter__ = function(sprop, fun) {};
 
@@ -239,6 +337,7 @@ Object.prototype.__defineGetter__ = function(sprop, fun) {};
  * @param {Function} fun
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineSetter
+ * @return {undefined}
  */
 Object.prototype.__defineSetter__ = function(sprop, fun) {};
 
@@ -360,6 +459,7 @@ Object.prototype.toString = function() {};
  * Mozilla-only.
  * @param {string} prop The name of a property of the object.
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/unwatch
+ * @return {undefined}
  */
 Object.prototype.unwatch = function(prop) {};
 
@@ -377,6 +477,7 @@ Object.prototype.valueOf = function() {};
  * @param {string} prop The name of a property of the object.
  * @param {Function} handler A function to call.
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/watch
+ * @return {undefined}
  */
 Object.prototype.watch = function(prop, handler) {};
 
@@ -451,6 +552,7 @@ Function.prototype.toString = function() {};
 /**
  * @constructor
  * @implements {IArrayLike<T>}
+ * @implements {Iterable<T>}
  * @param {...*} var_args
  * @return {!Array<?>}
  * @nosideeffects
@@ -458,6 +560,12 @@ Function.prototype.toString = function() {};
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array
  */
 function Array(var_args) {}
+
+/**
+ * @return {Iterator<T>}
+ * @suppress {externsValidation}
+ */
+Array.prototype[Symbol.iterator] = function() {};
 
 // Functions:
 
@@ -556,6 +664,8 @@ Array.prototype.slice = function(opt_begin, opt_end) {};
  *     defines the sort order.
  * @this {IArrayLike<T>}
  * @template T
+ * @modifies {this}
+ * @return {!Array<T>}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort
  */
 Array.prototype.sort = function(opt_compareFunction) {};
@@ -661,6 +771,7 @@ Array.prototype.filter = function(callback, opt_thisobj) {};
  * @this {IArrayLike<T>|string}
  * @template T,S
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/forEach
+ * @return {undefined}
  */
 Array.prototype.forEach = function(callback, opt_thisobj) {};
 
@@ -751,6 +862,7 @@ Array.filter = function(arr, callback, opt_context) {};
  * @param {?function(this:S, T, number, ?) : ?} callback
  * @param {S=} opt_context
  * @template T,S
+ * @return {undefined}
  */
 Array.forEach = function(arr, callback, opt_context) {};
 
@@ -1305,6 +1417,7 @@ Date.prototype.getUTCMilliseconds = function() {};
  * @param {number} dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setDate
+ * @return {number}
  */
 Date.prototype.setDate = function(dayValue) {};
 
@@ -1315,6 +1428,7 @@ Date.prototype.setDate = function(dayValue) {};
  * @param {number=} opt_dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setMonth
+ * @return {number}
  */
 Date.prototype.setMonth = function(monthValue, opt_dayValue) {};
 
@@ -1326,6 +1440,7 @@ Date.prototype.setMonth = function(monthValue, opt_dayValue) {};
  * @param {number=} opt_dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setFullYear
+ * @return {number}
  */
 Date.prototype.setFullYear =
     function(yearValue, opt_monthValue, opt_dayValue) {};
@@ -1337,6 +1452,7 @@ Date.prototype.setFullYear =
  * @deprecated
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setYear
+ * @return {number}
  */
 Date.prototype.setYear = function(yearValue) {};
 
@@ -1349,6 +1465,7 @@ Date.prototype.setYear = function(yearValue) {};
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setHours
+ * @return {number}
  */
 Date.prototype.setHours = function(hoursValue, opt_minutesValue,
                                    opt_secondsValue, opt_msValue) {};
@@ -1361,6 +1478,7 @@ Date.prototype.setHours = function(hoursValue, opt_minutesValue,
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setMinutes
+ * @return {number}
  */
 Date.prototype.setMinutes =
     function(minutesValue, opt_secondsValue, opt_msValue) {};
@@ -1372,6 +1490,7 @@ Date.prototype.setMinutes =
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setSeconds
+ * @return {number}
  */
 Date.prototype.setSeconds = function(secondsValue, opt_msValue) {};
 
@@ -1381,6 +1500,7 @@ Date.prototype.setSeconds = function(secondsValue, opt_msValue) {};
  * @param {number} millisecondsValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setMilliseconds
+ * @return {number}
  */
 Date.prototype.setMilliseconds = function(millisecondsValue) {};
 
@@ -1391,6 +1511,7 @@ Date.prototype.setMilliseconds = function(millisecondsValue) {};
  * @param {number} timeValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setTime
+ * @return {number}
  */
 Date.prototype.setTime = function(timeValue) {};
 
@@ -1400,6 +1521,7 @@ Date.prototype.setTime = function(timeValue) {};
  * @param {number} dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCDate
+ * @return {number}
  */
 Date.prototype.setUTCDate = function(dayValue) {};
 
@@ -1410,6 +1532,7 @@ Date.prototype.setUTCDate = function(dayValue) {};
  * @param {number=} opt_dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCMonth
+ * @return {number}
  */
 Date.prototype.setUTCMonth = function(monthValue, opt_dayValue) {};
 
@@ -1421,6 +1544,7 @@ Date.prototype.setUTCMonth = function(monthValue, opt_dayValue) {};
  * @param {number=} opt_dayValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCFullYear
+ * @return {number}
  */
 Date.prototype.setUTCFullYear = function(yearValue, opt_monthValue,
                                          opt_dayValue) {};
@@ -1434,6 +1558,7 @@ Date.prototype.setUTCFullYear = function(yearValue, opt_monthValue,
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCHours
+ * @return {number}
  */
 Date.prototype.setUTCHours = function(hoursValue, opt_minutesValue,
                                       opt_secondsValue, opt_msValue) {};
@@ -1446,6 +1571,7 @@ Date.prototype.setUTCHours = function(hoursValue, opt_minutesValue,
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCMinutes
+ * @return {number}
  */
 Date.prototype.setUTCMinutes = function(minutesValue, opt_secondsValue,
                                         opt_msValue) {};
@@ -1458,6 +1584,7 @@ Date.prototype.setUTCMinutes = function(minutesValue, opt_secondsValue,
  * @param {number=} opt_msValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCSeconds
+ * @return {number}
  */
 Date.prototype.setUTCSeconds = function(secondsValue, opt_msValue) {};
 
@@ -1467,6 +1594,7 @@ Date.prototype.setUTCSeconds = function(secondsValue, opt_msValue) {};
  * @param {number} millisecondsValue
  * @modifies {this}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/setUTCMilliseconds
+ * @return {number}
  */
 Date.prototype.setUTCMilliseconds = function(millisecondsValue) {};
 
@@ -2103,6 +2231,7 @@ Error.stackTraceLimit;
  * @param {Object} error The object to add the stack trace to.
  * @param {Function=} opt_constructor A function in the stack trace
  * @see http://code.google.com/p/v8/wiki/JavaScriptStackTraceApi
+ * @return {undefined}
  */
 Error.captureStackTrace = function(error, opt_constructor){};
 

@@ -85,7 +85,7 @@ class RemoveUnusedClassProperties
                 && assign.getFirstChild() == n);
             compiler.reportChangeToEnclosingScope(assign);
             // 'this.x = y' to 'y'
-            replacement = assign.getLastChild().detachFromParent();
+            replacement = assign.getLastChild().detach();
           } else if (parent.isInc() || parent.isDec()) {
             compiler.reportChangeToEnclosingScope(parent);
             replacement = IR.number(0).srcref(parent);
@@ -101,7 +101,7 @@ class RemoveUnusedClassProperties
               preserved = preserved.getFirstChild();
             }
             replacement = IR.comma(
-                preserved.detachFromParent(),
+                preserved.detach(),
                 replacement)
                 .srcref(parent);
           }
@@ -120,7 +120,7 @@ class RemoveUnusedClassProperties
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
-     switch (n.getType()) {
+    switch (n.getToken()) {
        case GETPROP: {
          String propName = n.getLastChild().getString();
          if (compiler.getCodingConvention().isExported(propName)
@@ -170,7 +170,9 @@ class RemoveUnusedClassProperties
            }
          }
          break;
-     }
+      default:
+        break;
+    }
   }
 
   private boolean isRemovablePropertyDefinition(Node n) {

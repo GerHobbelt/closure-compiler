@@ -21,97 +21,6 @@
  * @externs
  */
 
-// TODO(johnlenz): symbol should be a primitive type.
-/** @typedef {?} */
-var symbol;
-
-/**
- * @param {string} description
- * @return {symbol}
- */
-function Symbol(description) {}
-
-
-/**
- * @param {string} sym
- * @return {symbol|undefined}
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/for
- */
-Symbol.for;
-
-
-/**
- * @param {symbol} sym
- * @return {string|undefined}
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/keyFor
- */
-Symbol.keyFor;
-
-
-// Well known symbols
-
-/** @const {symbol} */
-Symbol.iterator;
-
-/** @const {symbol} */
-Symbol.toStringTag;
-
-/** @const {symbol} */
-Symbol.unscopables;
-
-
-/**
- * @record
- * @template VALUE
- */
-function IIterableResult() {};
-
-/** @type {boolean} */
-IIterableResult.prototype.done;
-
-/** @type {VALUE} */
-IIterableResult.prototype.value;
-
-
-
-/**
- * @interface
- * @template VALUE
- */
-function Iterable() {}
-
-// TODO(johnlenz): remove this when the compiler understands "symbol" natively
-/**
- * @return {Iterator<VALUE>}
- * @suppress {externsValidation}
- */
-Iterable.prototype[Symbol.iterator] = function() {};
-
-
-
-// TODO(johnlenz): Iterator should be a templated record type.
-/**
- * @interface
- * @template VALUE
- * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/The_Iterator_protocol
- */
-function Iterator() {}
-
-/**
- * @param {VALUE=} value
- * @return {!IIterableResult<VALUE>}
- */
-Iterator.prototype.next;
-
-
-/**
- * Use this to indicate a type is both an Iterator and an Iterable.
- * @interface
- * @extends {Iterator<T>}
- * @extends {Iterable<T>}
- * @template T
- */
-function IteratorIterable() {}
 
 
 /**
@@ -437,6 +346,7 @@ ITypedArray.prototype.BYTES_PER_ELEMENT;
 /**
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
+ * @return {undefined}
  */
 ITypedArray.prototype.set = function(array, opt_offset) {};
 
@@ -511,6 +421,7 @@ Int8Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Int8Array.prototype.set = function(array, opt_offset) {};
 
@@ -538,6 +449,7 @@ Int8Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Int8Array}
  */
 Int8Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -585,6 +497,7 @@ Uint8Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Uint8Array.prototype.set = function(array, opt_offset) {};
 
@@ -612,6 +525,7 @@ Uint8Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Uint8Array}
  */
 Uint8Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -659,6 +573,7 @@ Uint8ClampedArray.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Uint8ClampedArray.prototype.set = function(array, opt_offset) {};
 
@@ -687,6 +602,7 @@ Uint8ClampedArray.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Uint8ClampedArray}
  */
 Uint8ClampedArray.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -743,6 +659,7 @@ Int16Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Int16Array.prototype.set = function(array, opt_offset) {};
 
@@ -770,6 +687,7 @@ Int16Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Int16Array}
  */
 Int16Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -817,6 +735,7 @@ Uint16Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Uint16Array.prototype.set = function(array, opt_offset) {};
 
@@ -844,6 +763,7 @@ Uint16Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Uint16Array}
  */
 Uint16Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -891,6 +811,7 @@ Int32Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Int32Array.prototype.set = function(array, opt_offset) {};
 
@@ -918,6 +839,7 @@ Int32Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Int32Array}
  */
 Int32Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -965,6 +887,7 @@ Uint32Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Uint32Array.prototype.set = function(array, opt_offset) {};
 
@@ -992,6 +915,7 @@ Uint32Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Uint32Array}
  */
 Uint32Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -1039,6 +963,7 @@ Float32Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Float32Array.prototype.set = function(array, opt_offset) {};
 
@@ -1066,6 +991,7 @@ Float32Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Float32Array}
  */
 Float32Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -1113,6 +1039,7 @@ Float64Array.prototype.length;
  * @param {ArrayBufferView|Array<number>} array
  * @param {number=} opt_offset
  * @override
+ * @return {undefined}
  */
 Float64Array.prototype.set = function(array, opt_offset) {};
 
@@ -1140,6 +1067,7 @@ Float64Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/copyWithin
+ * @return {Float64Array}
  */
 Float64Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -1221,6 +1149,7 @@ DataView.prototype.getFloat64 = function(byteOffset, opt_littleEndian) {};
  * @param {number} byteOffset
  * @param {number} value
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setInt8 = function(byteOffset, value) {};
 
@@ -1228,6 +1157,7 @@ DataView.prototype.setInt8 = function(byteOffset, value) {};
  * @param {number} byteOffset
  * @param {number} value
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setUint8 = function(byteOffset, value) {};
 
@@ -1236,6 +1166,7 @@ DataView.prototype.setUint8 = function(byteOffset, value) {};
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setInt16 = function(byteOffset, value, opt_littleEndian) {};
 
@@ -1244,6 +1175,7 @@ DataView.prototype.setInt16 = function(byteOffset, value, opt_littleEndian) {};
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setUint16 = function(byteOffset, value, opt_littleEndian) {};
 
@@ -1252,6 +1184,7 @@ DataView.prototype.setUint16 = function(byteOffset, value, opt_littleEndian) {};
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setInt32 = function(byteOffset, value, opt_littleEndian) {};
 
@@ -1260,6 +1193,7 @@ DataView.prototype.setInt32 = function(byteOffset, value, opt_littleEndian) {};
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setUint32 = function(byteOffset, value, opt_littleEndian) {};
 
@@ -1268,6 +1202,7 @@ DataView.prototype.setUint32 = function(byteOffset, value, opt_littleEndian) {};
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setFloat32 = function(
     byteOffset, value, opt_littleEndian) {};
@@ -1277,6 +1212,7 @@ DataView.prototype.setFloat32 = function(
  * @param {number} value
  * @param {boolean=} opt_littleEndian
  * @throws {Error}
+ * @return {undefined}
  */
 DataView.prototype.setFloat64 = function(
     byteOffset, value, opt_littleEndian) {};
@@ -1359,19 +1295,33 @@ Promise.reject = function(opt_error) {};
 
 
 /**
- * @template T
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
- * @param {!Array<T|!Promise<T>>|!Iterable<T|!Promise<T>>} iterable
- * @return {!Promise<!Array<T>>}
+ * @param {!Iterable<VALUE>} iterable
+ * @return {!Promise<!Array<RESULT>>}
+ * @template VALUE
+ * @template RESULT := mapunion(VALUE, (V) =>
+ *     cond(isUnknown(V),
+ *         unknown(),
+ *         cond(isTemplatized(V) && sub(rawTypeOf(V), 'IThenable'),
+ *             templateTypeOf(V, 0),
+ *             cond(sub(V, 'Thenable'), unknown(), V))))
+ * =:
  */
 Promise.all = function(iterable) {};
 
 
 /**
- * @template T
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
- * @param {!Array<T>|!Iterable<T>} iterable
- * @return {!Promise<T>}
+ * @param {!Iterable<VALUE>} iterable
+ * @return {!Promise<RESULT>}
+ * @template VALUE
+ * @template RESULT := mapunion(VALUE, (V) =>
+ *     cond(isUnknown(V),
+ *         unknown(),
+ *         cond(isTemplatized(V) && sub(rawTypeOf(V), 'IThenable'),
+ *             templateTypeOf(V, 0),
+ *             cond(sub(V, 'Thenable'), unknown(), V))))
+ * =:
  */
 Promise.race = function(iterable) {};
 
@@ -1476,6 +1426,8 @@ Array.prototype.fill = function(value, opt_begin, opt_end) {};
  * @param {number} start
  * @param {number=} opt_end
  * @see http://www.ecma-international.org/ecma-262/6.0/#sec-array.prototype.copywithin
+ * @template T
+ * @return {!IArrayLike<T>}
  */
 Array.prototype.copyWithin = function(target, start, opt_end) {};
 
@@ -1590,6 +1542,16 @@ Number.isSafeInteger = function(value) {};
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
  */
 Object.assign = function(target, var_args) {};
+
+/**
+ * TODO(dbeam): find a better place for ES2017 externs like this one.
+ * @param {!Object<T>} obj
+ * @return {!Array<T>} values
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/values
+ * @throws {Error}
+ * @template T
+ */
+Object.values = function(obj) {};
 
 
 

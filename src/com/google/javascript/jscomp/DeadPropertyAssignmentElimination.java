@@ -128,7 +128,7 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
             Node lhs = propertyWrite.assignedAt;
             Node rhs = lhs.getNext();
             Node assignNode = lhs.getParent();
-            rhs.detachFromParent();
+            rhs.detach();
             assignNode.getParent().replaceChild(assignNode, rhs);
             compiler.reportCodeChange();
           }
@@ -314,7 +314,7 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
     }
 
     private static boolean isConditionalExpression(Node n) {
-      switch (n.getType()) {
+      switch (n.getToken()) {
         case AND:
         case OR:
         case HOOK:
@@ -363,7 +363,7 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
     }
 
     private boolean visitNode(Node n, Node parent) {
-      switch (n.getType()) {
+      switch (n.getToken()) {
         case GETPROP:
           // Handle potential getters/setters.
           if (n.isGetProp()

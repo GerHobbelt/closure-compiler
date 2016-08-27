@@ -22,6 +22,7 @@ import static com.google.javascript.jscomp.TypeCheck.INSTANTIATE_ABSTRACT_CLASS;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
 import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;
 import com.google.javascript.rhino.InputId;
@@ -32,6 +33,7 @@ import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.ObjectType;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -56,7 +58,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
       + " make sure to give it a type.)";
 
   @Override
-  public void setUp() {
+  public void setUp() throws Exception {
     super.setUp();
   }
 
@@ -1231,6 +1233,50 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "assignment to property x of n.T\n" +
         "found   : string\n" +
         "required: number");
+  }
+
+  public void testAbstractMethodInAbstractClass() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @abstract @constructor */ var C = function() {};",
+            "/** @abstract */ C.prototype.foo = function() {};"));
+  }
+
+  public void testAbstractMethodInConcreteClass() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor */ var C = function() {};",
+            "/** @abstract */ C.prototype.foo = function() {};"),
+        "Abstract methods can only appear in abstract classes. Please declare the class as "
+            + "@abstract");
+  }
+
+  public void testAbstractMethodInConcreteClassExtendingAbstractClass() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @abstract @constructor */ var A = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @abstract */ B.prototype.foo = function() {};"),
+        "Abstract methods can only appear in abstract classes. Please declare the class as "
+            + "@abstract");
+  }
+
+  public void testConcreteMethodOverridingAbstractMethod() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @abstract @constructor */ var A = function() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() {};"));
+  }
+
+  public void testAbstractMethodInInterface() {
+    // TODO(moz): There's no need to tag methods with @abstract in interfaces, maybe give a warning
+    // on this.
+    testTypes(
+        LINE_JOINER.join(
+            "/** @interface */ var I = function() {};",
+            "/** @abstract */ I.prototype.foo = function() {};"));
   }
 
   public void testPropertyUsedBeforeDefinition1() {
@@ -8068,6 +8114,173 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     testTypes("var f = new Function(); f();");
   }
 
+  public void testAbstractMethodCall1() {
+    // Converted from Closure style "goog.base" super call
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "B.superClass_ = A.prototype",
+            "/** @override */ B.prototype.foo = function() { B.superClass_.foo.call(this); };"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall2() {
+    // Converted from Closure style "goog.base" super call, with namespace
+    testTypes(
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/** @constructor @abstract */ ns.A = function() {};",
+            "/** @abstract */ ns.A.prototype.foo = function() {};",
+            "/** @constructor @extends {ns.A} */ ns.B = function() {};",
+            "ns.B.superClass_ = ns.A.prototype",
+            "/** @override */ ns.B.prototype.foo = function() {",
+            "  ns.B.superClass_.foo.call(this);",
+            "};"),
+        "Abstract method ns.A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall3() {
+    // Converted from ES6 super call
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() { A.prototype.foo.call(this); };"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall4() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/** @constructor @abstract */ ns.A = function() {};",
+            "ns.A.prototype.foo = function() {};",
+            "/** @constructor @extends {ns.A} */ ns.B = function() {};",
+            "ns.B.superClass_ = ns.A.prototype",
+            "/** @override */ ns.B.prototype.foo = function() {",
+            "  ns.B.superClass_.foo.call(this);",
+            "};"));
+  }
+
+  public void testAbstractMethodCall5() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() { A.prototype.foo.call(this); };"));
+  }
+
+  public void testAbstractMethodCall6() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/** @constructor @abstract */ ns.A = function() {};",
+            "ns.A.prototype.foo = function() {};",
+            "ns.A.prototype.foo.bar = function() {};",
+            "/** @constructor @extends {ns.A} */ ns.B = function() {};",
+            "ns.B.superClass_ = ns.A.prototype",
+            "/** @override */ ns.B.prototype.foo = function() {",
+            "  ns.B.superClass_.foo.bar.call(this);",
+            "};"));
+  }
+
+  public void testAbstractMethodCall7() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "A.prototype.foo = function() {};",
+            "A.prototype.foo.bar = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() { A.prototype.foo.bar.call(this); };"));
+  }
+
+  public void testAbstractMethodCall8() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() { A.prototype.foo['call'](this); };"));
+  }
+
+  public void testAbstractMethodCall9() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @struct @constructor */ var A = function() {};",
+            "A.prototype.foo = function() {};",
+            "/** @struct @constructor @extends {A} */ var B = function() {};",
+            "/** @override */ B.prototype.foo = function() {",
+            "  (function() {",
+            "    return A.prototype.foo.call($jscomp$this);",
+            "  })();",
+            "};"));
+  }
+
+  public void testAbstractMethodCall10() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "A.prototype.foo.call(new Subtype);"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall11() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ function A() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ function B() {};",
+            "var abstractMethod = A.prototype.foo;",
+            "abstractMethod.call(new B);"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall12() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ var B = function() {};",
+            "B.superClass_ = A.prototype",
+            "/** @override */ B.prototype.foo = function() { B.superClass_.foo.apply(this); };"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall13() {
+    // Calling abstract @constructor is allowed
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ var A = function() {};",
+            "/** @constructor @extends {A} */ var B = function() { A.call(this); };"));
+  }
+
+  public void testAbstractMethodCall_Indirect1() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ function A() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ function B() {};",
+            "var abstractMethod = A.prototype.foo;",
+            "(0, abstractMethod).call(new B);"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
+  public void testAbstractMethodCall_Indirect2() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor @abstract */ function A() {};",
+            "/** @abstract */ A.prototype.foo = function() {};",
+            "/** @constructor @extends {A} */ function B() {};",
+            "var abstractMethod = A.prototype.foo;",
+            "(abstractMethod = abstractMethod).call(new B);"),
+        "Abstract method A.prototype.foo cannot be called");
+  }
+
   public void testFunctionCall1() {
     testTypes(
         "/** @param {number} x */ var foo = function(x) {};" +
@@ -9048,7 +9261,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
     // goog type on the VAR node
     Node varNode = p.root.getFirstChild();
-    assertEquals(Token.VAR, varNode.getType());
+    assertEquals(Token.VAR, varNode.getToken());
     JSType googNodeType = varNode.getFirstChild().getJSType();
     assertThat(googNodeType).isInstanceOf(ObjectType.class);
 
@@ -9057,7 +9270,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
     // goog type on the left of the GETPROP node (under fist ASSIGN)
     Node getpropFoo1 = varNode.getNext().getFirstFirstChild();
-    assertEquals(Token.GETPROP, getpropFoo1.getType());
+    assertEquals(Token.GETPROP, getpropFoo1.getToken());
     assertEquals("goog", getpropFoo1.getFirstChild().getString());
     JSType googGetpropFoo1Type = getpropFoo1.getFirstChild().getJSType();
     assertThat(googGetpropFoo1Type).isInstanceOf(ObjectType.class);
@@ -9073,7 +9286,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     // (under second ASSIGN)
     Node getpropFoo2 = varNode.getNext().getNext()
         .getFirstFirstChild().getFirstChild();
-    assertEquals(Token.GETPROP, getpropFoo2.getType());
+    assertEquals(Token.GETPROP, getpropFoo2.getToken());
     assertEquals("goog", getpropFoo2.getFirstChild().getString());
     JSType googGetpropFoo2Type = getpropFoo2.getFirstChild().getJSType();
     assertThat(googGetpropFoo2Type).isInstanceOf(ObjectType.class);
@@ -9741,8 +9954,8 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     Node objectNode = nameNode.getFirstChild();
 
     // node extraction
-    assertEquals(Token.NAME, nameNode.getType());
-    assertEquals(Token.OBJECTLIT, objectNode.getType());
+    assertEquals(Token.NAME, nameNode.getToken());
+    assertEquals(Token.OBJECTLIT, objectNode.getToken());
 
     // value's type
     ObjectType objectType =
@@ -10146,17 +10359,151 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testInterfaceExtendsLoop2() {
-    testClosureTypesMultipleWarnings(
+    testClosureTypes(
         suppressMissingProperty("foo") +
-            "/** @record \n * @extends {F} */var G = function() {};" +
-            "/** @record \n * @extends {G} */var F = function() {};" +
-            "/** @constructor \n * @implements {F} */var H = function() {};" +
+        "/** @record \n * @extends {F} */var G = function() {};" +
+        "/** @record \n * @extends {G} */var F = function() {};" +
+        "/** @constructor \n * @implements {F} */var H = function() {};" +
         "alert((new H).foo);",
-        ImmutableList.of(
-            "extends loop involving F, "
-            + "loop: F -> G -> F",
-            "extends loop involving G, "
-            + "loop: G -> F -> G"));
+        "Parse error. Cycle detected in inheritance chain of type F");
+  }
+
+  public void testInheritPropFromMultipleInterfaces1() {
+    // Low#prop gets the type of whichever property is declared last,
+    // even if that type is not the most specific.
+    testTypes(
+        LINE_JOINER.join(
+            "/** @interface */",
+            "function High1() {}",
+            "/** @type {number|string} */",
+            "High1.prototype.prop;",
+            "/** @interface */",
+            "function High2() {}",
+            "/** @type {number} */",
+            "High2.prototype.prop;",
+            "/**",
+            " * @interface",
+            " * @extends {High1}",
+            " * @extends {High2}",
+            " */",
+            "function Low() {}",
+            "function f(/** !Low */ x) { var /** null */ n = x.prop; }"),
+        LINE_JOINER.join(
+            "initializing variable",
+            "found   : (number|string)",
+            "required: null"));
+  }
+
+  public void testInheritPropFromMultipleInterfaces2() {
+    // Low#prop gets the type of whichever property is declared last,
+    // even if that type is not the most specific.
+    testTypes(
+        LINE_JOINER.join(
+            "/** @interface */",
+            "function High1() {}",
+            "/** @type {number} */",
+            "High1.prototype.prop;",
+            "/** @interface */",
+            "function High2() {}",
+            "/** @type {number|string} */",
+            "High2.prototype.prop;",
+            "/**",
+            " * @interface",
+            " * @extends {High1}",
+            " * @extends {High2}",
+            " */",
+            "function Low() {}",
+            "function f(/** !Low */ x) { var /** null */ n = x.prop; }"),
+        LINE_JOINER.join(
+            "initializing variable",
+            "found   : number",
+            "required: null"));
+  }
+
+  public void testInheritPropFromMultipleInterfaces3() {
+    testTypes(
+        LINE_JOINER.join(
+            "/**",
+            " * @interface",
+            " * @template T1",
+            " */",
+            "function MyCollection() {}",
+            "/**",
+            " * @interface",
+            " * @template T2",
+            " * @extends {MyCollection<T2>}",
+            " */",
+            "function MySet() {}",
+            "/**",
+            " * @interface",
+            " * @template T3,T4",
+            " */",
+            "function MyMapEntry() {}",
+            "/**",
+            " * @interface",
+            " * @template T5,T6",
+            " */",
+            "function MyMultimap() {}",
+            "/** @return {MyCollection<MyMapEntry<T5, T6>>} */",
+            "MyMultimap.prototype.entries = function() {};",
+            "/**",
+            " * @interface",
+            " * @template T7,T8",
+            " * @extends {MyMultimap<T7, T8>}",
+            " */",
+            "function MySetMultimap() {}",
+            "/** @return {MySet<MyMapEntry<T7, T8>>} */",
+            "MySetMultimap.prototype.entries = function() {};",
+            "/**",
+            " * @interface",
+            " * @template T9,T10",
+            " * @extends {MyMultimap<T9, T10>}",
+            " */",
+            "function MyFilteredMultimap() {}",
+            "/**",
+            " * @interface",
+            " * @template T11,T12",
+            " * @extends {MyFilteredMultimap<T11, T12>}",
+            " * @extends {MySetMultimap<T11, T12>}",
+            " */",
+            "function MyFilteredSetMultimap() {}"));
+  }
+
+  public void testInheritSameGenericInterfaceFromDifferentPaths() {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/**",
+            " * @constructor",
+            " * @template T1",
+            " */",
+            "ns.Foo = function() {};",
+            "/**",
+            " * @interface",
+            " * @template T2",
+            " */",
+            "ns.High = function() {};",
+            "/** @type {!ns.Foo<T2>} */",
+            "ns.High.prototype.myprop;",
+            "/**",
+            " * @interface",
+            " * @template T3",
+            " * @extends {ns.High<T3>}",
+            " */",
+            "ns.Med1 = function() {};",
+            "/**",
+            " * @interface",
+            " * @template T4",
+            " * @extends {ns.High<T4>}",
+            " */",
+            "ns.Med2 = function() {};",
+            "/**",
+            " * @interface",
+            " * @template T5",
+            " * @extends {ns.Med1<T5>}",
+            " * @extends {ns.Med2<T5>}",
+            " */",
+            "ns.Low = function() {};"));
   }
 
   public void testConversionFromInterfaceToRecursiveConstructor() {
@@ -16685,6 +17032,48 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "}"));
   }
 
+  public void testEs5ClassExtendingEs6Class() {
+    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
+    testTypes(
+        LINE_JOINER.join(
+            "class Foo {}",
+            "/** @constructor @extends {Foo} */ var Bar = function() {};"),
+        "ES5 class Bar cannot extend ES6 class Foo");
+  }
+
+  public void testEs5ClassExtendingEs6Class_noWarning() {
+    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
+    testTypes(
+        LINE_JOINER.join(
+            "class A {}",
+            "/** @constructor @extends {A} */",
+            "const B = createSubclass(A);"));
+  }
+
+  public void testNonNullTemplatedThis() {
+    testTypes(
+       LINE_JOINER.join(
+           "/** @constructor */",
+           "function C() {}",
+           "",
+           "/** ",
+           "  @return {THIS} ",
+           "  @this {THIS}",
+           "  @template THIS",
+           "*/",
+           "C.prototype.method = function() {};",
+           "",
+           "/** @return {C|null} */",
+           "function f() {",
+           "  return x;",
+           "};",
+           "",
+           "/** @type {string} */ var s = f().method();"),
+       "initializing variable\n" +
+       "found   : C\n" +
+       "required: string");
+  }
+
   private void testTypes(String js) {
     testTypes(js, (String) null);
   }
@@ -16859,6 +17248,15 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     assertEquals("parsing error: " +
         Joiner.on(", ").join(compiler.getErrors()),
         0, compiler.getErrorCount());
+
+    if (compiler.getOptions().getLanguageIn().isEs6OrHigher()) {
+      List<PassFactory> passes = new ArrayList<>();
+      TranspilationPasses.addEs6EarlyPasses(passes);
+      TranspilationPasses.addEs6LatePasses(passes);
+      PhaseOptimizer phaseopt = new PhaseOptimizer(compiler, null, null);
+      phaseopt.consume(passes);
+      phaseopt.process(externsNode, n);
+    }
 
     TypedScope s = makeTypeCheck().processForTesting(externsNode, n);
     return new TypeCheckResult(n, s);

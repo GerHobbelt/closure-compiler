@@ -42,12 +42,21 @@ import com.google.common.collect.ImmutableList;
  * @author nicksantos@google.com (Nick Santos)
  */
 
-public final class CheckAccessControlsTest extends CompilerTestCase {
+public final class CheckAccessControlsTest extends TypeICompilerTestCase {
+
+  private static final DiagnosticGroup NTI_CONST =
+      new DiagnosticGroup(
+          GlobalTypeInfo.CONST_WITHOUT_INITIALIZER,
+          GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE,
+          GlobalTypeInfo.MISPLACED_CONST_ANNOTATION,
+          NewTypeInference.CONST_REASSIGNED,
+          NewTypeInference.CONST_PROPERTY_REASSIGNED,
+          NewTypeInference.CONST_PROPERTY_DELETED);
+
   public CheckAccessControlsTest() {
     super(CompilerTypeTestCase.DEFAULT_EXTERNS);
     parseTypeInfo = true;
     enableClosurePass();
-    enableTypeCheck();
   }
 
   @Override
@@ -65,6 +74,9 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
     CompilerOptions options = super.getOptions();
     options.setWarningLevel(DiagnosticGroups.ACCESS_CONTROLS, CheckLevel.ERROR);
     options.setWarningLevel(DiagnosticGroups.CONSTANT_PROPERTY, CheckLevel.ERROR);
+    // Disable NTI's native const checks so as to suppress duplicate warnings that
+    // prevent us from testing the const checks of CheckAccessControls itself.
+    options.setWarningLevel(NTI_CONST, CheckLevel.OFF);
     return options;
   }
 
@@ -174,7 +186,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   public void testWarningForDeprecatedSuperClass2() {
     testDepClass(
         "/** @constructor \n * @deprecated Its only weakness is Kryptoclass */ function Foo() {} "
-            + "var namespace = {}; "
+            + "/** @const */ var namespace = {}; "
             + "/** @constructor \n * @extends {Foo} */ "
             + "namespace.SubFoo = function() {}; "
             + "function f() { new namespace.SubFoo(); }",
@@ -182,11 +194,21 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testWarningForPrototypeProperty() {
-    testDepProp(
+    // TODO(aravindpg): in NTI the string representation of prototype object types is less than
+    // ideal due to the way NTI represents them. Fix if possible.
+    String js =
         "/** @constructor */ function Foo() {}"
-            + "/** @deprecated It is now in production, use that model... */ Foo.prototype.bar = 3;"
-            + "Foo.prototype.baz = function() { alert(Foo.prototype.bar); };",
+        + "/** @deprecated It is now in production, use that model... */ Foo.prototype.bar = 3;"
+        + "Foo.prototype.baz = function() { alert(Foo.prototype.bar); };";
+    this.mode = TypeInferenceMode.OTI_ONLY;
+    testDepProp(
+        js,
         "Property bar of type Foo.prototype has been deprecated:"
+            + " It is now in production, use that model...");
+    this.mode = TypeInferenceMode.NTI_ONLY;
+    testDepProp(
+        js,
+        "Property bar of type Object{bar:?, baz:function(this:Foo):?} has been deprecated:"
             + " It is now in production, use that model...");
   }
 
@@ -207,9 +229,9 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testWarningForMethod2() {
     testDepProp(
-        "/** @constructor */ function Foo() {} "
-            + "/** @deprecated Stop the ringing! */ Foo.prototype.bar; "
-            + "Foo.prototype.baz = function() { this.bar(); };",
+        "/** @constructor */ function Foo() {}"
+        + "/** @deprecated Stop the ringing! */ Foo.prototype.bar;"
+        + "Foo.prototype.baz = function() { this.bar(); };",
         "Property bar of type Foo has been deprecated: Stop the ringing!");
   }
 
@@ -255,7 +277,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testDeprecatedObjLitKey() {
     testDepProp(
-        "var f = {};"
+        "/** @const */ var f = {};"
             + "/** @deprecated It is literally not used anymore */ f.foo = 3;"
             + "function g() { return f.foo; }",
         "Property foo of type f has been deprecated: It is literally not used anymore");
@@ -302,6 +324,10 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testWarningForBind() {
+    // NTI reports NTI_REDCLARED_PROPERTY here, which is as intended. If this were a new
+    // property and not the existing `bind`, then we'd report the deprecation warning as expected
+    // (see testAutoboxedDeprecatedProperty and testAutoboxedPrivateProperty).
+    this.mode = TypeInferenceMode.OTI_ONLY;
     testDepProp(
         "/** @deprecated I'm bound to this method... */ Function.prototype.bind = function() {};"
             + "(function() {}).bind();",
@@ -362,6 +388,12 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testPrivateAccessForProperties4() {
+    // If a prototype property is defined via a computed access in a separate file from the
+    // constructor itself, then when running with NTI we fail to recognize that property as being a
+    // prototype property. This is enough of a corner case that we are fine with allowing it.
+    // If they are in the same file then things work as expected
+    // (see testPrivateAccessForProperties4b).
+    this.mode = TypeInferenceMode.OTI_ONLY;
     testSame(new String[] {
         "/** @constructor */ function Foo() {}"
         + "/** @private */ Foo.prototype.bar_ = function() {};",
@@ -374,6 +406,13 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
         "/** @constructor */ function Foo() {}"
         + "/** @private */ Foo.prototype.bar_ = function() {};",
         "Foo.prototype.baz = function() { (new Foo()).bar_(); };"});
+  }
+
+  public void testPrivateAccessForProperties4b() {
+    testSame(
+        "/** @constructor */ function Foo() {}"
+        + "/** @private */ Foo.prototype.bar_ = function() {};"
+        + "Foo.prototype['baz'] = function() { (new Foo()).bar_(); };");
   }
 
   public void testPrivateAccessForProperties5() {
@@ -450,6 +489,18 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
         null, BAD_PRIVATE_PROPERTY_ACCESS);
   }
 
+  public void testNoPrivateAccessForProperties6a() {
+    // Same as above, except with namespaced constructors
+    test(new String[] {
+        "/** @const */ var ns = {};"
+        + "/** @constructor */ ns.Foo = function() {}; "
+        + "/** @private */ ns.Foo.prototype.bar_ = function() {};",
+        "/** @constructor \n * @extends {ns.Foo} */ "
+        + "ns.SubFoo = function() {};"
+        + "ns.SubFoo.prototype.bar_ = function() {};"},
+        null, BAD_PRIVATE_PROPERTY_ACCESS);
+  }
+
   public void testNoPrivateAccessForProperties7() {
     // It's OK to override a private property with a non-private property
     // in the same file, but you'll get yelled at when you try to use it.
@@ -513,7 +564,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testNoPrivateAccessForNamespaces() {
     test(new String[] {
-        "var foo = {};\n"
+        "/** @const */ var foo = {};\n"
         + "/** @private */ foo.bar_ = function() {};",
         "foo.bar_();"},
         null, BAD_PRIVATE_PROPERTY_ACCESS);
@@ -600,6 +651,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testProtectedAccessForProperties10() {
+    // NTI throws NTI_CTOR_IN_DIFFERENT_SCOPE
     testSame(ImmutableList.of(
         SourceFile.fromCode(
             "foo.js",
@@ -609,9 +661,55 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
             "sub_foo.js",
             "/** @constructor @extends {Foo} */"
             + "var SubFoo = function() {};"
-            + "(function() {"
+            + "(/** @suppress {newCheckTypes} */ function() {"
             + "SubFoo.prototype.baz = function() { this.bar(); }"
             + "})();")));
+  }
+
+  public void testProtectedAccessForProperties11() {
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.js",
+            LINE_JOINER.join(
+                "goog.provide('Foo');",
+                "/** @interface */ Foo = function() {};",
+                "/** @protected */ Foo.prop = {};")),
+        SourceFile.fromCode(
+            "bar.js",
+            LINE_JOINER.join(
+                "goog.require('Foo');",
+                "/** @constructor @implements {Foo} */",
+                "function Bar() { Foo.prop; };"))),
+        null, null);
+}
+
+  public void testProtectedAccessForProperties12() {
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "a.js",
+            LINE_JOINER.join(
+                "goog.provide('A');",
+                "/** @constructor */",
+                "var A = function() {",
+                "  /**",
+                "   * @type {?String}",
+                "   * @protected",
+                "   */",
+                "  this.prop;",
+                "}")),
+        SourceFile.fromCode(
+            "b.js",
+            LINE_JOINER.join(
+                "goog.require('A');",
+                "/**",
+                " * @constructor",
+                " * @extends {A}",
+                " */",
+                "var B = function() {",
+                "  this.prop.length;",
+                "  this.prop.length;",
+                "};"))),
+        null, null);
   }
 
   public void testNoProtectedAccessForProperties1() {
@@ -1307,26 +1405,24 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   public void testBadReadOfDeprecatedProperty() {
     testDepProp(
         "/** @constructor */ function Foo() {"
-            + " /** @deprecated GRR */ this.bar = 3;"
-            + "  this.baz = this.bar;"
-            + "}",
+        + " /** @deprecated GRR */ this.bar = 3;"
+        + "  this.baz = this.bar;"
+        + "}",
         "Property bar of type Foo has been deprecated: GRR");
   }
 
   public void testAutoboxedDeprecatedProperty() {
-    test("", // no externs
-        "/** @constructor */ function String() {}"
-        + "/** @deprecated %s */ String.prototype.length;"
-        + "function f() { return 'x'.length; }",
+    test(DEFAULT_EXTERNS,
+        "/** @deprecated %s */ String.prototype.prop;"
+        + "function f() { return 'x'.prop; }",
         (String) null, DEPRECATED_PROP_REASON, null);
   }
 
   public void testAutoboxedPrivateProperty() {
     test(
-        "/** @constructor */ function String() {}"
-        + "/** @private */ String.prototype.length;",
         // externs
-        "function f() { return 'x'.length; }",
+        DEFAULT_EXTERNS + "/** @private */ String.prototype.prop;",
+        "function f() { return 'x'.prop; }",
         (String) null, // no output
         BAD_PRIVATE_PROPERTY_ACCESS, null);
   }
@@ -1488,8 +1584,11 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testNamespaceConstantProperty2() {
+    // NTI requires an @const annotation on namespaces, as in testNamespaceConstantProperty1.
+    // This is the only difference between the two tests.
+    this.mode = TypeInferenceMode.OTI_ONLY;
     testError(
-        "/** @const */ var o = {};\n"
+        "var o = {};\n"
         + "/** @const */ o.x = 1;\n"
         + "o.x = 2;\n",
         CONST_PROPERTY_REASSIGNED_VALUE);
@@ -1517,6 +1616,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testConstantProperty3a2() {
     // The old type checker should report this but it doesn't.
+    // NTI reports CONST_PROPERTY_REASSIGNED.
     testSame("/** @const */ var o = { /** @const */ x: 1 };"
         + "o.x = 2;");
   }
@@ -1528,6 +1628,8 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testConstantProperty3b2() {
+    // NTI reports NTI_REDECLARED_PROPERTY
+    this.mode = TypeInferenceMode.OTI_ONLY;
     // The old type checker should report this but it doesn't.
     testSame("/** @const */ var o = { XYZ: 1 };"
         + "o.XYZ = 2;");
@@ -1591,6 +1693,8 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testConstantProperty10b() {
+    // NTI reports NTI_REDECLARED_PROPERTY
+    this.mode = TypeInferenceMode.OTI_ONLY;
     testSame("/** @constructor */ function Foo() { this.PROP = 1;}"
         + "Foo.prototype.PROP;");
   }
@@ -1607,6 +1711,9 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
   }
 
   public void testConstantProperty12() {
+    // NTI deliberately disallows this pattern (separate declaration and initialization
+    // of const properties). (b/30205953)
+    this.mode = TypeInferenceMode.OTI_ONLY;
     testSame("/** @constructor */ function Foo() {}"
         + "/** @const */ Foo.prototype.bar;"
         + "/**\n"
@@ -1643,7 +1750,7 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testConstantPropertyInExterns() {
     String externs =
-        ""
+        DEFAULT_EXTERNS
         + "/** @constructor */ function Foo() {};\n"
         + "/** @const */ Foo.prototype.PROP;";
     String js = "var f = new Foo(); f.PROP = 1; f.PROP = 2;";
@@ -1745,24 +1852,61 @@ public final class CheckAccessControlsTest extends CompilerTestCase {
 
   public void testFinalClassCannotBeSubclassed() {
     testError(
-        "/**\n"
-        + " * @constructor\n"
-        + " * @const\n"
-        + " */ Foo = function() {};\n"
-        + "/**\n"
-        + " * @constructor\n"
-        + " * @extends {Foo}\n*"
-        + " */ Bar = function() {};",
+        LINE_JOINER.join(
+            "/**",
+            " * @constructor",
+            " * @final",
+            " */ var Foo = function() {};",
+            "/**",
+            " * @constructor",
+            " * @extends {Foo}*",
+            " */ var Bar = function() {};"),
         EXTEND_FINAL_CLASS);
+
     testError(
-        "/**\n"
-        + " * @constructor\n"
-        + " * @const\n"
-        + " */ function Foo() {};\n"
-        + "/**\n"
-        + " * @constructor\n"
-        + " * @extends {Foo}\n*"
-        + " */ function Bar() {};",
+        LINE_JOINER.join(
+            "/**",
+            " * @constructor",
+            " * @final",
+            " */ function Foo() {};",
+            "/**",
+            " * @constructor",
+            " * @extends {Foo}*",
+            " */ function Bar() {};"),
         EXTEND_FINAL_CLASS);
+
+    testSame(
+        LINE_JOINER.join(
+            "/**",
+            " * @constructor",
+            " * @const",
+            " */ var Foo = function() {};",
+            "/**",
+            " * @constructor",
+            " * @extends {Foo}",
+            " */ var Bar = function() {};"));
+  }
+
+  public void testCircularPrototypeLink() {
+    // NOTE: this does yield a useful warning, except we don't check for it in this test:
+    //      WARNING - Cycle detected in inheritance chain of type Foo
+    // This warning already has a test: TypeCheckTest::testPrototypeLoop.
+    testError(
+        LINE_JOINER.join(
+            "/** @constructor @extends {Foo} */ function Foo() {}",
+            "/** @const */ Foo.prop = 1;",
+            "Foo.prop = 2;"),
+        CONST_PROPERTY_REASSIGNED_VALUE);
+
+    // In OTI this next test causes a stack overflow.
+    this.mode = TypeInferenceMode.NTI_ONLY;
+
+    testError(
+        LINE_JOINER.join(
+            "/** @constructor */ function Foo() {}",
+            "/** @type {!Foo} */ Foo.prototype = new Foo();",
+            "/** @const */ Foo.prop = 1;",
+            "Foo.prop = 2;"),
+        CONST_PROPERTY_REASSIGNED_VALUE);
   }
 }

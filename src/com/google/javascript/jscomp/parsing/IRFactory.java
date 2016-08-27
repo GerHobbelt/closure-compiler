@@ -109,7 +109,6 @@ import com.google.javascript.jscomp.parsing.parser.trees.ParameterizedTypeTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ParseTreeType;
-import com.google.javascript.jscomp.parsing.parser.trees.PostfixExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
 import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
 import com.google.javascript.jscomp.parsing.parser.trees.RecordTypeTree;
@@ -131,6 +130,8 @@ import com.google.javascript.jscomp.parsing.parser.trees.TypeQueryTree;
 import com.google.javascript.jscomp.parsing.parser.trees.TypedParameterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.UnaryExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.UnionTypeTree;
+import com.google.javascript.jscomp.parsing.parser.trees.UpdateExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.UpdateExpressionTree.OperatorPosition;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationListTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree;
 import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
@@ -506,7 +507,7 @@ class IRFactory {
   }
 
   private static boolean isBreakTarget(Node n) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case FOR:
       case FOR_OF:
       case WHILE:
@@ -519,7 +520,7 @@ class IRFactory {
   }
 
   private static boolean isContinueTarget(Node n) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case FOR:
       case FOR_OF:
       case WHILE:
@@ -717,7 +718,7 @@ class IRFactory {
       case BINARY_OPERATOR:
       case MEMBER_EXPRESSION:
       case MEMBER_LOOKUP_EXPRESSION:
-      case POSTFIX_EXPRESSION:
+      case UPDATE_EXPRESSION:
         ParseTree nearest = findNearestNode(tree);
         if (nearest.type == ParseTreeType.PAREN_EXPRESSION) {
           return false;
@@ -749,8 +750,8 @@ class IRFactory {
         case MEMBER_LOOKUP_EXPRESSION:
           tree = tree.asMemberLookupExpression().operand;
           continue;
-        case POSTFIX_EXPRESSION:
-          tree = tree.asPostfixExpression().operand;
+        case UPDATE_EXPRESSION:
+          tree = tree.asUpdateExpression().operand;
           continue;
         default:
           return tree;
@@ -849,7 +850,7 @@ class IRFactory {
   void setSourceInfo(Node node, Node ref) {
     node.setLineno(ref.getLineno());
     node.setCharno(ref.getCharno());
-    maybeSetLengthFrom(node, ref);
+    setLengthFrom(node, ref);
   }
 
   void setSourceInfo(Node irNode, ParseTree node) {
@@ -873,7 +874,7 @@ class IRFactory {
       node.setLineno(lineno);
       int charno = charno(start);
       node.setCharno(charno);
-      maybeSetLength(node, start, end);
+      setLength(node, start, end);
     }
   }
 
@@ -935,17 +936,13 @@ class IRFactory {
   }
 
   // Set the length on the node if we're in IDE mode.
-  void maybeSetLength(
+  void setLength(
       Node node, SourcePosition start, SourcePosition end) {
-    if (config.preserveDetailedSourceInfo == Config.SourceLocationInformation.PRESERVE) {
-      node.setLength(end.offset - start.offset);
-    }
+    node.setLength(end.offset - start.offset);
   }
 
-  void maybeSetLengthFrom(Node node, Node ref) {
-    if (config.preserveDetailedSourceInfo == Config.SourceLocationInformation.PRESERVE) {
-      node.setLength(ref.getLength());
-    }
+  void setLengthFrom(Node node, Node ref) {
+    node.setLength(ref.getLength());
   }
 
   private class TransformDispatcher {
@@ -1087,7 +1084,7 @@ class IRFactory {
       if (n == null) {
         return false;
       }
-      Token nType = n.getType();
+      Token nType = n.getToken();
       return nType == Token.EXPR_RESULT &&
           n.getFirstChild().isString() &&
           ALLOWED_DIRECTIVES.contains(n.getFirstChild().getString());
@@ -1164,7 +1161,7 @@ class IRFactory {
       Node initializer = transform(loopNode.initializer);
       ImmutableSet<Token> invalidInitializers =
           ImmutableSet.of(Token.ARRAYLIT, Token.OBJECTLIT);
-      if (invalidInitializers.contains(initializer.getType())) {
+      if (invalidInitializers.contains(initializer.getToken())) {
         errorReporter.error("Invalid LHS for a for-in loop", sourceName,
             lineno(loopNode.initializer), charno(loopNode.initializer));
       }
@@ -1180,7 +1177,7 @@ class IRFactory {
       Node initializer = transform(loopNode.initializer);
       ImmutableSet<Token> invalidInitializers =
           ImmutableSet.of(Token.ARRAYLIT, Token.OBJECTLIT);
-      if (invalidInitializers.contains(initializer.getType())) {
+      if (invalidInitializers.contains(initializer.getToken())) {
         errorReporter.error("Invalid LHS for a for-of loop", sourceName,
             lineno(loopNode.initializer), charno(loopNode.initializer));
       }
@@ -1365,6 +1362,10 @@ class IRFactory {
     }
 
     Node processBinaryExpression(BinaryOperatorTree exprNode) {
+      if (exprNode.operator.type == TokenType.STAR_STAR
+          || exprNode.operator.type == TokenType.STAR_STAR_EQUAL) {
+        maybeWarnForFeature(exprNode, Feature.EXPONENT_OP);
+      }
       if (hasPendingCommentBefore(exprNode.right)) {
         return newNode(
             transformBinaryTokenType(exprNode.operator.type),
@@ -1488,7 +1489,7 @@ class IRFactory {
     Node processNameWithInlineJSDoc(IdentifierToken identifierToken) {
       JSDocInfo info = handleInlineJsDoc(identifierToken);
       maybeWarnReservedKeyword(identifierToken);
-      Node node = newStringNode(Token.NAME, identifierToken.toString());
+      Node node = newStringNode(Token.NAME, identifierToken.value);
       if (info != null) {
         node.setJSDocInfo(info);
       }
@@ -1507,7 +1508,7 @@ class IRFactory {
     }
 
     private void maybeWarnReservedKeyword(IdentifierToken token) {
-      String identifier = token.toString();
+      String identifier = token.value;
       boolean isIdentifier = false;
       if (TokenStream.isKeyword(identifier)) {
         features = features.require(Feature.ES3_KEYWORDS_AS_IDENTIFIERS);
@@ -1921,25 +1922,20 @@ class IRFactory {
               msg,
               sourceName,
               operand.getLineno(), 0);
-        } else if (type == Token.INC || type == Token.DEC) {
-          return createIncrDecrNode(type, false, operand);
         }
 
         return newNode(type, operand);
       }
     }
 
-    Node processPostfixExpression(PostfixExpressionTree exprNode) {
-      Token type = transformPostfixTokenType(exprNode.operator.type);
-      Node operand = transform(exprNode.operand);
-      if (type == Token.INC || type == Token.DEC) {
-        return createIncrDecrNode(type, true, operand);
-      }
-      Node node = newNode(type, operand);
-      return node;
+    Node processUpdateExpression(UpdateExpressionTree updateExpr) {
+      Token type = transformUpdateTokenType(updateExpr.operator.type);
+      Node operand = transform(updateExpr.operand);
+      return createUpdateNode(
+          type, updateExpr.operatorPosition == OperatorPosition.POSTFIX, operand);
     }
 
-    private Node createIncrDecrNode(Token type, boolean postfix, Node operand) {
+    private Node createUpdateNode(Token type, boolean postfix, Node operand) {
       if (!operand.isValidAssignmentTarget()) {
         errorReporter.error(
             SimpleFormat.format("Invalid %s %s operand.",
@@ -1990,7 +1986,7 @@ class IRFactory {
       if (decl.initializer != null) {
         Node initializer = transform(decl.initializer);
         lhs.addChildToBack(initializer);
-        maybeSetLength(lhs, decl.location.start, decl.location.end);
+        setLength(lhs, decl.location.start, decl.location.end);
       }
       maybeProcessType(lhs, decl.declaredType);
       return lhs;
@@ -2089,7 +2085,7 @@ class IRFactory {
       for (ParseTree expr : tree.expressions) {
         int count = root.getChildCount();
         if (count < 2) {
-          root.addChildrenToBack(transform(expr));
+          root.addChildToBack(transform(expr));
         } else {
           end = expr.location.end;
           root = newNode(Token.COMMA, root, transform(expr));
@@ -2150,7 +2146,7 @@ class IRFactory {
       Node body = newNode(Token.ENUM_MEMBERS);
       setSourceInfo(body, tree);
       for (ParseTree child : tree.members) {
-        body.addChildrenToBack(transform(child));
+        body.addChildToBack(transform(child));
       }
 
       return newNode(Token.ENUM, name, body);
@@ -2357,7 +2353,7 @@ class IRFactory {
     Node processTypeAlias(TypeAliasTree tree) {
       maybeWarnTypeSyntax(tree, Feature.TYPE_ALIAS);
       Node typeAlias = newStringNode(Token.TYPE_ALIAS, tree.alias.value);
-      typeAlias.addChildrenToFront(transform(tree.original));
+      typeAlias.addChildToFront(transform(tree.original));
       return typeAlias;
     }
 
@@ -2403,8 +2399,7 @@ class IRFactory {
       maybeWarnTypeSyntax(tree, Feature.INDEX_SIGNATURE);
       Node name = transform(tree.name);
       Node indexType = name.getDeclaredTypeExpression();
-      if (indexType.getType() != Token.NUMBER_TYPE
-          && indexType.getType() != Token.STRING_TYPE) {
+      if (indexType.getToken() != Token.NUMBER_TYPE && indexType.getToken() != Token.STRING_TYPE) {
         errorReporter.error(
             "Index signature parameter type must be 'string' or 'number'",
             sourceName,
@@ -2461,7 +2456,7 @@ class IRFactory {
                   charno(param));
               good = false;
             }
-            if (type != null && type.getType() != Token.ARRAY_TYPE) {
+            if (type != null && type.getToken() != Token.ARRAY_TYPE) {
               errorReporter.error(
                   "A rest parameter must be of an array type.",
                   sourceName,
@@ -2492,14 +2487,14 @@ class IRFactory {
           switch (param.type) {
             case IDENTIFIER_EXPRESSION:
               requiredParams.put(
-                  param.asIdentifierExpression().identifierToken.toString(),
+                  param.asIdentifierExpression().identifierToken.value,
                   type);
               break;
             case OPTIONAL_PARAMETER:
               maybeWarnTypeSyntax(param, Feature.OPTIONAL_PARAMETER);
               optionalParams.put(
                   param.asOptionalParameter().param.asIdentifierExpression()
-                      .identifierToken.toString(),
+                      .identifierToken.value,
                   type);
               break;
             case REST_PARAMETER:
@@ -2511,7 +2506,7 @@ class IRFactory {
                       .assignmentTarget
                       .asIdentifierExpression()
                       .identifierToken
-                      .toString();
+                      .value;
               restType = type;
               break;
             default:
@@ -2712,8 +2707,8 @@ class IRFactory {
           return processComputedPropertySetter(node.asComputedPropertySetter());
         case RETURN_STATEMENT:
           return processReturnStatement(node.asReturnStatement());
-        case POSTFIX_EXPRESSION:
-          return processPostfixExpression(node.asPostfixExpression());
+        case UPDATE_EXPRESSION:
+          return processUpdateExpression(node.asUpdateExpression());
         case PROGRAM:
           return processAstRoot(node.asProgram());
         case LITERAL_EXPRESSION: // STRING, NUMBER, TRUE, FALSE, NULL, REGEXP
@@ -3136,7 +3131,7 @@ class IRFactory {
     }
   }
 
-  static Token transformPostfixTokenType(TokenType token) {
+  static Token transformUpdateTokenType(TokenType token) {
     switch (token) {
       case PLUS_PLUS:
         return Token.INC;
@@ -3162,11 +3157,6 @@ class IRFactory {
         return Token.DELPROP;
       case TYPEOF:
         return Token.TYPEOF;
-
-      case PLUS_PLUS:
-        return Token.INC;
-      case MINUS_MINUS:
-        return Token.DEC;
 
       case VOID:
         return Token.VOID;
@@ -3212,6 +3202,8 @@ class IRFactory {
         return Token.DIV;
       case PERCENT:
         return Token.MOD;
+      case STAR_STAR:
+        return Token.EXPONENT;
 
       case EQUAL_EQUAL_EQUAL:
         return Token.SHEQ;
@@ -3245,6 +3237,8 @@ class IRFactory {
         return Token.ASSIGN_SUB;
       case STAR_EQUAL:
         return Token.ASSIGN_MUL;
+      case STAR_STAR_EQUAL:
+        return Token.ASSIGN_EXPONENT;
       case SLASH_EQUAL:
         return Token.ASSIGN_DIV;
       case PERCENT_EQUAL:

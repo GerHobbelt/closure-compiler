@@ -125,7 +125,7 @@ class LiveVariablesAnalysis extends
   }
 
   public Set<? extends Var> getEscapedLocals() {
-    return (Set<? extends Var>) escaped;
+    return escaped;
   }
 
   public int getVarIndex(String var) {
@@ -182,7 +182,7 @@ class LiveVariablesAnalysis extends
   private void computeGenKill(Node n, BitSet gen, BitSet kill,
       boolean conditional) {
 
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case SCRIPT:
       case BLOCK:
       case FUNCTION:

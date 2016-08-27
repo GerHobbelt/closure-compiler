@@ -26,13 +26,16 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
 import com.google.javascript.rhino.TokenUtil;
+import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.dtoa.DToA;
 import com.google.javascript.rhino.jstype.JSType;
+import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.TernaryValue;
 
 import java.util.ArrayList;
@@ -53,6 +56,9 @@ import javax.annotation.Nullable;
  * @author johnlenz@google.com (John Lenz)
  */
 public final class NodeUtil {
+
+  public static final String EXTERN_OBJECT_PROPERTY_STRING =
+      "JSCompiler_ObjectPropertyString";
   static final long MAX_POSITIVE_INTEGER_NUMBER = 1L << 53;
 
   static final String JSC_PROPERTY_NAME_FN = "JSCompiler_renameProperty";
@@ -183,6 +189,8 @@ public final class NodeUtil {
           return TernaryValue.TRUE;
         }
         break;
+      default:
+        break;
     }
 
     return TernaryValue.UNKNOWN;
@@ -236,6 +244,8 @@ public final class NodeUtil {
 
       case OBJECTLIT:
         return "[object Object]";
+      default:
+        break;
     }
     return null;
   }
@@ -346,6 +356,8 @@ public final class NodeUtil {
       case OBJECTLIT:
         String value = getStringValue(n);
         return value != null ? getStringNumberValue(value) : null;
+      default:
+        break;
     }
 
     return null;
@@ -500,6 +512,8 @@ public final class NodeUtil {
         return parent.getString();
       case NUMBER:
         return getStringValue(parent);
+      default:
+        break;
     }
 
     return null;
@@ -540,6 +554,8 @@ public final class NodeUtil {
         // We assume here that programs don't change the value of the keyword
         // undefined to something other than the value undefined.
         return "undefined".equals(name) || "Infinity".equals(name) || "NaN".equals(name);
+      default:
+        break;
     }
 
     return false;
@@ -557,6 +573,8 @@ public final class NodeUtil {
       case MUL: // multiply, unlike add it only works on numbers
                       // or results NaN if any of the operators is not a number
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -572,6 +590,8 @@ public final class NodeUtil {
       case LT: // exactly equal
       case LE: // exactly not equal
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -674,6 +694,22 @@ public final class NodeUtil {
   }
 
   /**
+   * Returns true iff the value associated with the node is a JS string literal,
+   * or a concatenation thereof.
+   */
+  static boolean isStringLiteralValue(Node node) {
+    if (node.getType() == Token.STRING) {
+      return true;
+    } else if (node.getType() == Token.ADD) {
+      Preconditions.checkState(node.getChildCount() == 2);
+      Node left = node.getFirstChild();
+      Node right = node.getLastChild();
+      return isStringLiteralValue(left) && isStringLiteralValue(right);
+    }
+    return false;
+  }
+
+  /**
    * Determines whether the given value may be assigned to a define.
    *
    * @param val The value being assigned.
@@ -697,6 +733,7 @@ public final class NodeUtil {
       case BITXOR:
       case DIV:
       case EQ:
+      case EXPONENT:
       case GE:
       case GT:
       case LE:
@@ -730,6 +767,8 @@ public final class NodeUtil {
         if (val.isQualifiedName()) {
           return defines.contains(val.getQualifiedName());
         }
+      default:
+        break;
     }
     return false;
   }
@@ -788,6 +827,7 @@ public final class NodeUtil {
       case MUL:
       case DIV:
       case MOD:
+      case EXPONENT:
         return true;
 
       default:
@@ -812,6 +852,19 @@ public final class NodeUtil {
       case NEG:
       case BITNOT:
       case NOT:
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
+  static boolean isUpdateOperator(Node n) {
+    return isUpdateOperatorType(n.getType());
+  }
+
+  static boolean isUpdateOperatorType(Token type) {
+    switch (type) {
       case INC:
       case DEC:
         return true;
@@ -840,6 +893,7 @@ public final class NodeUtil {
       case COMMA:
       case DIV:
       case EQ:
+      case EXPONENT:
       case GE:
       case GETELEM:
       case GETPROP:
@@ -1164,9 +1218,7 @@ public final class NodeUtil {
    * @param callNode - constructor call node
    */
   static boolean constructorCallHasSideEffects(Node callNode) {
-    if (!callNode.isNew()) {
-      throw new IllegalStateException("Expected NEW node, got " + callNode.getType());
-    }
+    Preconditions.checkArgument(callNode.isNew(), "Expected NEW node, got %s", callNode.getType());
 
     if (callNode.isNoSideEffectsCall()) {
       return false;
@@ -1223,32 +1275,32 @@ public final class NodeUtil {
       return false;
     }
 
-    Node nameNode = callNode.getFirstChild();
+    Node callee = callNode.getFirstChild();
 
     // Built-in functions with no side effects.
-    if (nameNode.isName()) {
-      String name = nameNode.getString();
+    if (callee.isName()) {
+      String name = callee.getString();
       if (BUILTIN_FUNCTIONS_WITHOUT_SIDEEFFECTS.contains(name)) {
         return false;
       }
-    } else if (nameNode.isGetProp()) {
+    } else if (callee.isGetProp()) {
       if (callNode.hasOneChild()
           && OBJECT_METHODS_WITHOUT_SIDEEFFECTS.contains(
-                nameNode.getLastChild().getString())) {
+                callee.getLastChild().getString())) {
         return false;
       }
 
       if (callNode.isOnlyModifiesThisCall()
-          && evaluatesToLocalValue(nameNode.getFirstChild())) {
+          && evaluatesToLocalValue(callee.getFirstChild())) {
         return false;
       }
 
       // Many common Math functions have no side-effects.
       // TODO(nicksantos): This is a terrible terrible hack, until
       // I create a definitionProvider that understands namespacing.
-      if (nameNode.getFirstChild().isName() && nameNode.isQualifiedName()
-          && nameNode.getFirstChild().getString().equals("Math")) {
-        switch(nameNode.getLastChild().getString()) {
+      if (callee.getFirstChild().isName() && callee.isQualifiedName()
+          && callee.getFirstChild().getString().equals("Math")) {
+        switch(callee.getLastChild().getString()) {
           case "abs":
           case "acos":
           case "acosh":
@@ -1287,12 +1339,15 @@ public final class NodeUtil {
       }
 
       if (compiler != null && !compiler.hasRegExpGlobalReferences()) {
-        if (nameNode.getFirstChild().isRegExp()
-            && REGEXP_METHODS.contains(nameNode.getLastChild().getString())) {
+        if (callee.getFirstChild().isRegExp()
+            && REGEXP_METHODS.contains(callee.getLastChild().getString())) {
           return false;
-        } else if (nameNode.getFirstChild().isString()) {
-          String method = nameNode.getLastChild().getString();
-          Node param = nameNode.getNext();
+        } else if (isTypedAsString(callee.getFirstChild(), compiler)) {
+          // Unlike regexs, string methods don't need to be hosted on a string literal
+          // to avoid leaking mutating global state changes, it is just necessary that
+          // the regex object can't be referenced.
+          String method = callee.getLastChild().getString();
+          Node param = callee.getNext();
           if (param != null) {
             if (param.isString()) {
               if (STRING_REGEXP_METHODS.contains(method)) {
@@ -1312,6 +1367,25 @@ public final class NodeUtil {
     }
 
     return true;
+  }
+
+  private static boolean isTypedAsString(Node n, AbstractCompiler compiler) {
+    if (n.isString()) {
+      return true;
+    }
+
+    if (compiler.getOptions().useTypesForOptimization) {
+      TypeI type = n.getTypeI();
+      if (type != null) {
+        TypeI nativeStringType = compiler.getTypeIRegistry()
+            .getNativeType(JSTypeNative.STRING_TYPE);
+        if (type.isEquivalentTo(nativeStringType)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -1417,6 +1491,8 @@ public final class NodeUtil {
         // and function declarations are not part of expressions.
         Preconditions.checkState(isFunctionExpression(n));
         return false;
+      default:
+        break;
     }
 
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
@@ -1428,22 +1504,12 @@ public final class NodeUtil {
     return false;
   }
 
-  /*
-   *  0 comma ,
-   *  1 assignment = += -= *= /= %= <<= >>= >>>= &= ^= |=
-   *  2 conditional ?:
-   *  3 logical-or ||
-   *  4 logical-and &&
-   *  5 bitwise-or |
-   *  6 bitwise-xor ^
-   *  7 bitwise-and &
-   *  8 equality == !=
-   *  9 relational < <= > >=
-   * 10 bitwise shift << >> >>>
-   * 11 addition/subtraction + -
-   * 12 multiply/divide * / %
-   * 13 negation/increment ! ~ - ++ --
-   * 14 call, member () [] .
+  /**
+   * The comma operator has the lowest precedence, 0, followed by the assignment operators (=, &=,
+   * +=, etc.) which have precedence of 1, and so on.
+   *
+   * @see
+   *     https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Operator_Precedence
    */
   static int precedence(Token type) {
     switch (type) {
@@ -1457,6 +1523,7 @@ public final class NodeUtil {
       case ASSIGN_ADD:
       case ASSIGN_SUB:
       case ASSIGN_MUL:
+      case ASSIGN_EXPONENT:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
       case ASSIGN: return 1;
@@ -1484,10 +1551,13 @@ public final class NodeUtil {
       case ADD:    return 12;
       case MUL:
       case MOD:
-      case DIV:    return 13;
+      case DIV:
+        return 13;
+
+      case EXPONENT:
+        return 14;
+
       case AWAIT:
-      case INC:
-      case DEC:
       case NEW:
       case DELPROP:
       case TYPEOF:
@@ -1495,7 +1565,12 @@ public final class NodeUtil {
       case NOT:
       case BITNOT:
       case POS:
-      case NEG:    return 14;
+      case NEG:
+        return 15; // Unary operators
+
+      case INC:
+      case DEC:
+        return 16; // Update operators
 
       case CALL:
       case GETELEM:
@@ -1527,14 +1602,14 @@ public final class NodeUtil {
       case TRUE:
       case TAGGED_TEMPLATELIT:
       case TEMPLATELIT:
-      // Tokens from the type declaration AST
+        // Tokens from the type declaration AST
       case UNION_TYPE:
-        return 15;
+        return 17;
       case FUNCTION_TYPE:
-        return 16;
+        return 18;
       case ARRAY_TYPE:
       case PARAMETERIZED_TYPE:
-        return 17;
+        return 19;
       case STRING_TYPE:
       case NUMBER_TYPE:
       case BOOLEAN_TYPE:
@@ -1544,9 +1619,9 @@ public final class NodeUtil {
       case NAMED_TYPE:
       case UNDEFINED_TYPE:
       case GENERIC_TYPE:
-        return 18;
+        return 20;
       case CAST:
-        return 19;
+        return 21;
 
       default:
         throw new IllegalStateException("Unknown precedence for " + type);
@@ -1559,6 +1634,8 @@ public final class NodeUtil {
         return true;
       case NAME:
         return n.getString().equals("undefined");
+      default:
+        break;
     }
     return false;
   }
@@ -1599,6 +1676,43 @@ public final class NodeUtil {
       default:
         return p.apply(n);
     }
+  }
+
+  /**
+   * @return Whether the function is defined in a non-aliasing expression.
+   */
+  static boolean isSimpleFunctionDeclaration(Node fn) {
+    Node parent = fn.getParent();
+    Node grandparent = parent.getParent();
+
+    // Simple definition finder doesn't provide useful results in some
+    // cases, specifically:
+    //  - functions with recursive definitions
+    //  - functions defined in object literals
+    //  - functions defined in array literals
+    // Here we defined a set of known function declaration that are 'ok'.
+
+    // Some projects seem to actually define "JSCompiler_renameProperty"
+    // rather than simply having an extern definition.  Don't mess with it.
+    Node nameNode = getNameNode(fn);
+    if (nameNode != null
+        && nameNode.isName()) {
+      String name = nameNode.getString();
+      if (name.equals(JSC_PROPERTY_NAME_FN)
+          || name.equals(EXTERN_OBJECT_PROPERTY_STRING)) {
+        return false;
+      }
+    }
+
+    // example: function a(){};
+    if (isFunctionDeclaration(fn)) {
+      return true;
+    }
+
+    // example: a = function(){};
+    // example: var a = function(){};
+    return fn.getFirstChild().getString().isEmpty()
+        && (isExprAssign(grandparent) || parent.isName());
   }
 
   enum ValueType {
@@ -1691,6 +1805,7 @@ public final class NodeUtil {
       case ASSIGN_URSH:
       case ASSIGN_SUB:
       case ASSIGN_MUL:
+      case ASSIGN_EXPONENT:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
       case BITNOT:
@@ -1704,6 +1819,7 @@ public final class NodeUtil {
       case MUL:
       case MOD:
       case DIV:
+      case EXPONENT:
       case INC:
       case DEC:
       case POS:
@@ -1904,9 +2020,12 @@ public final class NodeUtil {
       case ASSIGN_ADD:
       case ASSIGN_SUB:
       case ASSIGN_MUL:
+      case ASSIGN_EXPONENT:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -1935,10 +2054,14 @@ public final class NodeUtil {
         return Token.SUB;
       case ASSIGN_MUL:
         return Token.MUL;
+      case ASSIGN_EXPONENT:
+        return Token.EXPONENT;
       case ASSIGN_DIV:
         return Token.DIV;
       case ASSIGN_MOD:
         return Token.MOD;
+      default:
+        break;
     }
     throw new IllegalArgumentException("Not an assignment op:" + n);
   }
@@ -1963,6 +2086,8 @@ public final class NodeUtil {
         return Token.ASSIGN_SUB;
       case MUL:
         return Token.ASSIGN_MUL;
+      case EXPONENT:
+        return Token.ASSIGN_EXPONENT;
       case DIV:
         return Token.ASSIGN_DIV;
       case MOD:
@@ -2152,6 +2277,8 @@ public final class NodeUtil {
           return n.getParent().getFirstChild() == n;
         case FUNCTION:
           return isBlockScopedFunctionDeclaration(n.getParent());
+        default:
+          break;
       }
     }
     return false;
@@ -2361,6 +2488,8 @@ public final class NodeUtil {
       case FOR_OF:
       case CASE:
         return null;
+      default:
+        break;
     }
     throw new IllegalArgumentException(n + " does not have a condition.");
   }
@@ -2397,6 +2526,8 @@ public final class NodeUtil {
       case SWITCH:
       case CLASS:
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -2506,7 +2637,7 @@ public final class NodeUtil {
       // The CATCH can can only be removed if there is a finally clause.
       Node tryNode = node.getGrandparent();
       Preconditions.checkState(NodeUtil.hasFinally(tryNode));
-      node.detachFromParent();
+      node.detach();
     } else if (isTryCatchNodeContainer(node)) {
       // The container node itself can't be removed, but the contained CATCH
       // can if there is a 'finally' clause
@@ -2553,7 +2684,7 @@ public final class NodeUtil {
   static void maybeAddFinally(Node tryNode) {
     Preconditions.checkState(tryNode.isTry());
     if (!NodeUtil.hasFinally(tryNode)) {
-      tryNode.addChildrenToBack(IR.block().srcref(tryNode));
+      tryNode.addChildToBack(IR.block().srcref(tryNode));
     }
   }
 
@@ -2827,6 +2958,11 @@ public final class NodeUtil {
         || isLhsByDestructuring(n);
   }
 
+  static boolean isLhsOfAssign(Node n) {
+    Node parent = n.getParent();
+    return parent != null && parent.getType() == Token.ASSIGN && parent.getFirstChild() == n;
+  }
+
   public static boolean isImportedName(Node n) {
     Node parent = n.getParent();
     return parent.isImport()
@@ -2859,6 +2995,8 @@ public final class NodeUtil {
       case SETTER_DEF:
       case MEMBER_FUNCTION_DEF:
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -2875,6 +3013,8 @@ public final class NodeUtil {
       case SETTER_DEF:
       case MEMBER_FUNCTION_DEF:
         return key.getString();
+      default:
+        break;
     }
     throw new IllegalStateException("Unexpected node type: " + key);
   }
@@ -2890,6 +3030,8 @@ public final class NodeUtil {
       case GETTER_DEF:
       case SETTER_DEF:
         return true;
+      default:
+        break;
     }
     return false;
   }
@@ -2946,6 +3088,8 @@ public final class NodeUtil {
         return "/";
       case MOD:
         return "%";
+      case EXPONENT:
+        return "**";
       case BITNOT:
         return "~";
       case ADD:
@@ -2974,6 +3118,8 @@ public final class NodeUtil {
         return "-=";
       case ASSIGN_MUL:
         return "*=";
+      case ASSIGN_EXPONENT:
+        return "**=";
       case ASSIGN_DIV:
         return "/=";
       case ASSIGN_MOD:
@@ -3110,10 +3256,13 @@ public final class NodeUtil {
                      ? name.substring(startPos)
                      : name.substring(startPos, endPos));
       Node propNode = IR.string(part);
+      propNode.setLength(part.length());
       if (compiler.getCodingConvention().isConstantKey(part)) {
         propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
       }
+      int length = node.getLength() + ".".length() + part.length();
       node = IR.getprop(node, propNode);
+      node.setLength(length);
     } while (endPos != -1);
 
     return node;
@@ -3195,6 +3344,7 @@ public final class NodeUtil {
    * @param basisNode The basis node from which to copy the source file info.
    * @param originalName The original name of the node.
    */
+  @Deprecated
   static void setDebugInformation(Node node, Node basisNode,
                                   String originalName) {
     node.copyInformationFromForTree(basisNode);
@@ -3203,6 +3353,7 @@ public final class NodeUtil {
 
   private static Node newName(AbstractCompiler compiler, String name) {
     Node nameNode = IR.name(name);
+    nameNode.setLength(name.length());
     if (compiler.getCodingConvention().isConstant(name)) {
       nameNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
     }
@@ -3393,9 +3544,13 @@ public final class NodeUtil {
    * @return {@code true} if the node is a definition with Object.defineProperties
    */
   static boolean isObjectDefinePropertiesDefinition(Node n) {
-    return n.isCall()
-        && n.getChildCount() == 3
-        && n.getFirstChild().matchesQualifiedName("Object.defineProperties");
+    if (!(n.isCall() && n.getChildCount() == 3)) {
+      return false;
+    }
+    Node first = n.getFirstChild();
+    return first.matchesQualifiedName("Object.defineProperties")
+        || first.matchesQualifiedName("$jscomp.global.Object.defineProperties")
+        || first.matchesQualifiedName("$jscomp$global.Object.defineProperties");
   }
 
   /**
@@ -3439,14 +3594,8 @@ public final class NodeUtil {
     if (!n.isGetProp()) {
       return false;
     }
-    n = n.getFirstChild();
-    while (n.isGetProp()) {
-      if (n.getLastChild().getString().equals("prototype")) {
-        return n.isQualifiedName();
-      }
-      n = n.getFirstChild();
-    }
-    return false;
+    Node recv = n.getFirstChild();
+    return recv.isGetProp() && recv.getLastChild().getString().equals("prototype");
   }
 
   /**
@@ -3513,21 +3662,27 @@ public final class NodeUtil {
 
       case CAST:
         return isPropertyTest(compiler, parent);
+      default:
+        break;
     }
     return false;
   }
 
   /**
-   * @return The class name part of a qualified prototype name.
+   * @param qName A qualified name node representing a class prototype, or a property on that
+   *     prototype, e.g. foo.Bar.prototype, or foo.Bar.prototype.toString.
+   * @return The class name part of a qualified prototype name, e.g. foo.Bar.
    */
   static Node getPrototypeClassName(Node qName) {
-    Node cur = qName;
-    while (cur.isGetProp()) {
-      if (cur.getLastChild().getString().equals("prototype")) {
-        return cur.getFirstChild();
-      } else {
-        cur = cur.getFirstChild();
-      }
+    if (!qName.isGetProp()) {
+      return null;
+    }
+    if (qName.getLastChild().getString().equals("prototype")) {
+      return qName.getFirstChild();
+    }
+    Node recv = qName.getFirstChild();
+    if (recv.isGetProp() && recv.getLastChild().getString().equals("prototype")) {
+      return recv.getFirstChild();
     }
     return null;
   }
@@ -3549,7 +3704,7 @@ public final class NodeUtil {
   static Node newUndefinedNode(Node srcReferenceNode) {
     Node node = IR.voidNode(IR.number(0));
     if (srcReferenceNode != null) {
-        node.copyInformationFromForTree(srcReferenceNode);
+      node.useSourceInfoFromForTree(srcReferenceNode);
     }
     return node;
   }
@@ -3560,7 +3715,6 @@ public final class NodeUtil {
   static Node newVarNode(String name, Node value) {
     Node nodeName = IR.name(name);
     if (value != null) {
-      Preconditions.checkState(value.getNext() == null);
       nodeName.addChildToBack(value);
       nodeName.srcref(value);
     }
@@ -3873,6 +4027,8 @@ public final class NodeUtil {
       case GETPROP:
         return node.isQualifiedName()
             && NodeUtil.isConstantByConvention(convention, node.getLastChild());
+      default:
+        break;
     }
     return false;
   }
@@ -4080,6 +4236,27 @@ public final class NodeUtil {
     return false;
   }
 
+  /** Return declared JSDoc type for the given name declaration, or null if none present. */
+  @Nullable
+  static JSTypeExpression getDeclaredTypeExpression(Node declaration) {
+    Preconditions.checkArgument(declaration.isName());
+    JSDocInfo nameJsdoc = getBestJSDocInfo(declaration);
+    if (nameJsdoc != null) {
+      return nameJsdoc.getType();
+    }
+    Node parent = declaration.getParent();
+    if (parent.isRest() || parent.isDefaultValue()) {
+      parent = parent.getParent();
+    }
+    if (parent.isParamList()) {
+      JSDocInfo functionJsdoc = getBestJSDocInfo(parent.getParent());
+      if (functionJsdoc != null) {
+        return functionJsdoc.getParameterType(declaration.getString());
+      }
+    }
+    return null;
+  }
+
   /** Find the best JSDoc for the given node. */
   @Nullable
   public static JSDocInfo getBestJSDocInfo(Node n) {
@@ -4158,6 +4335,7 @@ public final class NodeUtil {
       case ASSIGN_ADD:
       case ASSIGN_SUB:
       case ASSIGN_MUL:
+      case ASSIGN_EXPONENT:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
         return n.getNext();
@@ -4169,6 +4347,8 @@ public final class NodeUtil {
       case FUNCTION:
       case CLASS:
         return parent;
+      default:
+        break;
     }
     return null;
   }
@@ -4246,6 +4426,8 @@ public final class NodeUtil {
           return (parent.getSecondChild() == expr);
         }
         break;
+      default:
+        break;
     }
     return true;
   }
@@ -4296,6 +4478,8 @@ public final class NodeUtil {
         case FUNCTION:
           // Done, we've reached the scope root.
           break inspect;
+        default:
+          break;
       }
     } while ((n = n.getParent()) != null);
     return true;

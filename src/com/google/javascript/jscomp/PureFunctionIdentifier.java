@@ -25,7 +25,7 @@ import com.google.common.io.Files;
 import com.google.javascript.jscomp.CodingConvention.Cache;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
-import com.google.javascript.jscomp.graph.DiGraph;
+import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
@@ -48,32 +48,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Compiler pass that computes function purity.  A function is pure if
- * it has no outside visible side effects, and the result of the
- * computation does not depend on external factors that are beyond the
- * control of the application; repeated calls to the function should
- * return the same value as long as global state hasn't changed.
+ * Compiler pass that computes function purity. A function is pure if it has no outside visible side
+ * effects, and the result of the computation does not depend on external factors that are beyond
+ * the control of the application; repeated calls to the function should return the same value as
+ * long as global state hasn't changed.
  *
- * Date.now is an example of a function that has no side effects but
- * is not pure.
+ * <p>Date.now is an example of a function that has no side effects but is not pure.
  *
  * @author johnlenz@google.com (John Lenz)
- *
- * We will prevail, in peace and freedom from fear, and in true
- * health, through the purity and essence of our natural... fluids.
- *                                    - General Turgidson
+ *     <p>We will prevail, in peace and freedom from fear, and in true health, through the purity
+ *     and essence of our natural... fluids. - General Turgidson
  */
 class PureFunctionIdentifier implements CompilerPass {
-  static final DiagnosticType INVALID_NO_SIDE_EFFECT_ANNOTATION =
-      DiagnosticType.error(
-          "JSC_INVALID_NO_SIDE_EFFECT_ANNOTATION",
-          "@nosideeffects may only appear in externs files.");
-
-  static final DiagnosticType INVALID_MODIFIES_ANNOTATION =
-    DiagnosticType.error(
-        "JSC_INVALID_MODIFIES_ANNOTATION",
-        "@modifies may only appear in externs files.");
-
   private final AbstractCompiler compiler;
   private final DefinitionProvider definitionProvider;
 
@@ -88,8 +74,7 @@ class PureFunctionIdentifier implements CompilerPass {
   private Node externs;
   private Node root;
 
-  public PureFunctionIdentifier(AbstractCompiler compiler,
-                                DefinitionProvider definitionProvider) {
+  public PureFunctionIdentifier(AbstractCompiler compiler, DefinitionProvider definitionProvider) {
     this.compiler = compiler;
     this.definitionProvider = definitionProvider;
     this.functionSideEffectMap = new HashMap<>();
@@ -100,12 +85,10 @@ class PureFunctionIdentifier implements CompilerPass {
 
   @Override
   public void process(Node externsAst, Node srcAst) {
-    if (externs != null || root != null) {
-      throw new IllegalStateException(
-          "It is illegal to call PureFunctionIdentifier.process " +
-          "twice the same instance.  Please use a new " +
-          "PureFunctionIdentifier instance each time.");
-    }
+    Preconditions.checkState(
+        externs == null && root == null,
+        "It is illegal to call PureFunctionIdentifier.process  twice the same instance.  Please "
+            + " use a new PureFunctionIdentifier instance each time.");
 
     externs = externsAst;
     root = srcAst;
@@ -191,7 +174,7 @@ class PureFunctionIdentifier implements CompilerPass {
    * @param name Query node
    * @return non-empty definition list or null
    */
-  private static Collection<Definition> getCallableDefinitions(
+  private Collection<Definition> getCallableDefinitions(
       DefinitionProvider definitionProvider, Node name) {
     if (name.isGetProp() || name.isName()) {
       List<Definition> result = new ArrayList<>();
@@ -204,7 +187,7 @@ class PureFunctionIdentifier implements CompilerPass {
 
       for (Definition current : decls) {
         Node rValue = current.getRValue();
-        if ((rValue != null) && rValue.isFunction()) {
+        if (rValue != null && isSupportedFunctionDefinition(rValue)) {
           result.add(current);
         } else {
           return null;
@@ -220,10 +203,8 @@ class PureFunctionIdentifier implements CompilerPass {
         firstVal = name.getFirstChild();
       }
 
-      Collection<Definition> defs1 = getCallableDefinitions(definitionProvider,
-                                                            firstVal);
-      Collection<Definition> defs2 = getCallableDefinitions(definitionProvider,
-                                                            firstVal.getNext());
+      Collection<Definition> defs1 = getCallableDefinitions(definitionProvider, firstVal);
+      Collection<Definition> defs2 = getCallableDefinitions(definitionProvider, firstVal.getNext());
       if (defs1 != null && defs2 != null) {
         defs1.addAll(defs2);
         return defs1;
@@ -232,7 +213,7 @@ class PureFunctionIdentifier implements CompilerPass {
       }
     } else if (NodeUtil.isFunctionExpression(name)) {
       // The anonymous function reference is also the definition.
-      // TODO(user) Change SimpleDefinitionFinder so it is possible to query for
+      // TODO(user) Change DefinitionUseSiteFinder so it is possible to query for
       // function expressions by function node.
 
       // isExtern is false in the call to the constructor for the
@@ -241,10 +222,21 @@ class PureFunctionIdentifier implements CompilerPass {
       // child of a call and thus the function expression
       // definition will never be an extern.
       return ImmutableList.of(
-          (Definition)
-              new DefinitionsRemover.FunctionExpressionDefinition(name, false));
+          (Definition) new DefinitionsRemover.FunctionExpressionDefinition(name, false));
     } else {
       return null;
+    }
+  }
+
+  boolean isSupportedFunctionDefinition(Node n) {
+    switch (n.getToken()) {
+      case FUNCTION:
+        return true;
+      case HOOK:
+        return isSupportedFunctionDefinition(n.getSecondChild())
+            && isSupportedFunctionDefinition(n.getLastChild());
+      default:
+        return false;
     }
   }
 
@@ -256,12 +248,12 @@ class PureFunctionIdentifier implements CompilerPass {
    */
   private void propagateSideEffects() {
     // Nodes are function declarations; Edges are function call sites.
-    DiGraph<FunctionInformation, Node> sideEffectGraph =
+    LinkedDirectedGraph<FunctionInformation, Node> sideEffectGraph =
         LinkedDirectedGraph.createWithoutAnnotations();
 
     // create graph nodes
     for (FunctionInformation functionInfo : functionSideEffectMap.values()) {
-      sideEffectGraph.createNode(functionInfo);
+      functionInfo.graphNode = sideEffectGraph.createNode(functionInfo);
     }
 
     // add connections to called functions and side effect root.
@@ -289,9 +281,7 @@ class PureFunctionIdentifier implements CompilerPass {
 
         for (Definition def : defs) {
           Node defValue = def.getRValue();
-          FunctionInformation dep = functionSideEffectMap.get(defValue);
-          Preconditions.checkNotNull(dep);
-          sideEffectGraph.connect(dep, callSite, functionInfo);
+          connectDefs(sideEffectGraph, defValue, callSite, functionInfo.graphNode);
         }
       }
     }
@@ -305,6 +295,24 @@ class PureFunctionIdentifier implements CompilerPass {
       if (functionInfo.mayBePure()) {
         functionInfo.setIsPure();
       }
+    }
+  }
+
+  private void connectDefs(
+      LinkedDirectedGraph<FunctionInformation, Node> sideEffectGraph, Node def, Node callSite,
+      DiGraphNode<FunctionInformation, Node> graphNode) {
+    switch(def.getToken()) {
+      case FUNCTION:
+        FunctionInformation info = functionSideEffectMap.get(def);
+        Preconditions.checkNotNull(info);
+        sideEffectGraph.connect(info.graphNode, callSite, graphNode);
+        break;
+      case HOOK:
+        connectDefs(sideEffectGraph, def.getSecondChild(), callSite, graphNode);
+        connectDefs(sideEffectGraph, def.getLastChild(), callSite, graphNode);
+        break;
+      default:
+        throw new IllegalStateException("Unexpect definition node " + def);
     }
   }
 
@@ -327,36 +335,7 @@ class PureFunctionIdentifier implements CompilerPass {
       } else {
         flags.clearAllFlags();
         for (Definition def : defs) {
-          FunctionInformation functionInfo =
-              functionSideEffectMap.get(def.getRValue());
-          Preconditions.checkNotNull(functionInfo);
-          if (functionInfo.mutatesGlobalState()) {
-            flags.setMutatesGlobalState();
-          }
-
-          if (functionInfo.mutatesArguments()) {
-            flags.setMutatesArguments();
-          }
-
-          if (functionInfo.functionThrows()) {
-            flags.setThrows();
-          }
-
-          if (!callNode.isNew()) {
-            if (functionInfo.taintsThis()) {
-              // A FunctionInfo for "f" maps to both "f()" and "f.call()" nodes.
-              if (isCallOrApply(callNode)) {
-                flags.setMutatesArguments();
-              } else {
-                flags.setMutatesThis();
-              }
-            }
-          }
-
-          if (functionInfo.taintsReturn()) {
-            flags.setReturnsTainted();
-          }
-
+          updateFlagsForDefs(callNode, def.getRValue(), flags);
           if (flags.areAllFlagsSet()) {
             break;
           }
@@ -377,6 +356,52 @@ class PureFunctionIdentifier implements CompilerPass {
       }
 
       callNode.setSideEffectFlags(flags.valueOf());
+    }
+  }
+
+  private void updateFlagsForDefs(Node callNode, Node defNode, Node.SideEffectFlags flags) {
+    switch(defNode.getToken()) {
+      case FUNCTION:
+        updateFlagsForDef(callNode, defNode, flags);
+        break;
+      case HOOK:
+        updateFlagsForDefs(callNode, defNode.getSecondChild(), flags);
+        updateFlagsForDefs(callNode, defNode.getLastChild(), flags);
+        break;
+      default:
+        throw new IllegalStateException("Unexpect definition node " + defNode);
+    }
+  }
+
+  private void updateFlagsForDef(Node callNode, Node defNode, Node.SideEffectFlags flags) {
+    FunctionInformation functionInfo =
+        functionSideEffectMap.get(defNode);
+    Preconditions.checkNotNull(functionInfo);
+    if (functionInfo.mutatesGlobalState()) {
+      flags.setMutatesGlobalState();
+    }
+
+    if (functionInfo.mutatesArguments()) {
+      flags.setMutatesArguments();
+    }
+
+    if (functionInfo.functionThrows()) {
+      flags.setThrows();
+    }
+
+    if (!callNode.isNew()) {
+      if (functionInfo.taintsThis()) {
+        // A FunctionInfo for "f" maps to both "f()" and "f.call()" nodes.
+        if (isCallOrApply(callNode)) {
+          flags.setMutatesArguments();
+        } else {
+          flags.setMutatesThis();
+        }
+      }
+    }
+
+    if (functionInfo.taintsReturn()) {
+      flags.setReturnsTainted();
     }
   }
 
@@ -404,9 +429,8 @@ class PureFunctionIdentifier implements CompilerPass {
   }
 
   /**
-   * Gather list of functions, functions with @nosideeffects
-   * annotations, call sites, and functions that may mutate variables
-   * not defined in the local scope.
+   * Gather list of functions, functions with @nosideeffects annotations, call sites, and functions
+   * that may mutate variables not defined in the local scope.
    */
   private class FunctionAnalyzer implements ScopedCallback {
     private final boolean inExterns;
@@ -416,17 +440,12 @@ class PureFunctionIdentifier implements CompilerPass {
     }
 
     @Override
-    public boolean shouldTraverse(NodeTraversal traversal,
-                                  Node node,
-                                  Node parent) {
-
-      // Functions need to be processed as part of pre-traversal so an
-      // entry for the enclosing function exists in the
-      // FunctionInformation map when processing assignments and calls
-      // inside visit.
+    public boolean shouldTraverse(NodeTraversal traversal, Node node, Node parent) {
+      // Functions need to be processed as part of pre-traversal so that an entry for the function
+      // exists in the FunctionInformation map when processing assignments and calls within the
+      // body.
       if (node.isFunction()) {
-        Node gramp = parent.getParent();
-        visitFunction(traversal, node, parent, gramp);
+        visitFunction(node, parent);
       }
 
       return true;
@@ -434,72 +453,51 @@ class PureFunctionIdentifier implements CompilerPass {
 
     @Override
     public void visit(NodeTraversal traversal, Node node, Node parent) {
-
       if (inExterns) {
         return;
       }
 
-      if (!NodeUtil.nodeTypeMayHaveSideEffects(node)
-          && !node.isReturn()) {
+      if (!NodeUtil.nodeTypeMayHaveSideEffects(node, compiler) && !node.isReturn()) {
         return;
       }
 
-      if (node.isCall() || node.isNew()) {
+      if (NodeUtil.isCallOrNew(node)) {
         allFunctionCalls.add(node);
       }
 
       Node enclosingFunction = traversal.getEnclosingFunction();
-      if (enclosingFunction != null) {
-        FunctionInformation sideEffectInfo =
-            functionSideEffectMap.get(enclosingFunction);
-        Preconditions.checkNotNull(sideEffectInfo);
+      if (enclosingFunction == null) {
+        return;
+      }
 
-        if (NodeUtil.isAssignmentOp(node)) {
-          visitAssignmentOrUnaryOperator(
-              sideEffectInfo, traversal.getScope(),
-              node, node.getFirstChild(), node.getLastChild());
-        } else {
-          switch(node.getType()) {
-            case CALL:
-            case NEW:
-              visitCall(sideEffectInfo, node);
-              break;
-            case DELPROP:
-            case DEC:
-            case INC:
-              visitAssignmentOrUnaryOperator(
-                  sideEffectInfo, traversal.getScope(),
-                  node, node.getFirstChild(), null);
-              break;
-            case NAME:
-              // Variable definition are not side effects.
-              // Just check that the name appears in the context of a
-              // variable declaration.
-              Preconditions.checkArgument(NodeUtil.isNameDeclaration(parent));
-              Node value = node.getFirstChild();
-              // Assignment to local, if the value isn't a safe local value,
-              // new object creation or literal or known primitive result
-              // value, add it to the local blacklist.
-              if (value != null && !NodeUtil.evaluatesToLocalValue(value)) {
-                Scope scope = traversal.getScope();
-                Var var = scope.getVar(node.getString());
-                sideEffectInfo.blacklistLocal(var);
-              }
-              break;
-            case THROW:
-              visitThrow(sideEffectInfo);
-              break;
-            case RETURN:
-              if (node.hasChildren()
-                  && !NodeUtil.evaluatesToLocalValue(node.getFirstChild())) {
-                sideEffectInfo.setTaintsReturn();
-              }
-              break;
-            default:
-              throw new IllegalArgumentException(
-                  "Unhandled side effect node type " + node.getType());
-          }
+      FunctionInformation sideEffectInfo = functionSideEffectMap.get(enclosingFunction);
+      Preconditions.checkNotNull(sideEffectInfo);
+
+      if (NodeUtil.isAssignmentOp(node) || node.isInc() || node.isDelProp() || node.isDec()) {
+        visitAssignmentOrUnaryOperator(sideEffectInfo, traversal.getScope(), node);
+      } else if (NodeUtil.isCallOrNew(node)) {
+        visitCall(sideEffectInfo, node);
+      } else if (node.isName()) {
+        // Variable definition are not side effects. Check that the name appears in the context of a
+        // variable declaration.
+        Preconditions.checkArgument(NodeUtil.isNameDeclaration(parent));
+        Node value = node.getFirstChild();
+        // Assignment to local, if the value isn't a safe local value,
+        // new object creation or literal or known primitive result
+        // value, add it to the local blacklist.
+        if (value != null && !NodeUtil.evaluatesToLocalValue(value)) {
+          Scope scope = traversal.getScope();
+          Var var = scope.getVar(node.getString());
+          sideEffectInfo.blacklistLocal(var);
         }
+      } else if (node.isThrow()) {
+        sideEffectInfo.setFunctionThrows();
+      } else if (node.isReturn()) {
+        if (node.hasChildren() && !NodeUtil.evaluatesToLocalValue(node.getFirstChild())) {
+          sideEffectInfo.setTaintsReturn();
+        }
+      } else {
+        throw new IllegalArgumentException("Unhandled side effect node type " + node.getToken());
       }
     }
 
@@ -510,8 +508,7 @@ class PureFunctionIdentifier implements CompilerPass {
 
     @Override
     public void exitScope(NodeTraversal t) {
-      if (!(t.getScope().isFunctionBlockScope()
-          || t.getScope().isFunctionScope())) {
+      if (!t.getScope().isFunctionBlockScope() && !t.getScope().isFunctionScope()) {
         return;
       }
 
@@ -521,11 +518,9 @@ class PureFunctionIdentifier implements CompilerPass {
       }
 
       // Handle deferred local variable modifications:
-      //
       FunctionInformation sideEffectInfo = functionSideEffectMap.get(function);
-      if (sideEffectInfo == null) {
-        return;
-      }
+      Preconditions.checkNotNull(sideEffectInfo, "%s has no side effect info.", function);
+
       if (sideEffectInfo.mutatesGlobalState()){
         sideEffectInfo.resetLocalVars();
         return;
@@ -544,7 +539,7 @@ class PureFunctionIdentifier implements CompilerPass {
         // Parameters and catch values come can from other scopes.
         if (v.getParentNode().isVar()) {
           // TODO(johnlenz): create a useful parameter list
-//           sideEffectInfo.addKnownLocal(v.getName());
+          // sideEffectInfo.addKnownLocal(v.getName());
           localVar = true;
         }
 
@@ -578,18 +573,16 @@ class PureFunctionIdentifier implements CompilerPass {
     }
 
     /**
-     * Record information about the side effects caused by an
-     * assignment or mutating unary operator.
+     * Record information about the side effects caused by an assignment or mutating unary operator.
      *
-     * If the operation modifies this or taints global state, mark the
-     * enclosing function as having those side effects.
+     * <p>If the operation modifies this or taints global state, mark the enclosing function as
+     * having those side effects.
+     *
      * @param op operation being performed.
-     * @param lhs The store location (name or get) being operated on.
-     * @param rhs The right have value, if any.
      */
     private void visitAssignmentOrUnaryOperator(
-        FunctionInformation sideEffectInfo,
-        Scope scope, Node op, Node lhs, Node rhs) {
+        FunctionInformation sideEffectInfo, Scope scope, Node op) {
+      Node lhs = op.getFirstChild();
       if (lhs.isName()) {
         Var var = scope.getVar(lhs.getString());
         if (varDeclaredInDifferentFunction(var, scope)) {
@@ -604,6 +597,7 @@ class PureFunctionIdentifier implements CompilerPass {
           Preconditions.checkState(
               NodeUtil.isAssignmentOp(op)
               || isIncDec(op) || op.isDelProp());
+          Node rhs = op.getLastChild();
           if (rhs != null
               && op.isAssign()
               && !NodeUtil.evaluatesToLocalValue(rhs)) {
@@ -645,87 +639,53 @@ class PureFunctionIdentifier implements CompilerPass {
      */
     private void visitCall(FunctionInformation sideEffectInfo, Node node) {
       // Handle special cases (Math, RegExp)
-      if (node.isCall()
-          && !NodeUtil.functionCallHasSideEffects(node, compiler)) {
+      if (node.isCall() && !NodeUtil.functionCallHasSideEffects(node, compiler)) {
         return;
       }
 
       // Handle known cases now (Object, Date, RegExp, etc)
-      if (node.isNew()
-          && !NodeUtil.constructorCallHasSideEffects(node)) {
+      if (node.isNew() && !NodeUtil.constructorCallHasSideEffects(node)) {
         return;
       }
 
       sideEffectInfo.appendCall(node);
     }
 
-    /**
-     * Record function and check for @nosideeffects annotations.
-     */
-    private void visitFunction(NodeTraversal traversal,
-                               Node node,
-                               Node parent,
-                               Node gramp) {
-      Preconditions.checkArgument(!functionSideEffectMap.containsKey(node));
+    /** Record function and check for @nosideeffects annotations. */
+    private void visitFunction(Node node, Node parent) {
+      Preconditions.checkArgument(node.isFunction());
+      Preconditions.checkState(!functionSideEffectMap.containsKey(node));
 
       FunctionInformation sideEffectInfo = new FunctionInformation(inExterns);
       functionSideEffectMap.put(node, sideEffectInfo);
 
+      JSDocInfo info = getJSDocInfoForFunction(node, parent);
       if (inExterns) {
+        // Handle externs.
         JSType jstype = node.getJSType();
-        boolean knownLocalResult = false;
         FunctionType functionType = JSType.toMaybeFunctionType(jstype);
         if (functionType != null) {
           JSType jstypeReturn = functionType.getReturnType();
-          if (isLocalValueType(jstypeReturn)) {
-            knownLocalResult = true;
+          if (!isLocalValueType(jstypeReturn)) {
+            sideEffectInfo.setTaintsReturn();
           }
         }
-        if (!knownLocalResult) {
-          sideEffectInfo.setTaintsReturn();
-        }
-      }
 
-      JSDocInfo info = getJSDocInfoForFunction(node, parent, gramp);
-      if (info != null) {
-        boolean hasSpecificSideEffects = false;
-        if (hasSideEffectsThisAnnotation(info)) {
-          if (inExterns) {
-            hasSpecificSideEffects = true;
+        if (info == null) {
+          // We don't know anything about this function so we assume it has side effects.
+          sideEffectInfo.setTaintsGlobalState();
+        } else {
+          if (info.modifiesThis()) {
             sideEffectInfo.setTaintsThis();
-          } else {
-            traversal.report(node, INVALID_MODIFIES_ANNOTATION);
-          }
-        }
-
-        if (hasSideEffectsArgumentsAnnotation(info)) {
-          if (inExterns) {
-            hasSpecificSideEffects = true;
+          } else if (info.hasSideEffectsArgumentsAnnotation()) {
             sideEffectInfo.setTaintsArguments();
+          } else if (!info.getThrownTypes().isEmpty()) {
+            sideEffectInfo.setFunctionThrows();
+          } else if (info.isNoSideEffects()) {
+            sideEffectInfo.setIsPure();
           } else {
-            traversal.report(node, INVALID_MODIFIES_ANNOTATION);
-          }
-        }
-
-        if (inExterns && !info.getThrownTypes().isEmpty()) {
-          hasSpecificSideEffects = true;
-          sideEffectInfo.setFunctionThrows();
-        }
-
-        if (!hasSpecificSideEffects) {
-          if (hasNoSideEffectsAnnotation(info)) {
-            if (inExterns) {
-              sideEffectInfo.setIsPure();
-            } else {
-              traversal.report(node, INVALID_NO_SIDE_EFFECT_ANNOTATION);
-            }
-          } else if (inExterns) {
             sideEffectInfo.setTaintsGlobalState();
           }
-        }
-      } else {
-        if (inExterns) {
-          sideEffectInfo.setTaintsGlobalState();
         }
       }
     }
@@ -742,64 +702,24 @@ class PureFunctionIdentifier implements CompilerPass {
       return subtype.isNoType();
     }
 
-    /**
-     * Record that the enclosing function throws.
-     */
-    private void visitThrow(FunctionInformation sideEffectInfo) {
-      sideEffectInfo.setFunctionThrows();
-    }
-
-    /**
-     * Get the doc info associated with the function.
-     */
-    private JSDocInfo getJSDocInfoForFunction(
-        Node node, Node parent, Node gramp) {
+    /** Get the doc info associated with the function. */
+    private JSDocInfo getJSDocInfoForFunction(Node node, Node parent) {
       JSDocInfo info = node.getJSDocInfo();
       if (info != null) {
         return info;
       } else if (parent.isName()) {
-        return gramp.hasOneChild() ? gramp.getJSDocInfo() : null;
+        Node grandparent = parent.getParent();
+        return grandparent.hasOneChild() ? grandparent.getJSDocInfo() : null;
       } else if (parent.isAssign()) {
         return parent.getJSDocInfo();
       } else {
         return null;
       }
     }
-
-    /**
-     * Get the value of the @nosideeffects annotation stored in the
-     * doc info.
-     */
-    private boolean hasNoSideEffectsAnnotation(JSDocInfo docInfo) {
-      Preconditions.checkNotNull(docInfo);
-      return docInfo.isNoSideEffects();
-    }
-
-    /**
-     * Get the value of the @modifies{this} annotation stored in the
-     * doc info.
-     */
-    private boolean hasSideEffectsThisAnnotation(JSDocInfo docInfo) {
-      Preconditions.checkNotNull(docInfo);
-      return (docInfo.getModifies().contains("this"));
-    }
-
-    /**
-     * @return Whether the @modifies annotation includes "arguments"
-     * or any named parameters.
-     */
-    private boolean hasSideEffectsArgumentsAnnotation(JSDocInfo docInfo) {
-      Preconditions.checkNotNull(docInfo);
-      Set<String> modifies = docInfo.getModifies();
-      // TODO(johnlenz): if we start tracking parameters individually
-      // this should simply be a check for "arguments".
-      return (modifies.size() > 1
-          || (modifies.size() == 1 && !modifies.contains("this")));
-    }
   }
 
   private static boolean isIncDec(Node n) {
-    Token type = n.getType();
+    Token type = n.getToken();
     return (type == Token.INC || type == Token.DEC);
   }
 
@@ -809,32 +729,35 @@ class PureFunctionIdentifier implements CompilerPass {
    */
   @SuppressWarnings("unused")
   private static boolean isKnownLocalValue(final Node value) {
-    Predicate<Node> taintingPredicate = new Predicate<Node>() {
-      @Override
-      public boolean apply(Node value) {
-        switch (value.getType()) {
-          case ASSIGN:
-            // The assignment might cause an alias, look at the LHS.
+    Predicate<Node> taintingPredicate =
+        new Predicate<Node>() {
+          @Override
+          public boolean apply(Node value) {
+            switch (value.getToken()) {
+              case ASSIGN:
+                // The assignment might cause an alias, look at the LHS.
+                return false;
+              case THIS:
+                // TODO(johnlenz): maybe redirect this to be a tainting list for 'this'.
+                return false;
+              case NAME:
+                // TODO(johnlenz): add to local tainting list, if the NAME
+                // is known to be a local.
+                return false;
+              case GETELEM:
+              case GETPROP:
+                // There is no information about the locality of object properties.
+                return false;
+              case CALL:
+                // TODO(johnlenz): add to local tainting list, if the call result
+                // is not known to be a local result.
+                return false;
+              default:
+                break;
+            }
             return false;
-          case THIS:
-            // TODO(johnlenz): maybe redirect this to be a tainting list for 'this'.
-            return false;
-          case NAME:
-            // TODO(johnlenz): add to local tainting list, if the NAME
-            // is known to be a local.
-            return false;
-          case GETELEM:
-          case GETPROP:
-            // There is no information about the locality of object properties.
-            return false;
-          case CALL:
-            // TODO(johnlenz): add to local tainting list, if the call result
-            // is not known to be a local result.
-            return false;
-        }
-        return false;
-      }
-    };
+          }
+        };
 
     return NodeUtil.evaluatesToLocalValue(value, taintingPredicate);
   }
@@ -929,10 +852,10 @@ class PureFunctionIdentifier implements CompilerPass {
    * list of calls that appear in a function's body.
    */
   private static class FunctionInformation {
+    private DiGraphNode<FunctionInformation, Node> graphNode;
     private List<Node> callsInFunctionBody = null;
     private Set<Var> blacklisted = null;
     private Set<Var> taintedLocals = null;
-//     private Set<String> knownLocals = null;
     private int bitmask = 0;
 
     private static final int EXTERN_MASK = 1 << 0;
@@ -1012,15 +935,7 @@ class PureFunctionIdentifier implements CompilerPass {
     void resetLocalVars() {
       blacklisted = Collections.emptySet();
       taintedLocals = Collections.emptySet();
-//       knownLocals = Collections.emptySet();
     }
-
-//     public void addKnownLocal(String name) {
-//       if (knownLocals == null) {
-//         knownLocals = new HashSet<>();
-//       }
-//       knownLocals.add(name);
-//     }
 
     public Set<Var> blacklisted() {
       if (blacklisted == null) {
@@ -1045,10 +960,10 @@ class PureFunctionIdentifier implements CompilerPass {
     boolean mayBePure() {
       return !getMask(
           FUNCTION_THROWS_MASK
-          | TAINTS_GLOBAL_STATE_MASK
-          | TAINTS_THIS_MASK
-          | TAINTS_ARGUMENTS_MASK
-          | TAINTS_UNKNOWN_MASK);
+              | TAINTS_GLOBAL_STATE_MASK
+              | TAINTS_THIS_MASK
+              | TAINTS_ARGUMENTS_MASK
+              | TAINTS_UNKNOWN_MASK);
     }
 
     /**
@@ -1128,10 +1043,7 @@ class PureFunctionIdentifier implements CompilerPass {
      * Returns true if function mutates its arguments.
      */
     boolean mutatesArguments() {
-      return getMask(
-          TAINTS_GLOBAL_STATE_MASK
-          | TAINTS_ARGUMENTS_MASK
-          | TAINTS_UNKNOWN_MASK);
+      return getMask(TAINTS_GLOBAL_STATE_MASK | TAINTS_ARGUMENTS_MASK | TAINTS_UNKNOWN_MASK);
     }
 
     /**
@@ -1210,31 +1122,19 @@ class PureFunctionIdentifier implements CompilerPass {
   static class Driver implements CompilerPass {
     private final AbstractCompiler compiler;
     private final String reportPath;
-    private final boolean useNameReferenceGraph;
 
-    Driver(AbstractCompiler compiler, String reportPath,
-        boolean useNameReferenceGraph) {
+    Driver(AbstractCompiler compiler, String reportPath) {
       this.compiler = compiler;
       this.reportPath = reportPath;
-      this.useNameReferenceGraph = useNameReferenceGraph;
     }
 
     @Override
     public void process(Node externs, Node root) {
-      DefinitionProvider definitionProvider = null;
-      if (useNameReferenceGraph) {
-        NameReferenceGraphConstruction graphBuilder =
-            new NameReferenceGraphConstruction(compiler);
-        graphBuilder.process(externs, root);
-        definitionProvider = graphBuilder.getNameReferenceGraph();
-      } else {
-        SimpleDefinitionFinder defFinder = new SimpleDefinitionFinder(compiler);
-        defFinder.process(externs, root);
-        definitionProvider = defFinder;
-      }
+      NameBasedDefinitionProvider defFinder = new NameBasedDefinitionProvider(compiler, true);
+      defFinder.process(externs, root);
 
       PureFunctionIdentifier pureFunctionIdentifier =
-          new PureFunctionIdentifier(compiler, definitionProvider);
+          new PureFunctionIdentifier(compiler, defFinder);
       pureFunctionIdentifier.process(externs, root);
 
       if (reportPath != null) {

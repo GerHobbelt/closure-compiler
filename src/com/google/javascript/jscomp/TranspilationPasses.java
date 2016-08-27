@@ -34,6 +34,8 @@ public class TranspilationPasses {
    * transpile them, even if the output language is also ES6.
    */
   public static void addEs6EarlyPasses(List<PassFactory> passes) {
+    passes.add(es6SuperCheck);
+    passes.add(es6ConvertSuper);
     passes.add(es6RewriteArrowFunction);
     passes.add(es6RenameVariablesInParamLists);
     passes.add(es6SplitVariableDeclarations);
@@ -49,7 +51,6 @@ public class TranspilationPasses {
    * when the output is lower than ES6.
    */
   public static void addEs6LatePasses(List<PassFactory> passes) {
-    passes.add(es6ConvertSuper);
     passes.add(es6ExtractClasses);
     passes.add(convertEs6ToEs3);
     passes.add(rewriteBlockScopedDeclaration);
@@ -57,6 +58,13 @@ public class TranspilationPasses {
     passes.add(rewritePolyfills);
   }
 
+  private static final PassFactory es6SuperCheck =
+      new PassFactory("es6SuperCheck", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new Es6SuperCheck(compiler);
+        }
+      };
 
   static final HotSwapPassFactory es6ExtractClasses =
       new HotSwapPassFactory("Es6ExtractClasses", true) {

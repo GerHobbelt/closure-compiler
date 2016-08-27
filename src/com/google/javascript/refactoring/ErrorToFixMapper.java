@@ -47,6 +47,8 @@ public final class ErrorToFixMapper {
       Pattern.compile("extra require: '([^']+)'");
   private static final Pattern DUPLICATE_REQUIRE =
       Pattern.compile("'([^']+)' required more than once\\.");
+  private static final Pattern USE_SHORT_NAME =
+      Pattern.compile(".*Please use the short name '(.*)' instead.");
 
   public static List<SuggestedFix> getFixesForJsError(JSError error, AbstractCompiler compiler) {
     SuggestedFix fix = getFixForJsError(error, compiler);
@@ -55,7 +57,7 @@ public final class ErrorToFixMapper {
     }
     switch (error.getType().key) {
       case "JSC_IMPLICITLY_NULLABLE_JSDOC":
-        return getFixesForImplicitlyNullableJsDoc(error);
+        return getFixesForImplicitlyNullableJsDoc(error, compiler);
       default:
         return ImmutableList.of();
     }
@@ -68,18 +70,18 @@ public final class ErrorToFixMapper {
   public static SuggestedFix getFixForJsError(JSError error, AbstractCompiler compiler) {
     switch (error.getType().key) {
       case "JSC_MISSING_SEMICOLON":
-        return getFixForMissingSemicolon(error);
+        return getFixForMissingSemicolon(error, compiler);
       case "JSC_REQUIRES_NOT_SORTED":
         return getFixForUnsortedRequiresOrProvides("goog.require", error, compiler);
       case "JSC_PROVIDES_NOT_SORTED":
         return getFixForUnsortedRequiresOrProvides("goog.provide", error, compiler);
       case "JSC_DEBUGGER_STATEMENT_PRESENT":
       case "JSC_USELESS_EMPTY_STATEMENT":
-        return removeNode(error);
+        return removeNode(error, compiler);
       case "JSC_INEXISTENT_PROPERTY":
-        return getFixForInexistentProperty(error);
+        return getFixForInexistentProperty(error, compiler);
       case "JSC_MISSING_CALL_TO_SUPER":
-        return getFixForMissingSuper(error);
+        return getFixForMissingSuper(error, compiler);
       case "JSC_INVALID_SUPER_CALL_WITH_SUGGESTION":
         return getFixForInvalidSuper(error, compiler);
       case "JSC_MISSING_REQUIRE_WARNING":
@@ -89,42 +91,60 @@ public final class ErrorToFixMapper {
         return getFixForExtraRequire(error, compiler, DUPLICATE_REQUIRE);
       case "JSC_EXTRA_REQUIRE_WARNING":
         return getFixForExtraRequire(error, compiler, EXTRA_REQUIRE);
+      case "JSC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME":
+        return getFixForReferenceToShortImportByLongName(error, compiler);
       default:
         return null;
     }
   }
 
-  private static List<SuggestedFix> getFixesForImplicitlyNullableJsDoc(JSError error) {
-    SuggestedFix qmark = new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
-        .insertBefore(error.node, "?")
-        .setDescription("Make nullability explicit")
-        .build();
-    SuggestedFix bang = new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
-        .insertBefore(error.node, "!")
-        .setDescription("Make type non-nullable")
-        .build();
+  private static SuggestedFix getFixForReferenceToShortImportByLongName(
+      JSError error, AbstractCompiler compiler) {
+    Matcher m = USE_SHORT_NAME.matcher(error.description);
+    if (m.matches()) {
+      return new SuggestedFix.Builder()
+          .attachMatchedNodeInfo(error.node, compiler)
+          .replace(error.node, NodeUtil.newQName(compiler, m.group(1)), compiler)
+          .build();
+    }
+    return null;
+  }
+
+  private static List<SuggestedFix> getFixesForImplicitlyNullableJsDoc(
+      JSError error, AbstractCompiler compiler) {
+    SuggestedFix qmark =
+        new SuggestedFix.Builder()
+            .attachMatchedNodeInfo(error.node, compiler)
+            .insertBefore(error.node, "?")
+            .setDescription("Make nullability explicit")
+            .build();
+    SuggestedFix bang =
+        new SuggestedFix.Builder()
+            .attachMatchedNodeInfo(error.node, compiler)
+            .insertBefore(error.node, "!")
+            .setDescription("Make type non-nullable")
+            .build();
     return ImmutableList.of(bang, qmark);
   }
 
-  private static SuggestedFix removeNode(JSError error) {
+  private static SuggestedFix removeNode(JSError error, AbstractCompiler compiler) {
     return new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
-        .delete(error.node).build();
+        .attachMatchedNodeInfo(error.node, compiler)
+        .delete(error.node)
+        .build();
   }
 
-  private static SuggestedFix getFixForMissingSemicolon(JSError error) {
+  private static SuggestedFix getFixForMissingSemicolon(JSError error, AbstractCompiler compiler) {
     return new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
+        .attachMatchedNodeInfo(error.node, compiler)
         .insertAfter(error.node, ";")
         .build();
   }
 
-  private static SuggestedFix getFixForMissingSuper(JSError error) {
+  private static SuggestedFix getFixForMissingSuper(JSError error, AbstractCompiler compiler) {
     Node body = NodeUtil.getFunctionBody(error.node);
     return new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
+        .attachMatchedNodeInfo(error.node, compiler)
         .addChildToFront(body, "super();")
         .build();
   }
@@ -133,20 +153,22 @@ public final class ErrorToFixMapper {
     Matcher m = DID_YOU_MEAN.matcher(error.description);
     if (m.matches()) {
       return new SuggestedFix.Builder()
-          .setOriginalMatchedNode(error.node)
+          .attachMatchedNodeInfo(error.node, compiler)
           .replace(error.node, NodeUtil.newQName(compiler, m.group(1)), compiler)
           .build();
     }
     return null;
   }
 
-  private static SuggestedFix getFixForInexistentProperty(JSError error) {
+  private static SuggestedFix getFixForInexistentProperty(
+      JSError error, AbstractCompiler compiler) {
     Matcher m = DID_YOU_MEAN.matcher(error.description);
     if (m.matches()) {
       String suggestedPropName = m.group(1);
       return new SuggestedFix.Builder()
-          .setOriginalMatchedNode(error.node)
-          .rename(error.node, suggestedPropName).build();
+          .attachMatchedNodeInfo(error.node, compiler)
+          .rename(error.node, suggestedPropName)
+          .build();
     }
     return null;
   }
@@ -159,7 +181,7 @@ public final class ErrorToFixMapper {
     NodeMetadata metadata = new NodeMetadata(compiler);
     Match match = new Match(error.node, metadata);
     return new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
+        .attachMatchedNodeInfo(error.node, compiler)
         .addGoogRequire(match, namespaceToRequire)
         .build();
   }
@@ -173,7 +195,7 @@ public final class ErrorToFixMapper {
     NodeMetadata metadata = new NodeMetadata(compiler);
     Match match = new Match(error.node, metadata);
     return new SuggestedFix.Builder()
-        .setOriginalMatchedNode(error.node)
+        .attachMatchedNodeInfo(error.node, compiler)
         .removeGoogRequire(match, namespace)
         .build();
   }
@@ -181,7 +203,7 @@ public final class ErrorToFixMapper {
   private static SuggestedFix getFixForUnsortedRequiresOrProvides(
       String closureFunction, JSError error, AbstractCompiler compiler) {
     SuggestedFix.Builder fix = new SuggestedFix.Builder();
-    fix.setOriginalMatchedNode(error.node);
+    fix.attachMatchedNodeInfo(error.node, compiler);
     Node script = NodeUtil.getEnclosingScript(error.node);
     RequireProvideSorter cb = new RequireProvideSorter(closureFunction);
     NodeTraversal.traverseEs6(compiler, script, cb);

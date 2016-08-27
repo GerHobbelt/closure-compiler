@@ -17,7 +17,6 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.PureFunctionIdentifier.INVALID_NO_SIDE_EFFECT_ANNOTATION;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -477,11 +476,6 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
         ImmutableList.of("o.propWithStubAfter"));
   }
 
-  public void testAnnotationInExternStubs2b() throws Exception {
-    checkMarkedCalls("o.propWithStubAfter('a');",
-        ImmutableList.of("o.propWithStubAfter"));
-  }
-
   public void testAnnotationInExternStubs3() throws Exception {
     checkMarkedCalls("propWithAnnotatedStubAfter('a');",
         ImmutableList.<String>of());
@@ -570,6 +564,30 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
     checkMarkedCalls(
         "function g(x) { x.foo = 3; }" /* to suppress missing property */ +
         prefix + "return externObj.foo" + suffix, expected);
+  }
+
+  public void testNoSideEffectsSimple2() throws Exception {
+    regExpHaveSideEffects = false;
+
+    checkMarkedCalls(
+        LINE_JOINER.join(
+            "function f() {",
+            "  return ''.replace(/xyz/g, '');",
+            "}",
+            "f()"),
+        ImmutableList.of("STRING  STRING replace", "f"));
+  }
+
+  public void testNoSideEffectsSimple3() throws Exception {
+    regExpHaveSideEffects = false;
+
+    checkMarkedCalls(
+        LINE_JOINER.join(
+            "function f(/** string */ str) {",
+            "  return str.replace(/xyz/g, '');",
+            "}",
+            "f('')"),
+        ImmutableList.of("str.replace", "f"));
   }
 
   public void testResultLocalitySimple() throws Exception {
@@ -923,6 +941,7 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
   }
 
   public void testHookOperator2() throws Exception {
+
     checkMarkedCalls("var f = true ? function(){} : externNsef2;\n" +
                      "f()",
                      ImmutableList.<String>of());
@@ -937,7 +956,21 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
   public void testHookOperators4() throws Exception {
     checkMarkedCalls("var f = true ? function(){} : function(){};\n" +
                      "f()",
-                     ImmutableList.<String>of());
+                     ImmutableList.<String>of("f"));
+  }
+
+  public void testHookOperators5() throws Exception {
+    checkMarkedCalls(LINE_JOINER.join(
+        "var f = String.prototype.trim ? function(str){return str} : function(){};",
+        "f()"),
+        ImmutableList.<String>of("f"));
+  }
+
+  public void testHookOperators6() throws Exception {
+    checkMarkedCalls(LINE_JOINER.join(
+        "var f = yyy ? function(str){return str} : xxx ? function() {} : function(){};",
+        "f()"),
+        ImmutableList.<String>of("f"));
   }
 
   public void testThrow1() throws Exception {
@@ -1254,30 +1287,6 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
         call.getSideEffectFlags());
   }
 
-  public void testInvalidAnnotation1() throws Exception {
-    testError("/** @nosideeffects */ function foo() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
-  }
-
-  public void testInvalidAnnotation2() throws Exception {
-    testError("var f = /** @nosideeffects */ function() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
-  }
-
-  public void testInvalidAnnotation3() throws Exception {
-    testError("/** @nosideeffects */ var f = function() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
-  }
-
-  public void testInvalidAnnotation4() throws Exception {
-    testError("var f = function() {};" +
-         "/** @nosideeffects */ f.x = function() {}",
-         INVALID_NO_SIDE_EFFECT_ANNOTATION);
-  }
-
-  public void testInvalidAnnotation5() throws Exception {
-    testError("var f = function() {};" +
-         "f.x = /** @nosideeffects */ function() {}",
-         INVALID_NO_SIDE_EFFECT_ANNOTATION);
-  }
-
   public void testCallCache() throws Exception {
     String source = "var valueFn = function() {};"
         + "goog.reflect.cache(externObj, \"foo\", valueFn)";
@@ -1399,7 +1408,8 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
     @Override
     public void process(Node externs, Node root) {
       compiler.setHasRegExpGlobalReferences(regExpHaveSideEffects);
-      SimpleDefinitionFinder defFinder = new SimpleDefinitionFinder(compiler);
+      compiler.getOptions().setUseTypesForOptimization(true);
+      NameBasedDefinitionProvider defFinder = new NameBasedDefinitionProvider(compiler, true);
       defFinder.process(externs, root);
       PureFunctionIdentifier passUnderTest =
           new PureFunctionIdentifier(compiler, defFinder);
@@ -1419,7 +1429,7 @@ public final class PureFunctionIdentifierTest extends CompilerTestCase {
           noSideEffectCalls.add(generateNameString(n.getFirstChild()));
         }
       } else if (n.isCall()) {
-        if (!NodeUtil.functionCallHasSideEffects(n)) {
+        if (!NodeUtil.functionCallHasSideEffects(n, compiler)) {
           noSideEffectCalls.add(generateNameString(n.getFirstChild()));
         }
         if (NodeUtil.callHasLocalResult(n)) {

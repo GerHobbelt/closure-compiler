@@ -14,11 +14,8 @@
  * limitations under the License.
  */
 
-/**
- * @fileoverview Polyfill for ES6 Symbol.
- */
-'require util/global util/patch';
-
+'require util/defineproperty';
+'require util/global';
 
 /** @const {string} */
 $jscomp.SYMBOL_PREFIX = 'jscomp_symbol_';
@@ -32,57 +29,9 @@ $jscomp.initSymbol = function() {
   // Only need to do this once. All future calls are no-ops.
   $jscomp.initSymbol = function() {};
 
-  if ($jscomp.global.Symbol) return;
-
-  $jscomp.global.Symbol = $jscomp.Symbol;
-
-  /**
-   * @param {string} name
-   * @return {boolean}
-   */
-  var isSymbol = function(name) {
-    if (name.length < $jscomp.SYMBOL_PREFIX.length) return false;
-    for (var i = 0; i < $jscomp.SYMBOL_PREFIX.length; i++) {
-      if (name[i] != $jscomp.SYMBOL_PREFIX[i]) return false;
-    }
-    return true;
-  };
-
-  // Need to monkey-patch Object.getOwnPropertyNames to not return symbols.
-  // Note that we use this extra array populated by getOwnPropertyNames
-  // because there's no way to access the *unpatched* getOwnPropertyNames
-  // from the getOwnPropertySymbols patch.
-  /** @type {!Array<string>} */
-  var symbols = [];
-  var removeSymbolsPatch = function(orig) {
-    return function(target) {
-      symbols = [];
-      var names = orig(target);
-      var result = [];
-      for (var i = 0, len = names.length; i < len; i++) {
-        if (!isSymbol(names[i])) {
-          result.push(names[i]);
-        } else {
-          symbols.push(names[i]);
-        }
-      }
-      return result;
-    };
-  };
-
-  $jscomp.patch('Object.keys', removeSymbolsPatch);
-  $jscomp.patch('Object.getOwnPropertyNames', removeSymbolsPatch);
-  $jscomp.patch('Object.getOwnPropertySymbols', function(orig) {
-    return function(target) {
-      // First call the patched getOwnPropertyNames to reset and fill the array.
-      // Store the result somewhere to prevent nosideeffect removal.
-      removeSymbolsPatch.unused = Object.getOwnPropertyNames(target);
-      // In case the original function actually returned something, append that.
-      symbols.push.apply(orig(target));
-      return symbols;
-    };
-  });
-  // Note: shouldn't need to patch Reflect.ownKeys.
+  if (!$jscomp.global.Symbol) {
+    $jscomp.global.Symbol = $jscomp.Symbol;
+  }
 };
 
 
@@ -92,26 +41,89 @@ $jscomp.symbolCounter_ = 0;
 
 /**
  * Produces "symbols" (actually just unique strings).
- * @param {string} description
+ * @param {string=} opt_description
  * @return {symbol}
  * @suppress {reportUnknownTypes}
  */
-$jscomp.Symbol = function(description) {
+$jscomp.Symbol = function(opt_description) {
   return /** @type {symbol} */ (
-      $jscomp.SYMBOL_PREFIX + description + ($jscomp.symbolCounter_++));
+      $jscomp.SYMBOL_PREFIX + (opt_description || '') + ($jscomp.symbolCounter_++));
 };
 
 
 /**
- * Initializes Symbol.iterator, if it's not already defined.
+ * Initializes Symbol.iterator (if it's not already defined) and adds a
+ * Symbol.iterator property to the Array prototype.
  * @suppress {reportUnknownTypes}
  */
 $jscomp.initSymbolIterator = function() {
   $jscomp.initSymbol();
-  if (!$jscomp.global.Symbol.iterator) {
-    $jscomp.global.Symbol.iterator = $jscomp.global.Symbol('iterator');
+  var symbolIterator = $jscomp.global.Symbol.iterator;
+  if (!symbolIterator) {
+    symbolIterator = $jscomp.global.Symbol.iterator =
+        $jscomp.global.Symbol('iterator');
+  }
+
+  if (typeof Array.prototype[symbolIterator] != 'function') {
+    $jscomp.defineProperty(
+        Array.prototype, symbolIterator, {
+          configurable: true,
+          writable: true,
+          /**
+           * @this {Array}
+           * @return {!IteratorIterable}
+           */
+          value: function() {
+            return $jscomp.arrayIterator(this);
+          }
+        });
   }
 
   // Only need to do this once. All future calls are no-ops.
   $jscomp.initSymbolIterator = function() {};
+};
+
+
+/**
+ * Returns an iterator from the given array.
+ * @param {!Array<T>} array
+ * @return {!IteratorIterable<T>}
+ * @template T
+ */
+$jscomp.arrayIterator = function(array) {
+  var index = 0;
+  return $jscomp.iteratorPrototype(function() {
+    if (index < array.length) {
+      return {
+        done: false,
+        value: array[index++],
+      };
+    } else {
+      return {done: true};
+    }
+  });
+};
+
+
+/**
+ * Returns an iterator with the given `next` method.  Passing
+ * all iterators through this function allows easily extending
+ * the definition of `%IteratorPrototype%` if methods are ever
+ * added to it in the future.
+ *
+ * @param {function(this: Iterator<T>): T} next
+ * @return {!IteratorIterable<T>}
+ * @template T
+ * @suppress {reportUnknownTypes}
+ */
+$jscomp.iteratorPrototype = function(next) {
+  $jscomp.initSymbolIterator();
+
+  var iterator = {next: next};
+  /**
+   * @this {IteratorIterable}
+   * @return {!IteratorIterable}
+   */
+  iterator[$jscomp.global.Symbol.iterator] = function() { return this; };
+  return /** @type {!IteratorIterable} */ (iterator);
 };

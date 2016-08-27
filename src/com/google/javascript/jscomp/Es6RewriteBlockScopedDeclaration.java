@@ -142,19 +142,20 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
    */
   private boolean inLoop(Node n) {
     Node enclosingNode = NodeUtil.getEnclosingNode(n, loopPredicate);
-    return enclosingNode != null && enclosingNode.getType() != Token.FUNCTION;
+    return enclosingNode != null && enclosingNode.getToken() != Token.FUNCTION;
   }
 
-  private static final Predicate<Node> loopPredicate = new Predicate<Node>() {
-    @Override
-    public boolean apply(Node n) {
-      return n.getType() == Token.WHILE
-          || n.getType() == Token.FOR
-          || n.getType() == Token.FOR_OF
-          || n.getType() == Token.DO
-          || n.getType() == Token.FUNCTION;
-    }
-  };
+  private static final Predicate<Node> loopPredicate =
+      new Predicate<Node>() {
+        @Override
+        public boolean apply(Node n) {
+          return n.getToken() == Token.WHILE
+              || n.getToken() == Token.FOR
+              || n.getToken() == Token.FOR_OF
+              || n.getToken() == Token.DO
+              || n.getToken() == Token.FUNCTION;
+        }
+      };
 
   private static void extractInlineJSDoc(Node srcDeclaration, Node srcName, Node destDeclaration) {
     JSDocInfo existingInfo = srcDeclaration.getJSDocInfo();
@@ -183,7 +184,7 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
     // Normalize: "const i = 0, j = 0;" becomes "/** @const */ var i = 0; /** @const */ var j = 0;"
     while (declarationList.hasMoreThanOneChild()) {
       Node name = declarationList.getLastChild();
-      Node newDeclaration = IR.var(name.detachFromParent()).useSourceInfoFrom(declarationList);
+      Node newDeclaration = IR.var(name.detach()).useSourceInfoFrom(declarationList);
       maybeAddConstJSDoc(declarationList, parent, name, newDeclaration);
       parent.addChildAfter(newDeclaration, declarationList);
     }

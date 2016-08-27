@@ -33,7 +33,6 @@ import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
 import com.google.javascript.rhino.TokenUtil;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -541,7 +540,7 @@ public final class JsDocInfoParser {
           type = null;
           if (token != JsDocToken.EOL && token != JsDocToken.EOC) {
             Node typeNode = parseAndRecordTypeNode(token);
-            if (typeNode != null && typeNode.getType() == Token.STRING) {
+            if (typeNode != null && typeNode.getToken() == Token.STRING) {
               String typeName = typeNode.getString();
               if (!typeName.equals("number") && !typeName.equals("string")
                   && !typeName.equals("boolean")) {
@@ -847,12 +846,6 @@ public final class JsDocInfoParser {
           }
           return token;
 
-        case PRESERVE_TRY:
-          if (!jsdocBuilder.recordPreserveTry()) {
-            addParserWarning("msg.jsdoc.preservertry");
-          }
-          return eatUntilEOLIfNotAnnotation();
-
         case NO_SIDE_EFFECTS:
           if (!jsdocBuilder.recordNoSideEffects()) {
             addParserWarning("msg.jsdoc.nosideeffects");
@@ -1037,6 +1030,7 @@ public final class JsDocInfoParser {
           return token;
 
         case CONSTANT:
+        case FINAL:
         case DEFINE:
         case EXPORT:
         case RETURN:
@@ -1058,6 +1052,7 @@ public final class JsDocInfoParser {
                   || annotation == Annotation.PROTECTED
                   || annotation == Annotation.PUBLIC
                   || annotation == Annotation.CONSTANT
+                  || annotation == Annotation.FINAL
                   || annotation == Annotation.EXPORT;
           boolean canSkipTypeAnnotation =
               isAlternateTypeAnnotation || annotation == Annotation.RETURN;
@@ -1100,6 +1095,12 @@ public final class JsDocInfoParser {
               case CONSTANT:
                 if (!jsdocBuilder.recordConstancy()) {
                   addParserWarning("msg.jsdoc.const");
+                }
+                break;
+
+              case FINAL:
+                if (!jsdocBuilder.recordFinality()) {
+                  addTypeWarning("msg.jsdoc.final");
                 }
                 break;
 
@@ -1204,6 +1205,8 @@ public final class JsDocInfoParser {
                 if (!jsdocBuilder.recordTypedef(type)) {
                   addTypeWarning("msg.jsdoc.incompat.type", lineno, charno);
                 }
+                break;
+              default:
                 break;
             }
           }

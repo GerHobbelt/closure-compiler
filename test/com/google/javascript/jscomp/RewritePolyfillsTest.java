@@ -72,8 +72,8 @@ public final class RewritePolyfillsTest extends CompilerTestCase {
       @Override Node ensureLibraryInjected(String library, boolean force) {
         Node parent = getNodeForCodeInsertion(null);
         Node ast = parseSyntheticCode(injectableLibraries.get(library));
+        Node lastChild = ast.getLastChild();
         Node firstChild = ast.removeChildren();
-        Node lastChild = firstChild.getLastSibling();
         if (lastInjected == null) {
           parent.addChildrenToFront(firstChild);
         } else {
@@ -283,5 +283,21 @@ public final class RewritePolyfillsTest extends CompilerTestCase {
     setLanguage(ES6, ES5);
     // NOTE: By the time this pass runs, goog.module aliases have already been fully expanded.
     testInjects("goog.string.endsWith('x');");
+  }
+
+  public void testCleansUpUnnecessaryPolyfills() {
+    // Put two polyfill statements in the same library.
+    injectableLibraries.put("es6/set",
+        "$jscomp.polyfill('Set', '', 'es6', 'es3'); $jscomp.polyfill('Map', '', 'es5', 'es3');");
+    polyfillTable.add("Set es6 es3 es6/set");
+
+    setLanguage(ES6, ES5);
+    test("var set = new Set();", "$jscomp.polyfill('Set', '', 'es6', 'es3'); var set = new Set();");
+
+    setLanguage(ES6, ES3);
+    test(
+        "var set = new Set();",
+        "$jscomp.polyfill('Set', '', 'es6', 'es3'); $jscomp.polyfill('Map', '', 'es5', 'es3');"
+            + "var set = new Set();");
   }
 }

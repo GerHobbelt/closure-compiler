@@ -156,7 +156,7 @@ ServiceWorkerRegistration.prototype.unregister = function() {};
 /** @type {?function(!Event)} */
 ServiceWorkerRegistration.prototype.onupdatefound;
 
-/** @type {function()} */
+/** @return {!Promise<void>} */
 ServiceWorkerRegistration.prototype.update = function() {};
 
 /**
@@ -312,6 +312,7 @@ ServiceWorkerClient.prototype.frameType;
 /**
  * @param {*} message
  * @param {(!Array<!Transferable>|undefined)=} opt_transfer
+ * @return {undefined}
  */
 ServiceWorkerClient.prototype.postMessage = function(message, opt_transfer) {};
 
@@ -418,17 +419,17 @@ Cache.prototype.keys = function(opt_request, opt_options) {};
 var CacheQueryOptions;
 
 /**
- * @type {!CacheStorage}
- * @see https://www.w3.org/TR/service-workers/#cache-objects
- * @const
- */
-var caches;
-
-/**
  * @see http://www.w3.org/TR/service-workers/#cache-storage-interface
  * @interface
  */
 function CacheStorage() {}
+
+/**
+ * Window instances have a property called caches which implements CacheStorage
+ * @see https://www.w3.org/TR/service-workers/#cache-objects
+ * @type {!CacheStorage}
+ */
+Window.prototype.caches;
 
 /**
  * @param {!RequestInfo} request
@@ -467,7 +468,10 @@ CacheStorage.prototype.keys = function() {};
  */
 function ExtendableEvent(type, opt_eventInitDict) {}
 
-/** @param {IThenable} f */
+/**
+ * @param {IThenable} f
+ * @return {undefined}
+ */
 ExtendableEvent.prototype.waitUntil = function(f) {};
 
 /**
@@ -519,6 +523,7 @@ FetchEvent.prototype.isReload;
 
 /**
  * @param {(Response|Promise<Response>)} r
+ * @return {undefined}
  */
 FetchEvent.prototype.respondWith = function(r) {};
 

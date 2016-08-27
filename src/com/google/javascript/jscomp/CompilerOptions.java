@@ -24,11 +24,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.parsing.Config;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SourcePosition;
-
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -88,6 +88,15 @@ public class CompilerOptions {
   }
 
   /**
+   * Sets the input sourcemap files, indexed by the JS files they refer to.
+   *
+   * @param inputSourceMaps the collection of input sourcemap files
+   */
+  public void setInputSourceMaps(final ImmutableMap<String, SourceMapInput> inputSourceMaps) {
+    this.inputSourceMaps = inputSourceMaps;
+  }
+
+  /**
    * Whether to infer consts. This should not be configurable by
    * external clients. This is a transitional flag for a new type
    * of const analysis.
@@ -139,11 +148,8 @@ public class CompilerOptions {
 
   private boolean useNewTypeInference;
 
-  private boolean runOTIAfterNTI = true;
-
   /**
-   * Relevant only when {@link #useNewTypeInference} and {@link #runOTIAfterNTI} are both true,
-   * where we normally disable OTI errors.
+   * Relevant only when {@link #useNewTypeInference} is true, where we normally disable OTI errors.
    * If you want both NTI and OTI errors in this case, set to true.
    * E.g. if using using a warnings guard to filter NTI or OTI warnings in new or legacy code,
    * respectively.
@@ -618,6 +624,10 @@ public class CompilerOptions {
   /** Shared name generator */
   NameGenerator nameGenerator;
 
+  public void setNameGenerator(NameGenerator nameGenerator) {
+    this.nameGenerator = nameGenerator;
+  }
+
   //--------------------------------
   // Special-purpose alterations
   //--------------------------------
@@ -685,10 +695,13 @@ public class CompilerOptions {
   boolean dartPass;
 
   /** Processes the output of J2CL */
-  boolean j2clPass;
+  J2clPassMode j2clPassMode;
+
+  /** Remove methods that only make a super call without changing the arguments. */
+  boolean removeAbstractMethods;
 
   /** Remove goog.abstractMethod assignments. */
-  boolean removeAbstractMethods;
+  boolean removeSuperMethods;
 
   /** Remove goog.asserts calls. */
   boolean removeClosureAsserts;
@@ -808,7 +821,7 @@ public class CompilerOptions {
   boolean processCommonJSModules = false;
 
   /** CommonJS module prefix. */
-  List<String> moduleRoots = ImmutableList.of(ES6ModuleLoader.DEFAULT_FILENAME_PREFIX);
+  List<String> moduleRoots = ImmutableList.of(ModuleLoader.DEFAULT_FILENAME_PREFIX);
 
   /** Rewrite polyfills. */
   boolean rewritePolyfills = false;
@@ -902,6 +915,12 @@ public class CompilerOptions {
 
   int lineLengthThreshold = DEFAULT_LINE_LENGTH_THRESHOLD;
 
+  /**
+   * Whether to use the original names of nodes in the code output. This option is only really
+   * useful when using the compiler to print code meant to check in to source.
+   */
+  boolean useOriginalNamesInOutput = false;
+
   //--------------------------------
   // Special Output Options
   //--------------------------------
@@ -914,20 +933,6 @@ public class CompilerOptions {
 
   /** The output path for the created externs file. */
   String externExportsPath;
-
-  String nameReferenceReportPath;
-
-  /** Where to save a cross-reference report from the name reference graph */
-  public void setNameReferenceReportPath(String filePath) {
-    nameReferenceReportPath = filePath;
-  }
-
-  String nameReferenceGraphPath;
-
-  /** Where to save the name reference graph */
-  public void setNameReferenceGraphPath(String filePath) {
-    nameReferenceGraphPath = filePath;
-  }
 
   //--------------------------------
   // Debugging Options
@@ -946,6 +951,11 @@ public class CompilerOptions {
 
   public List<SourceMap.LocationMapping> sourceMapLocationMappings =
       Collections.emptyList();
+
+  /**
+   * Whether to include full file contents in the source map.
+   */
+  boolean sourceMapIncludeSourcesContent = false;
 
   /**
    * Whether to return strings logged with AbstractCompiler#addToDebugLog
@@ -989,6 +999,9 @@ public class CompilerOptions {
    * Instrument code for the purpose of collecting coverage data.
    */
   public boolean instrumentForCoverage;
+
+  /** Instrument branch coverage data - valid only if instrumentForCoverage is True */
+  public boolean instrumentBranchCoverage;
 
   String instrumentationTemplateFile;
 
@@ -1120,8 +1133,9 @@ public class CompilerOptions {
     angularPass = false;
     polymerPass = false;
     dartPass = false;
-    j2clPass = false;
-    removeAbstractMethods = true;
+    j2clPassMode = J2clPassMode.OFF;
+    removeAbstractMethods = false;
+    removeSuperMethods = false;
     removeClosureAsserts = false;
     stripTypes = Collections.emptySet();
     stripNameSuffixes = Collections.emptySet();
@@ -1153,6 +1167,7 @@ public class CompilerOptions {
     // Instrumentation
     instrumentationTemplate = null;  // instrument functions
     instrumentForCoverage = false;  // instrument lines
+    instrumentBranchCoverage = false; // instrument branches
     instrumentationTemplateFile = "";
 
     // Output
@@ -1167,8 +1182,6 @@ public class CompilerOptions {
     errorFormat = ErrorFormat.SINGLELINE;
     debugFunctionSideEffectsPath = null;
     externExports = false;
-    nameReferenceReportPath = null;
-    nameReferenceGraphPath = null;
 
     // Debugging
     aliasHandler = NULL_ALIAS_TRANSFORMATION_HANDLER;
@@ -1529,6 +1542,10 @@ public class CompilerOptions {
     this.removeAbstractMethods = remove;
   }
 
+  public void setRemoveSuperMethods(boolean remove) {
+    this.removeSuperMethods = remove;
+  }
+
   public void setRemoveClosureAsserts(boolean remove) {
     this.removeClosureAsserts = remove;
   }
@@ -1591,9 +1608,14 @@ public class CompilerOptions {
     this.dartPass = dartPass;
   }
 
-  public void setJ2clPass(boolean j2clPass) {
-    this.j2clPass = j2clPass;
-    if (j2clPass) {
+  @Deprecated
+  public void setJ2clPass(boolean flag) {
+    setJ2clPass(flag ? J2clPassMode.ON : J2clPassMode.OFF);
+  }
+
+  public void setJ2clPass(J2clPassMode j2clPassMode) {
+    this.j2clPassMode = j2clPassMode;
+    if (j2clPassMode.isExplicitlyOn()) {
       setWarningLevel(DiagnosticGroup.forType(SourceFile.DUPLICATE_ZIP_CONTENTS), CheckLevel.OFF);
     }
   }
@@ -1820,14 +1842,6 @@ public class CompilerOptions {
 
   public void setNewTypeInference(boolean enable) {
     this.useNewTypeInference = enable;
-  }
-
-  public boolean getRunOTIAfterNTI() {
-    return this.runOTIAfterNTI;
-  }
-
-  public void setRunOTIAfterNTI(boolean enable) {
-    this.runOTIAfterNTI = enable;
   }
 
   // Not dead code; used by the open-source users of the compiler.
@@ -2090,14 +2104,6 @@ public class CompilerOptions {
     this.removeUnusedPrototypePropertiesInExterns = enabled;
   }
 
-  public void setRemoveUnusedVars(boolean removeUnusedVars) {
-    this.removeUnusedVars = removeUnusedVars;
-  }
-
-  public void setRemoveUnusedLocalVars(boolean removeUnusedLocalVars) {
-    this.removeUnusedLocalVars = removeUnusedLocalVars;
-  }
-
   public void setCollapseVariableDeclarations(boolean enabled) {
     this.collapseVariableDeclarations = enabled;
   }
@@ -2286,11 +2292,6 @@ public class CompilerOptions {
     this.closurePass = closurePass;
   }
 
-  @Deprecated
-  public void setPreserveGoogRequires(boolean preserveGoogProvidesAndRequires) {
-    setPreserveGoogProvidesAndRequires(preserveGoogProvidesAndRequires);
-  }
-
   public void setPreserveGoogProvidesAndRequires(boolean preserveGoogProvidesAndRequires) {
     this.preserveGoogProvidesAndRequires = preserveGoogProvidesAndRequires;
   }
@@ -2436,6 +2437,14 @@ public class CompilerOptions {
     return this.lineLengthThreshold;
   }
 
+  public void setUseOriginalNamesInOutput(boolean useOriginalNamesInOutput) {
+    this.useOriginalNamesInOutput = useOriginalNamesInOutput;
+  }
+
+  public boolean getUseOriginalNamesInOutput() {
+    return this.useOriginalNamesInOutput;
+  }
+
   public void setExternExports(boolean externExports) {
     this.externExports = externExports;
   }
@@ -2448,17 +2457,18 @@ public class CompilerOptions {
     this.sourceMapOutputPath = sourceMapOutputPath;
   }
 
-  @GwtIncompatible("SourceMap")
+  public void setSourceMapIncludeSourcesContent(boolean sourceMapIncludeSourcesContent) {
+    this.sourceMapIncludeSourcesContent = sourceMapIncludeSourcesContent;
+  }
+
   public void setSourceMapDetailLevel(SourceMap.DetailLevel sourceMapDetailLevel) {
     this.sourceMapDetailLevel = sourceMapDetailLevel;
   }
 
-  @GwtIncompatible("SourceMap")
   public void setSourceMapFormat(SourceMap.Format sourceMapFormat) {
     this.sourceMapFormat = sourceMapFormat;
   }
 
-  @GwtIncompatible("SourceMap")
   public void setSourceMapLocationMappings(
       List<SourceMap.LocationMapping> sourceMapLocationMappings) {
     this.sourceMapLocationMappings = sourceMapLocationMappings;
@@ -2520,6 +2530,16 @@ public class CompilerOptions {
    */
   public void setInstrumentForCoverage(boolean instrumentForCoverage) {
     this.instrumentForCoverage = instrumentForCoverage;
+  }
+
+  /** Set whether to instrument to collect branch coverage */
+  public void setInstrumentBranchCoverage(boolean instrumentBranchCoverage) {
+    if (instrumentForCoverage || !instrumentBranchCoverage) {
+      this.instrumentBranchCoverage = instrumentBranchCoverage;
+    } else {
+      throw new RuntimeException("The option instrumentForCoverage must be set to true for "
+          + "instrumentBranchCoverage to be set to true.");
+    }
   }
 
   public List<ConformanceConfig> getConformanceConfigs() {
@@ -2637,7 +2657,8 @@ public class CompilerOptions {
             .add("instrumentationTemplateFile", instrumentationTemplateFile)
             .add("instrumentationTemplate", instrumentationTemplate)
             .add("instrumentForCoverage", instrumentForCoverage)
-            .add("j2clPass", j2clPass)
+            .add("instrumentBranchCoverage", instrumentBranchCoverage)
+            .add("j2clPassMode", j2clPassMode)
             .add("jqueryPass", jqueryPass)
             .add("labelRenaming", labelRenaming)
             .add("languageIn", getLanguageIn())
@@ -2653,8 +2674,6 @@ public class CompilerOptions {
             .add("moduleRoots", moduleRoots)
             .add("moveFunctionDeclarations", moveFunctionDeclarations)
             .add("nameGenerator", nameGenerator)
-            .add("nameReferenceGraphPath", nameReferenceGraphPath)
-            .add("nameReferenceReportPath", nameReferenceReportPath)
             .add("optimizeArgumentsArray", optimizeArgumentsArray)
             .add("optimizeCalls", optimizeCalls)
             .add("optimizeParameters", optimizeParameters)
@@ -2686,6 +2705,7 @@ public class CompilerOptions {
             .add("quoteKeywordProperties", quoteKeywordProperties)
             .add("recordFunctionInformation", recordFunctionInformation)
             .add("removeAbstractMethods", removeAbstractMethods)
+            .add("removeSuperMethods", removeSuperMethods)
             .add("removeClosureAsserts", removeClosureAsserts)
             .add("removeDeadCode", removeDeadCode)
             .add("removeUnusedClassProperties", removeUnusedClassProperties)
@@ -3068,5 +3088,30 @@ public class CompilerOptions {
      * only if referenced from an entry point.
      */
     STRICT
+  }
+
+  /**
+   * A mode enum used to indicate whether J2clPass should be enabled, disabled, or enabled
+   * automatically if there is any J2cl source file (i.e. in the AUTO mode).
+   */
+  public static enum J2clPassMode {
+    /** J2clPass is disabled. */
+    FALSE,
+    /** J2clPass is enabled. */
+    TRUE,
+    /** J2clPass is disabled. */
+    OFF,
+    /** J2clPass is enabled. */
+    ON,
+    /** It auto-detects whether there are J2cl generated file. If yes, execute J2clPass. */
+    AUTO;
+
+    boolean shouldAddJ2clPasses() {
+      return this == TRUE || this == ON || this == AUTO;
+    }
+
+    boolean isExplicitlyOn() {
+      return this == TRUE || this == ON;
+    }
   }
 }

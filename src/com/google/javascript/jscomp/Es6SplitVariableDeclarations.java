@@ -63,8 +63,8 @@ public final class Es6SplitVariableDeclarations extends
 
   public void splitDeclaration(Node n, Node parent) {
     while (n.getFirstChild() != n.getLastChild()) {
-      Node child = n.getLastChild().detachFromParent();
-      Node newVar = IR.declaration(child, n.getType()).srcref(n);
+      Node child = n.getLastChild().detach();
+      Node newVar = IR.declaration(child, n.getToken()).srcref(n);
       parent.addChildAfter(newVar, n);
       compiler.reportCodeChange();
     }

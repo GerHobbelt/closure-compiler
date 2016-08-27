@@ -17,7 +17,6 @@
 package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
-
 import java.util.List;
 
 /**
@@ -44,14 +43,6 @@ public abstract class Es6CompilerTestCase extends CompilerTestCase {
   @Override
   protected void setUp() throws Exception {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT5);
-  }
-
-  @Override
-  protected CompilerOptions getOptions(CompilerOptions options) {
-    options = super.getOptions(options);
-    // Set to false to test NTI-created types in the passes after type checking
-    options.setRunOTIAfterNTI(false);
-    return options;
   }
 
   // Temporary hack until we migrate to junit 4. We use this function to run a unit
@@ -273,21 +264,6 @@ public abstract class Es6CompilerTestCase extends CompilerTestCase {
   }
 
   /**
-   * Verifies that the compiler generates the given error for the given inputs,
-   * under both ES5 and ES6 modes.
-   *
-   * @param js Inputs
-   * @param error Expected error
-   */
-  @Override
-  public void testError(String[] js, DiagnosticType error) {
-    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    super.testError(js, error);
-    setAcceptedLanguage(LanguageMode.ECMASCRIPT5);
-    super.testError(js, error);
-  }
-
-  /**
    * Verifies that the compiler generates the given errors for the given input,
    * under both ES5 and ES6 modes.
    *
@@ -326,6 +302,37 @@ public abstract class Es6CompilerTestCase extends CompilerTestCase {
    */
   public void testErrorEs6(String js, DiagnosticType error) {
     testError(js, error, LanguageMode.ECMASCRIPT6);
+  }
+
+
+  /**
+   * Verifies that the compiler generates the given error for the given inputs,
+   * under both ES5 and ES6 modes.
+   *
+   * @param js Inputs
+   * @param error Expected error
+   */
+  @Override
+  public void testError(String[] js, DiagnosticType error) {
+    testError(js, error, LanguageMode.ECMASCRIPT6);
+    testError(js, error, LanguageMode.ECMASCRIPT5);
+  }
+
+  /**
+   * Verifies that the compiler generates the given error for the given inputs,
+   * under just ES6 modes.
+   *
+   * @param js Inputs
+   * @param error Expected error
+   */
+  public void testErrorEs6(String[] js, DiagnosticType error) {
+    testError(js, error, LanguageMode.ECMASCRIPT6);
+  }
+
+  public void testError(String[] js, DiagnosticType error, LanguageMode mode) {
+    setAcceptedLanguage(mode);
+    super.testError(js, error);
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT5);
   }
 
   /**

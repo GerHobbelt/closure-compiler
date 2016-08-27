@@ -372,7 +372,7 @@ class Normalize implements CompilerPass {
 
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
-      switch (n.getType()) {
+      switch (n.getToken()) {
         case WHILE:
           if (CONVERT_WHILE_TO_FOR) {
             Node expr = n.getFirstChild();
@@ -403,6 +403,8 @@ class Normalize implements CompilerPass {
 
         case CAST:
           parent.replaceChild(n, n.removeFirstChild());
+          break;
+        default:
           break;
       }
     }
@@ -544,7 +546,7 @@ class Normalize implements CompilerPass {
 
       Node last = n.getLastChild();
       // TODO(moz): Avoid adding blocks for cases like "label: let x;"
-      switch (last.getType()) {
+      switch (last.getToken()) {
         case LABEL:
         case BLOCK:
         case FOR:
@@ -579,7 +581,7 @@ class Normalize implements CompilerPass {
         next = c.getNext();
         Node insertBefore = (before == null) ? c : before;
         Node insertBeforeParent = (before == null) ? n : beforeParent;
-        switch (c.getType()) {
+        switch (c.getToken()) {
           case LABEL:
             extractForInitializer(c, insertBefore, insertBeforeParent);
             break;
@@ -616,6 +618,8 @@ class Normalize implements CompilerPass {
               insertBeforeParent.addChildBefore(newStatement, insertBefore);
               reportCodeChange("FOR initializer");
             }
+            break;
+          default:
             break;
         }
       }

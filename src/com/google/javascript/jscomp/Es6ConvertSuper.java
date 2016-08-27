@@ -20,7 +20,10 @@ import static com.google.javascript.jscomp.Es6ToEs3Converter.CANNOT_CONVERT_YET;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.IR;
+import com.google.javascript.rhino.JSDocInfoBuilder;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Token;
 
 /**
  * Converts {@code super} nodes. This has to run before the main
@@ -76,13 +79,19 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
             IR.getprop(superClass.cloneTree(), IR.string("apply")),
             IR.thisNode(),
             IR.name("arguments")));
-        body.addChildrenToFront(exprResult);
+        body.addChildToFront(exprResult);
       }
       Node constructor = IR.function(
           IR.name(""),
           IR.paramList(IR.name("var_args")),
           body);
       memberDef = IR.memberFunctionDef("constructor", constructor);
+      JSDocInfoBuilder info = new JSDocInfoBuilder(false);
+      info.recordParameter(
+          "var_args",
+          new JSTypeExpression(
+              new Node(Token.ELLIPSIS, new Node(Token.QMARK)), "<Es6ConvertSuper>"));
+      memberDef.setJSDocInfo(info.build());
     }
     memberDef.useSourceInfoIfMissingFromForTree(classNode);
     classMembers.addChildToFront(memberDef);
@@ -119,7 +128,7 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
     Node enclosingMemberDef = NodeUtil.getEnclosingClassMemberFunction(node);
     if (enclosingMemberDef.isStaticMember()) {
       Node callTarget;
-      potentialCallee.detachFromParent();
+      potentialCallee.detach();
       if (potentialCallee == node) {
         // of the form super()
         potentialCallee =

@@ -23,12 +23,15 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CompilerOptions.DisposalCheckingPolicy;
+import com.google.javascript.jscomp.CompilerOptions.J2clPassMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.CompilerOptions.Reach;
+import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
 /**
- * Tests for {@link PassFactory}.
+ * Integration tests for the compiler.
  *
  * @author nicksantos@google.com (Nick Santos)
  */
@@ -281,6 +284,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setLanguageIn(LanguageMode.ECMASCRIPT6_STRICT);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     options.setCheckTypes(true);
+    options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
     test(
         options,
         LINE_JOINER.join(
@@ -569,7 +573,7 @@ public final class IntegrationTest extends IntegrationTestCase {
           "import {x} from 'i2'; alert(x);",
           "export var x = 5;",
         },
-        ES6ModuleLoader.LOAD_WARNING);
+        ModuleLoader.LOAD_WARNING);
   }
 
   public void testAngularPassOff() {
@@ -692,7 +696,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setCheckTypes(true);
     test(
         options, "/** @type {number} */ var n = window.name;", TypeValidator.TYPE_MISMATCH_WARNING);
-    assertTrue(lastCompiler.getErrorManager().getTypedPercent() > 0.0);
+    assertThat(lastCompiler.getErrorManager().getTypedPercent()).isGreaterThan(0.0);
   }
 
   public void testTypeNameParser() {
@@ -774,6 +778,19 @@ public final class IntegrationTest extends IntegrationTestCase {
             "  /** @constructor */",
             "  var Boolean = function() {};",
             "})();"));
+  }
+
+  public void testNTIConstWarningsOverrideAccessControls() {
+    CompilerOptions options = createCompilerOptions();
+    options.setCheckTypes(true);
+    String js =
+        LINE_JOINER.join(
+            "/** @constructor */ function Foo(name) {}",
+            "/** @const */ Foo.prop = 1;",
+            "Foo.prop = 2;");
+    test(options, js, CheckAccessControls.CONST_PROPERTY_REASSIGNED_VALUE);
+    options.setNewTypeInference(true);
+    test(options, js, NewTypeInference.CONST_PROPERTY_REASSIGNED);
   }
 
   public void testNTInoMaskTypeParseError() {
@@ -986,6 +1003,7 @@ public final class IntegrationTest extends IntegrationTestCase {
 
     options.setClosurePass(true);
     options.setCollapseProperties(true);
+    options.setRemoveAbstractMethods(true);
     test(options, code, CLOSURE_COMPILED + " var x$bar = 3;");
   }
 
@@ -1088,9 +1106,11 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setCheckTypes(true);
     options.setDisambiguateProperties(true);
     options.setRemoveDeadCode(true);
+    options.setRemoveAbstractMethods(true);
     test(options,
         LINE_JOINER.join(
             "/** @const */ var goog = {};",
+            "goog.abstractMethod = function() {};",
             "/** @interface */ function I() {}",
             "I.prototype.a = function(x) {};",
             "/** @constructor @implements {I} */ function Foo() {}",
@@ -1099,6 +1119,7 @@ public final class IntegrationTest extends IntegrationTestCase {
             "/** @override */ Bar.prototype.a = function(x) {};"),
         LINE_JOINER.join(
             "var goog={};",
+            "goog.abstractMethod = function() {};",
             "function I(){}",
             "I.prototype.a=function(x){};",
             "function Foo(){}",
@@ -1282,23 +1303,6 @@ public final class IntegrationTest extends IntegrationTestCase {
         ConstCheck.CONST_REASSIGNED_VALUE_ERROR);
   }
 
-  public void testProvidedNamespaceIsConst2() {
-    CompilerOptions options = createCompilerOptions();
-    options.setClosurePass(true);
-    options.setInlineConstantVars(true);
-    options.setCollapseProperties(true);
-    test(
-        options,
-        LINE_JOINER.join(
-            "var goog = {};",
-            "goog.provide('foo.bar');",
-            "function f() { foo.bar = {};}"),
-        LINE_JOINER.join(
-            "var foo$bar = {};",
-            "function f() { foo$bar = {}; }"),
-        ConstCheck.CONST_REASSIGNED_VALUE_ERROR);
-  }
-
   public void testProvidedNamespaceIsConst3() {
     CompilerOptions options = createCompilerOptions();
     options.setClosurePass(true);
@@ -1338,10 +1342,10 @@ public final class IntegrationTest extends IntegrationTestCase {
         "var foo = {}; foo = {}; foo.Bar = {};");
   }
 
-  public void testProcessDefinesAlwaysOn() {
+  public void testAtDefineReassigned() {
     test(createCompilerOptions(),
          "/** @define {boolean} */ var HI = true; HI = false;",
-         "var HI = false;false;");
+         ConstCheck.CONST_REASSIGNED_VALUE_ERROR);
   }
 
   public void testProcessDefinesAdditionalReplacements() {
@@ -1492,7 +1496,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setRemoveUnusedPrototypeProperties(true);
     testSame(options, code);
 
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     test(options, code, "");
   }
 
@@ -1513,8 +1517,7 @@ public final class IntegrationTest extends IntegrationTestCase {
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-    options.setSmartNameRemoval(true);
-    options.setRemoveDeadCode(true);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     test(options, code, "");
   }
 
@@ -1527,6 +1530,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setRemoveUnusedPrototypeProperties(true);
     options.setSmartNameRemoval(true);
     options.extraSmartNameRemoval = true;
+    options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
 
     String code = "/** @constructor */ function A() {} " +
         "A.prototype.foo = function() { " +
@@ -1573,6 +1577,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.extraSmartNameRemoval = true;
     options.setFoldConstants(true);
     options.setInlineVariables(true);
+    options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
 
     String code =
         "/** @constructor */ function A() {} "
@@ -1681,7 +1686,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setDeadAssignmentElimination(true);
     testSame(options, code);
 
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     test(options, code, "function f() { var x; 3; 4; x = 5; return x; } f();");
   }
 
@@ -1699,7 +1704,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     String code = "function f(x) {} f();";
     testSame(options, code);
 
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     test(options, code, "function f() {} f();");
   }
 
@@ -1708,7 +1713,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     String code = "(function f(x) {})();var g = function() {}; g();";
     testSame(options, code);
 
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     test(options, code, "(function() {})();var g = function() {}; g();");
 
     options.setAnonymousFunctionNaming(AnonymousFunctionNamingPolicy.UNMAPPED);
@@ -1765,14 +1770,14 @@ public final class IntegrationTest extends IntegrationTestCase {
     String code = "function f() { var x = 3; x = 5; return x; }";
     testSame(options, code);
 
-    options.setFlowSensitiveInlineVariables(true);
+    options.setInlineVariables(true);
     test(options, code, "function f() { var x = 3; return 5; }");
 
     String unusedVar = "function f() { var x; x = 5; return x; } f()";
-    test(options, unusedVar, "function f() { var x; return 5; } f()");
+    test(options, unusedVar, "(function f() { var x; return 5; })()");
 
-    options.setRemoveUnusedVars(true);
-    test(options, unusedVar, "function f() { return 5; } f()");
+    options.setRemoveUnusedVariables(Reach.ALL);
+    test(options, unusedVar, "(function () { return 5; })()");
   }
 
   public void testFlowSensitiveInlineVariables2() {
@@ -2114,6 +2119,7 @@ public final class IntegrationTest extends IntegrationTestCase {
 
     options.setFoldConstants(true);
     options.setCheckTypes(true);
+    options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
 
     // An external function that returns a local object that the
     // method "go" that only modifies the object.
@@ -2234,6 +2240,16 @@ public final class IntegrationTest extends IntegrationTestCase {
   }
 
   public void testFoldJ2clClinits() {
+    testFoldJ2clClinits(J2clPassMode.ON);
+  }
+
+  public void testJ2clPassAuto() {
+    inputFileNamePrefix = "jar:file//foo.js.zip!";
+    inputFileNameSuffix = ".java.js";
+    testFoldJ2clClinits(J2clPassMode.AUTO);
+  }
+
+  private void testFoldJ2clClinits(J2clPassMode j2clPassMode) {
     CompilerOptions options = createCompilerOptions();
 
     String code =
@@ -2245,11 +2261,11 @@ public final class IntegrationTest extends IntegrationTestCase {
             "};",
             "InternalWidget.$clinit();");
 
-    options.setJ2clPass(true);
+    options.setJ2clPass(j2clPassMode);
     options.setFoldConstants(true);
     options.setComputeFunctionSideEffects(true);
     options.setCollapseProperties(true);
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     options.setInlineFunctions(true);
 
     test(options, code, "");
@@ -2630,7 +2646,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testsyntheticBlockOnDeadAssignments() {
     CompilerOptions options = createCompilerOptions();
     options.setDeadAssignmentElimination(true);
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
     options.syntheticBlockStartMarker = "START";
     options.syntheticBlockEndMarker = "END";
     test(options, "var x; x = 1; START(); x = 1;END();x()",
@@ -2668,7 +2684,6 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testIssue378() {
     CompilerOptions options = createCompilerOptions();
     options.setInlineVariables(true);
-    options.setFlowSensitiveInlineVariables(true);
     testSame(
         options,
         "function f(c) {var f = c; arguments[0] = this;"
@@ -2681,7 +2696,6 @@ public final class IntegrationTest extends IntegrationTestCase {
         .setOptionsForCompilationLevel(options);
     options.setFoldConstants(true);
     options.setInlineVariables(true);
-    options.setFlowSensitiveInlineVariables(true);
     test(
         options,
         "function f(h) {\n"
@@ -2810,7 +2824,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options = createCompilerOptions();
     options.setFoldConstants(true);
     options.setComputeFunctionSideEffects(false);
-    options.setRemoveUnusedVars(true);
+    options.setRemoveUnusedVariables(Reach.ALL);
 
     // If we do splits too early, it would add a side-effect to x.
     test(options,
@@ -2823,14 +2837,15 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     options.setCheckSymbols(false);
     options.addCustomPass(
-            CustomPassExecutionTime.BEFORE_OPTIMIZATIONS, new CompilerPass() {
-              @Override
-              public void process(Node externs, Node root) {
-                Node var = root.getLastChild().getFirstChild();
-                assertEquals(Token.VAR, var.getType());
-                var.detachFromParent();
-              }
-            });
+        CustomPassExecutionTime.BEFORE_OPTIMIZATIONS,
+        new CompilerPass() {
+          @Override
+          public void process(Node externs, Node root) {
+            Node var = root.getLastChild().getFirstChild();
+            assertEquals(Token.VAR, var.getToken());
+            var.detach();
+          }
+        });
 
 
     try {

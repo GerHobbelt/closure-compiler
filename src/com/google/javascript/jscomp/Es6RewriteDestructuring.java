@@ -52,12 +52,14 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
 
   @Override
   public boolean shouldTraverse(NodeTraversal nodeTraversal, Node n, Node parent) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case PARAM_LIST:
         visitParamList(n, parent);
         break;
       case FOR_OF:
         visitForOf(n);
+        break;
+      default:
         break;
     }
     return true;
@@ -68,12 +70,14 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
     if (parent != null && parent.isDestructuringLhs()) {
       parent = parent.getParent();
     }
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case ARRAY_PATTERN:
         visitArrayPattern(t, n, parent);
         break;
       case OBJECT_PATTERN:
         visitObjectPattern(t, n, parent);
+        break;
+      default:
         break;
     }
   }
@@ -225,7 +229,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
     // var b = temp.a;
     // var d = temp.c;
     String tempVarName = DESTRUCTURING_TEMP_VAR + (destructuringVarCounter++);
-    Node tempDecl = IR.var(IR.name(tempVarName), rhs.detachFromParent())
+    Node tempDecl = IR.var(IR.name(tempVarName), rhs.detach())
             .useSourceInfoIfMissingFromForTree(objectPattern);
     // TODO(tbreisacher): Remove the "if" and add this JSDoc unconditionally.
     if (parent.isConst()) {
@@ -288,7 +292,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
 
       Node newNode;
       if (NodeUtil.isNameDeclaration(parent)) {
-        newNode = IR.declaration(newLHS, newRHS, parent.getType());
+        newNode = IR.declaration(newLHS, newRHS, parent.getToken());
       } else if (parent.isAssign()) {
         newNode = IR.exprResult(IR.assign(newLHS, newRHS));
       } else {
@@ -303,7 +307,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
       visit(t, newLHS, newLHS.getParent());
     }
 
-    nodeToDetach.detachFromParent();
+    nodeToDetach.detach();
     compiler.reportCodeChange();
   }
 
@@ -340,7 +344,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
     String tempVarName = DESTRUCTURING_TEMP_VAR + (destructuringVarCounter++);
     Node tempDecl = IR.var(
         IR.name(tempVarName),
-        makeIterator(compiler, rhs.detachFromParent()));
+        makeIterator(compiler, rhs.detach()));
     tempDecl.useSourceInfoIfMissingFromForTree(arrayPattern);
     nodeToDetach.getParent().addChildBefore(tempDecl, nodeToDetach);
     boolean needsRuntime = false;
@@ -371,14 +375,14 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
         var.useSourceInfoIfMissingFromForTree(child);
         nodeToDetach.getParent().addChildBefore(var, nodeToDetach);
 
-        newLHS = child.getFirstChild().detachFromParent();
-        newRHS = defaultValueHook(IR.name(nextVarName), child.getLastChild().detachFromParent());
+        newLHS = child.getFirstChild().detach();
+        newRHS = defaultValueHook(IR.name(nextVarName), child.getLastChild().detach());
       } else if (child.isRest()) {
         //   [...x] = rhs;
         // becomes
         //   var temp = $jscomp.makeIterator(rhs);
         //   x = $jscomp.arrayFromIterator(temp);
-        newLHS = child.getFirstChild().detachFromParent();
+        newLHS = child.getFirstChild().detach();
         newRHS =
             IR.call(
                 NodeUtil.newQName(compiler, "$jscomp.arrayFromIterator"),
@@ -390,7 +394,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
         // becomes
         //   var temp = $jscomp.makeIterator(rhs);
         //   var x = temp.next().value;
-        newLHS = child.detachFromParent();
+        newLHS = child.detach();
         newRHS = IR.getprop(
             IR.call(IR.getprop(IR.name(tempVarName), IR.string("next"))),
             IR.string("value"));
@@ -400,7 +404,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
         Node assignment = IR.assign(newLHS, newRHS);
         newNode = IR.exprResult(assignment);
       } else {
-        newNode = IR.declaration(newLHS, newRHS, parent.getType());
+        newNode = IR.declaration(newLHS, newRHS, parent.getToken());
       }
       newNode.useSourceInfoIfMissingFromForTree(arrayPattern);
 
@@ -409,7 +413,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
       // destructuring pattern.
       visit(t, newLHS, newLHS.getParent());
     }
-    nodeToDetach.detachFromParent();
+    nodeToDetach.detach();
 
     if (needsRuntime) {
       compiler.ensureLibraryInjected("es6/util/arrayfromiterator", false);
@@ -438,8 +442,8 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Ho
       Node block = forNode.getLastChild();
       declarationNode.replaceChild(
           destructuringLhs, IR.name(tempVarName).useSourceInfoFrom(pattern));
-      Token declarationType = declarationNode.getType();
-      Node decl = IR.declaration(pattern.detachFromParent(), IR.name(tempVarName), declarationType);
+      Token declarationType = declarationNode.getToken();
+      Node decl = IR.declaration(pattern.detach(), IR.name(tempVarName), declarationType);
       decl.useSourceInfoIfMissingFromForTree(pattern);
       block.addChildToFront(decl);
     }

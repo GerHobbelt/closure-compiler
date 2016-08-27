@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.CodingConvention.SubclassType;
-import com.google.javascript.jscomp.TypeValidator.SubtypingMode;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
@@ -42,6 +41,7 @@ import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.EnumType;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
+import com.google.javascript.rhino.jstype.JSType.SubtypingMode;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.NamedType;
@@ -51,7 +51,6 @@ import com.google.javascript.rhino.jstype.TemplateTypeMap;
 import com.google.javascript.rhino.jstype.TemplateTypeMapReplacer;
 import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.TernaryValue;
-
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -136,10 +135,12 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "JSC_CONSTRUCTOR_NOT_CALLABLE",
           "Constructor {0} should be called with the \"new\" keyword");
 
-  static final DiagnosticType FUNCTION_MASKS_VARIABLE =
+  static final DiagnosticType ABSTRACT_METHOD_NOT_CALLABLE =
       DiagnosticType.warning(
-          "JSC_FUNCTION_MASKS_VARIABLE",
-          "function {0} masks variable (IE bug)");
+          "JSC_ABSTRACT_METHOD_NOT_CALLABLE", "Abstract method {0} cannot be called");
+
+  static final DiagnosticType FUNCTION_MASKS_VARIABLE =
+      DiagnosticType.warning("JSC_FUNCTION_MASKS_VARIABLE", "function {0} masks variable (IE bug)");
 
   static final DiagnosticType MULTIPLE_VAR_DEF = DiagnosticType.warning(
       "JSC_MULTIPLE_VAR_DEF",
@@ -164,10 +165,12 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "JSC_CONFLICTING_EXTENDED_TYPE",
           "{1} cannot extend this type; {0}s can only extend {0}s");
 
-  static final DiagnosticType INTERFACE_EXTENDS_LOOP =
+  static final DiagnosticType ES5_CLASS_EXTENDING_ES6_CLASS =
       DiagnosticType.warning(
-          "JSC_INTERFACE_EXTENDS_LOOP",
-          "extends loop involving {0}, loop: {1}");
+          "JSC_ES5_CLASS_EXTENDING_ES6_CLASS", "ES5 class {0} cannot extend ES6 class {1}");
+
+  static final DiagnosticType INTERFACE_EXTENDS_LOOP =
+      DiagnosticType.warning("JSC_INTERFACE_EXTENDS_LOOP", "extends loop involving {0}, loop: {1}");
 
   static final DiagnosticType CONFLICTING_IMPLEMENTED_TYPE =
     DiagnosticType.warning(
@@ -260,48 +263,57 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "Object type \"{0}\" contains non-stringifiable key and it may lead to an "
           + "error. Please use ES6 Map instead or implement your own Map structure.");
 
+  static final DiagnosticType ABSTRACT_METHOD_IN_CONCRETE_CLASS =
+      DiagnosticType.warning(
+          "JSC_ABSTRACT_METHOD_IN_CONCRETE_CLASS",
+          "Abstract methods can only appear in abstract classes. Please declare the class as "
+              + "@abstract");
+
   // If a diagnostic is disabled by default, do not add it in this list
   // TODO(dimvar): Either INEXISTENT_PROPERTY shouldn't be here, or we should
   // change DiagnosticGroups.setWarningLevel to not accidentally enable it.
-  static final DiagnosticGroup ALL_DIAGNOSTICS = new DiagnosticGroup(
-      DETERMINISTIC_TEST,
-      INEXISTENT_ENUM_ELEMENT,
-      INEXISTENT_PROPERTY,
-      POSSIBLE_INEXISTENT_PROPERTY,
-      INEXISTENT_PROPERTY_WITH_SUGGESTION,
-      NOT_A_CONSTRUCTOR,
-      INSTANTIATE_ABSTRACT_CLASS,
-      BIT_OPERATION,
-      NOT_CALLABLE,
-      CONSTRUCTOR_NOT_CALLABLE,
-      FUNCTION_MASKS_VARIABLE,
-      MULTIPLE_VAR_DEF,
-      ENUM_DUP,
-      INVALID_INTERFACE_MEMBER_DECLARATION,
-      INTERFACE_METHOD_NOT_EMPTY,
-      CONFLICTING_EXTENDED_TYPE,
-      CONFLICTING_IMPLEMENTED_TYPE,
-      BAD_IMPLEMENTED_TYPE,
-      HIDDEN_SUPERCLASS_PROPERTY,
-      HIDDEN_INTERFACE_PROPERTY,
-      HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,
-      UNKNOWN_OVERRIDE,
-      INTERFACE_METHOD_OVERRIDE,
-      UNRESOLVED_TYPE,
-      WRONG_ARGUMENT_COUNT,
-      ILLEGAL_IMPLICIT_CAST,
-      INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
-      EXPECTED_THIS_TYPE,
-      IN_USED_WITH_STRUCT,
-      ILLEGAL_PROPERTY_CREATION,
-      ILLEGAL_OBJLIT_KEY,
-      NON_STRINGIFIABLE_OBJECT_KEY,
-      RhinoErrorReporter.TYPE_PARSE_ERROR,
-      TypedScopeCreator.UNKNOWN_LENDS,
-      TypedScopeCreator.LENDS_ON_NON_OBJECT,
-      TypedScopeCreator.CTOR_INITIALIZER,
-      TypedScopeCreator.IFACE_INITIALIZER,
-      FunctionTypeBuilder.THIS_TYPE_NON_OBJECT);
+  static final DiagnosticGroup ALL_DIAGNOSTICS =
+      new DiagnosticGroup(
+          DETERMINISTIC_TEST,
+          INEXISTENT_ENUM_ELEMENT,
+          INEXISTENT_PROPERTY,
+          POSSIBLE_INEXISTENT_PROPERTY,
+          INEXISTENT_PROPERTY_WITH_SUGGESTION,
+          NOT_A_CONSTRUCTOR,
+          INSTANTIATE_ABSTRACT_CLASS,
+          BIT_OPERATION,
+          NOT_CALLABLE,
+          CONSTRUCTOR_NOT_CALLABLE,
+          FUNCTION_MASKS_VARIABLE,
+          MULTIPLE_VAR_DEF,
+          ENUM_DUP,
+          INVALID_INTERFACE_MEMBER_DECLARATION,
+          INTERFACE_METHOD_NOT_EMPTY,
+          CONFLICTING_EXTENDED_TYPE,
+          CONFLICTING_IMPLEMENTED_TYPE,
+          BAD_IMPLEMENTED_TYPE,
+          HIDDEN_SUPERCLASS_PROPERTY,
+          HIDDEN_INTERFACE_PROPERTY,
+          HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,
+          UNKNOWN_OVERRIDE,
+          INTERFACE_METHOD_OVERRIDE,
+          UNRESOLVED_TYPE,
+          WRONG_ARGUMENT_COUNT,
+          ILLEGAL_IMPLICIT_CAST,
+          INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
+          EXPECTED_THIS_TYPE,
+          IN_USED_WITH_STRUCT,
+          ILLEGAL_PROPERTY_CREATION,
+          ILLEGAL_OBJLIT_KEY,
+          NON_STRINGIFIABLE_OBJECT_KEY,
+          ABSTRACT_METHOD_IN_CONCRETE_CLASS,
+          ES5_CLASS_EXTENDING_ES6_CLASS,
+          RhinoErrorReporter.TYPE_PARSE_ERROR,
+          TypedScopeCreator.UNKNOWN_LENDS,
+          TypedScopeCreator.LENDS_ON_NON_OBJECT,
+          TypedScopeCreator.CTOR_INITIALIZER,
+          TypedScopeCreator.IFACE_INITIALIZER,
+          FunctionTypeBuilder.THIS_TYPE_NON_OBJECT);
 
   private final AbstractCompiler compiler;
   private final TypeValidator validator;
@@ -315,6 +327,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   private final CheckLevel reportMissingOverride;
   private final boolean reportUnknownTypes;
+  private SubtypingMode subtypingMode = SubtypingMode.NORMAL;
 
   // This may be expensive, so don't emit these warnings if they're
   // explicitly turned off.
@@ -443,12 +456,13 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (n.isScript()) {
       String filename = n.getSourceFileName();
       if (filename != null && filename.endsWith(".java.js")) {
-        this.validator.setSubtypingMode(SubtypingMode.IGNORE_NULL_UNDEFINED);
+        this.subtypingMode = SubtypingMode.IGNORE_NULL_UNDEFINED;
       } else {
-        this.validator.setSubtypingMode(SubtypingMode.NORMAL);
+        this.subtypingMode = SubtypingMode.NORMAL;
       }
+      this.validator.setSubtypingMode(this.subtypingMode);
     }
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case FUNCTION:
         // normal type checking
         final TypedScope outerScope = t.getTypedScope();
@@ -466,6 +480,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         // TODO(user): Only traverse the function's body. The function's
         // name and arguments are traversed by the scope creator, and ideally
         // should not be traversed by the type checker.
+        break;
+      default:
         break;
     }
     return true;
@@ -489,7 +505,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     // To be explicitly set to false if the node is not typeable.
     boolean typeable = true;
 
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case CAST:
         Node expr = n.getFirstChild();
         JSType exprType = getJSType(expr);
@@ -593,7 +609,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case BITNOT:
         childType = getJSType(n.getFirstChild());
         if (!childType.matchesInt32Context()) {
-          report(t, n, BIT_OPERATION, NodeUtil.opToStr(n.getType()), childType.toString());
+          report(t, n, BIT_OPERATION, NodeUtil.opToStr(n.getToken()), childType.toString());
         }
         ensureTyped(t, n, NUMBER_TYPE);
         break;
@@ -636,7 +652,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         JSType rightTypeRestricted = rightType.restrictByNotNullOrUndefined();
 
         TernaryValue result = TernaryValue.UNKNOWN;
-        if (n.getType() == Token.EQ || n.getType() == Token.NE) {
+          if (n.getToken() == Token.EQ || n.getToken() == Token.NE) {
           result = leftTypeRestricted.testForEquality(rightTypeRestricted);
           if (n.isNE()) {
             result = result.not();
@@ -644,7 +660,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         } else {
           // SHEQ or SHNE
           if (!leftTypeRestricted.canTestForShallowEqualityWith(rightTypeRestricted)) {
-            result = n.getType() == Token.SHEQ ? TernaryValue.FALSE : TernaryValue.TRUE;
+              result = n.getToken() == Token.SHEQ ? TernaryValue.FALSE : TernaryValue.TRUE;
           }
         }
 
@@ -739,7 +755,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case SUB:
       case ADD:
       case MUL:
-        visitBinaryOperator(n.getType(), t, n);
+        visitBinaryOperator(n.getToken(), t, n);
         break;
 
       case TRUE:
@@ -830,7 +846,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         break;
 
       default:
-        report(t, n, UNEXPECTED_TOKEN, n.getType().toString());
+        report(t, n, UNEXPECTED_TOKEN, n.getToken().toString());
         ensureTyped(t, n);
         break;
     }
@@ -1040,6 +1056,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           if (functionType.isConstructor() || functionType.isInterface()) {
             checkDeclaredPropertyInheritance(
                 t, assign, functionType, property, info, propertyType);
+            checkAbstractMethodInConcreteClass(t, assign, functionType, info);
           }
         }
       }
@@ -1266,7 +1283,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
             new TemplateTypeMapReplacer(typeRegistry, ctorTypeMap));
       }
 
-      if (!propertyType.isSubtype(superClassPropType)) {
+      if (!propertyType.isSubtype(superClassPropType, this.subtypingMode)) {
         compiler.report(
             t.makeError(n, HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,
                 propertyName, topInstanceType.toString(),
@@ -1278,7 +1295,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         if (interfaceType.hasProperty(propertyName)) {
           JSType superPropertyType =
               interfaceType.getPropertyType(propertyName);
-          if (!propertyType.isSubtype(superPropertyType)) {
+          if (!propertyType.isSubtype(superPropertyType, this.subtypingMode)) {
             topInstanceType = interfaceType.getConstructor().
                 getTopMostDefiningType(propertyName);
             compiler.report(
@@ -1296,6 +1313,17 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       compiler.report(
           t.makeError(n, UNKNOWN_OVERRIDE,
               propertyName, ctorType.getInstanceType().toString()));
+    }
+  }
+
+  private void checkAbstractMethodInConcreteClass(
+      NodeTraversal t, Node n, FunctionType ctorType, JSDocInfo info) {
+    if (info == null || !info.isAbstract()) {
+      return;
+    }
+
+    if (ctorType.isConstructor() && !ctorType.isAbstract()) {
+      report(t, n, ABSTRACT_METHOD_IN_CONCRETE_CLASS);
     }
   }
 
@@ -1333,7 +1361,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
    */
   static JSType getObjectLitKeyTypeFromValueType(Node key, JSType valueType) {
     if (valueType != null) {
-      switch (key.getType()) {
+      switch (key.getToken()) {
         case GETTER_DEF:
           // GET must always return a function type.
           if (valueType.isFunctionType()) {
@@ -1353,6 +1381,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           } else {
             return null;
           }
+          break;
+        default:
           break;
       }
     }
@@ -1413,7 +1443,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     // variable declarations are ignored.
     // TODO(user): remove this short-circuiting in favor of a
     // pre order traversal of the FUNCTION, CATCH, LP and VAR nodes.
-    Token parentNodeType = parent.getType();
+    Token parentNodeType = parent.getToken();
     if (parentNodeType == Token.FUNCTION ||
         parentNodeType == Token.CATCH ||
         parentNodeType == Token.PARAM_LIST ||
@@ -1594,12 +1624,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       return;
     }
 
-    Var var = t.getScope().getVar(constructor.getQualifiedName());
-    if (var != null && var.getJSDocInfo() != null && var.getJSDocInfo().isAbstract()) {
+    FunctionType fnType = type.toMaybeFunctionType();
+    if (fnType != null && fnType.isAbstract()) {
       report(t, n, INSTANTIATE_ABSTRACT_CLASS);
     }
-
-    FunctionType fnType = type.toMaybeFunctionType();
     if (fnType != null && fnType.hasInstanceType()) {
       visitParameterList(t, n, fnType);
       ensureTyped(t, n, fnType.getInstanceType());
@@ -1643,7 +1671,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       if (oType != null) {
         JSType thisPropType = interfaceType.getPropertyType(name);
         JSType oPropType = oType.getPropertyType(name);
-        if (thisPropType.isEquivalentTo(oPropType)
+        if (thisPropType.isSubtype(oPropType, this.subtypingMode)
+            || oPropType.isSubtype(thisPropType, this.subtypingMode)
             || thisPropType.isFunctionType() && oPropType.isFunctionType()
                && thisPropType.toMaybeFunctionType().hasEqualCallType(
                   oPropType.toMaybeFunctionType())) {
@@ -1680,6 +1709,18 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
             t.makeError(n, CONFLICTING_EXTENDED_TYPE,
                         "constructor", functionPrivateName));
       } else {
+        if (baseConstructor != null
+            && baseConstructor.getSource() != null
+            && baseConstructor.getSource().getBooleanProp(Node.IS_ES6_CLASS)
+            && !functionType.getSource().getBooleanProp(Node.IS_ES6_CLASS)) {
+          compiler.report(
+              t.makeError(
+                  n,
+                  ES5_CLASS_EXTENDING_ES6_CLASS,
+                  functionType.getDisplayName(),
+                  baseConstructor.getDisplayName()));
+        }
+
         // All interfaces are properly implemented by a class
         for (JSType baseInterface : functionType.getImplementedInterfaces()) {
           boolean badImplementedType = false;
@@ -1715,10 +1756,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       // Check whether the extended interfaces have any conflicts
       if (functionType.getExtendedInterfacesCount() > 1) {
         // Only check when extending more than one interfaces
-        HashMap<String, ObjectType> properties
-            = new HashMap<>();
-        LinkedHashMap<String, ObjectType> currentProperties
-            = new LinkedHashMap<>();
+        HashMap<String, ObjectType> properties = new HashMap<>();
+        LinkedHashMap<String, ObjectType> currentProperties = new LinkedHashMap<>();
         for (ObjectType interfaceType : functionType.getExtendedInterfaces()) {
           currentProperties.clear();
           checkInterfaceConflictProperties(t, n, functionPrivateName,
@@ -1806,6 +1845,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         report(t, n, EXPECTED_THIS_TYPE, functionType.toString());
       }
 
+      checkAbstractMethodCall(t, n);
       visitParameterList(t, n, functionType);
       ensureTyped(t, n, functionType.getReturnType());
     } else {
@@ -1815,6 +1855,18 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     // TODO(nicksantos): Add something to check for calls of RegExp objects,
     // which is not supported by IE. Either say something about the return type
     // or warn about the non-portability of the call or both.
+  }
+
+  /** Check that @abstract methods are not called */
+  private void checkAbstractMethodCall(NodeTraversal t, Node call) {
+    if (!NodeUtil.isFunctionObjectCall(call) && !NodeUtil.isFunctionObjectApply(call)) {
+      return;
+    }
+
+    FunctionType methodType = call.getFirstFirstChild().getJSType().toMaybeFunctionType();
+    if (methodType != null && methodType.isAbstract() && !methodType.isConstructor()) {
+      report(t, call, ABSTRACT_METHOD_NOT_CALLABLE, methodType.getDisplayName());
+    }
   }
 
   /**
@@ -1916,12 +1968,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case ASSIGN_URSH:
       case URSH:
         if (!leftType.matchesInt32Context()) {
-          report(t, left, BIT_OPERATION,
-                   NodeUtil.opToStr(n.getType()), leftType.toString());
+          report(t, left, BIT_OPERATION, NodeUtil.opToStr(n.getToken()), leftType.toString());
         }
         if (!rightType.matchesUint32Context()) {
-          report(t, right, BIT_OPERATION,
-                   NodeUtil.opToStr(n.getType()), rightType.toString());
+          report(t, right, BIT_OPERATION, NodeUtil.opToStr(n.getToken()), rightType.toString());
         }
         break;
 

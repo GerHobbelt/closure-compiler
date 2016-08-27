@@ -22,7 +22,6 @@ import com.google.common.base.Predicates;
 import com.google.javascript.jscomp.ControlFlowGraph.AbstractCfgNodeTraversalCallback;
 import com.google.javascript.jscomp.ControlFlowGraph.Branch;
 import com.google.javascript.jscomp.MustBeReachingVariableDef.Definition;
-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;
@@ -52,8 +51,7 @@ import java.util.Set;
  * this pass does not operate on the global scope due to compilation time.
  *
  */
-class FlowSensitiveInlineVariables extends AbstractPostOrderCallback
-    implements CompilerPass, ScopedCallback {
+class FlowSensitiveInlineVariables implements CompilerPass, ScopedCallback {
 
   /**
    * Implementation:
@@ -113,6 +111,11 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback
 
   public FlowSensitiveInlineVariables(AbstractCompiler compiler) {
     this.compiler = compiler;
+  }
+
+  @Override
+  public final boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
+    return !n.isScript() || !t.getInput().isExtern();
   }
 
   @Override
@@ -350,34 +353,36 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback
       // TODO(johnlenz): rework catch expression handling when we
       // have lexical scope support so catch expressions don't
       // need to be special cased.
-      if (NodeUtil.has(def.getLastChild(),
+      if (NodeUtil.has(
+          def.getLastChild(),
           new Predicate<Node>() {
-              @Override
-              public boolean apply(Node input) {
-                switch (input.getType()) {
-                  case GETELEM:
-                  case GETPROP:
-                  case ARRAYLIT:
-                  case OBJECTLIT:
-                  case REGEXP:
-                  case NEW:
+            @Override
+            public boolean apply(Node input) {
+              switch (input.getToken()) {
+                case GETELEM:
+                case GETPROP:
+                case ARRAYLIT:
+                case OBJECTLIT:
+                case REGEXP:
+                case NEW:
+                  return true;
+                case NAME:
+                  Var var = scope.getOwnSlot(input.getString());
+                  if (var != null && var.getParentNode().isCatch()) {
                     return true;
-                  case NAME:
-                    Var var = scope.getOwnSlot(input.getString());
-                    if (var != null
-                        && var.getParentNode().isCatch()) {
-                      return true;
-                    }
-                }
-                return false;
+                  }
+                default:
+                  break;
               }
+              return false;
+            }
           },
           new Predicate<Node>() {
-              @Override
-              public boolean apply(Node input) {
-                // Recurse if the node is not a function.
-                return !input.isFunction();
-              }
+            @Override
+            public boolean apply(Node input) {
+              // Recurse if the node is not a function.
+              return !input.isFunction();
+            }
           })) {
         return false;
       }
@@ -414,13 +419,13 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback
       Node useParent = use.getParent();
       if (def.isAssign()) {
         Node rhs = def.getLastChild();
-        rhs.detachFromParent();
+        rhs.detach();
         // Oh yes! I have grandparent to remove this.
         Preconditions.checkState(defParent.isExprResult());
         while (defParent.getParent().isLabel()) {
           defParent = defParent.getParent();
         }
-        defParent.detachFromParent();
+        defParent.detach();
         useParent.replaceChild(use, rhs);
       } else if (defParent.isVar()) {
         Node rhs = def.getLastChild();
@@ -439,26 +444,28 @@ class FlowSensitiveInlineVariables extends AbstractPostOrderCallback
      */
     private void getDefinition(Node n) {
       AbstractCfgNodeTraversalCallback gatherCb =
-        new AbstractCfgNodeTraversalCallback() {
+          new AbstractCfgNodeTraversalCallback() {
 
-        @Override
-        public void visit(NodeTraversal t, Node n, Node parent) {
-          switch (n.getType()) {
-            case NAME:
-              if (n.getString().equals(varName) && n.hasChildren()) {
-                def = n;
-              }
-              return;
+            @Override
+            public void visit(NodeTraversal t, Node n, Node parent) {
+              switch (n.getToken()) {
+                case NAME:
+                  if (n.getString().equals(varName) && n.hasChildren()) {
+                    def = n;
+                  }
+                  return;
 
-            case ASSIGN:
-              Node lhs = n.getFirstChild();
-              if (lhs.isName() && lhs.getString().equals(varName)) {
-                def = n;
+                case ASSIGN:
+                  Node lhs = n.getFirstChild();
+                  if (lhs.isName() && lhs.getString().equals(varName)) {
+                    def = n;
+                  }
+                  return;
+                default:
+                  break;
               }
-              return;
-          }
-        }
-      };
+            }
+          };
       NodeTraversal.traverseEs6(compiler, n, gatherCb);
     }
 

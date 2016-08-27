@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.collect.ObjectArrays.concat;
+import static com.google.javascript.jscomp.parsing.Config.JsDocParsing.INCLUDE_DESCRIPTIONS_WITH_WHITESPACE;
 
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
@@ -62,7 +63,7 @@ public class Linter {
     // in LintPassConfig can all handle untranspiled ES6.
     options.setSkipTranspilationAndCrash(true);
 
-    options.setPreserveDetailedSourceInfo(true);
+    options.setParseJsDocDocumentation(INCLUDE_DESCRIPTIONS_WITH_WHITESPACE);
     options.setCodingConvention(new GoogleCodingConvention());
 
     // Even though we're not running the typechecker, enable the checkTypes DiagnosticGroup, since
@@ -73,6 +74,7 @@ public class Linter {
     options.setWarningLevel(DiagnosticGroups.STRICT_MISSING_REQUIRE, CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.EXTRA_REQUIRE, CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.USE_OF_GOOG_BASE, CheckLevel.WARNING);
+    options.setSummaryDetailLevel(0);
     compiler.setPassConfig(new LintPassConfig(options));
     compiler.disableThreads();
     SourceFile externs = SourceFile.fromCode("<Linter externs>", "");

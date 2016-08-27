@@ -40,6 +40,10 @@ public class J2clEqualitySameRewriterPass extends AbstractPostOrderCallback
 
   @Override
   public void process(Node externs, Node root) {
+    if (!J2clSourceFileChecker.shouldRunJ2clPasses(compiler)) {
+      return;
+    }
+
     NodeTraversal.traverseEs6(compiler, root, this);
   }
 
@@ -82,8 +86,8 @@ public class J2clEqualitySameRewriterPass extends AbstractPostOrderCallback
   }
 
   private void rewriteToEq(Node callNode, Node firstExpr, Node secondExpr, Eq eq) {
-    firstExpr.detachFromParent();
-    secondExpr.detachFromParent();
+    firstExpr.detach();
+    secondExpr.detach();
     Node replacement =
         eq == Eq.DOUBLE ? IR.eq(firstExpr, secondExpr) : IR.sheq(firstExpr, secondExpr);
     callNode.getParent().replaceChild(callNode, replacement.useSourceInfoIfMissingFrom(callNode));
@@ -101,7 +105,7 @@ public class J2clEqualitySameRewriterPass extends AbstractPostOrderCallback
     // NOTE: This should be rewritten to use method name + file name of definition site
     // like other j2cl passes, which is more precise.
     String originalQname = fnName.getOriginalQualifiedName();
-    return originalQname.endsWith("Equality.$same");
+    return originalQname.endsWith(".$same") && originalQname.contains("Equality");
   }
 
   private static JSType getTypeRestrictByNotNullOrUndefined(Node node) {

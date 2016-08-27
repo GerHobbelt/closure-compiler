@@ -48,7 +48,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.TypeI;
-
 import java.io.Serializable;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
@@ -162,6 +161,16 @@ public abstract class JSType implements TypeI, Serializable {
     return false;
   }
 
+  @Override
+  public final boolean isUnresolved() {
+    return isNoResolvedType();
+  }
+
+  @Override
+  public final boolean isUnresolvedOrResolvedUnknown() {
+    return isNoResolvedType() || isNamedType() && isUnknownType();
+  }
+
   public boolean isNoObjectType() {
     return false;
   }
@@ -253,14 +262,26 @@ public abstract class JSType implements TypeI, Serializable {
   }
 
   @Override
+  public final boolean isTop() {
+    return isAllType();
+  }
+
+  @Override
   public boolean isUnknownType() {
     return false;
+  }
+
+  @Override
+  public final boolean isSomeUnknownType() {
+    // OTI's notion of isUnknownType already accounts for looseness (see override in ObjectType).
+    return isUnknownType();
   }
 
   public boolean isCheckedUnknownType() {
     return false;
   }
 
+  @Override
   public final boolean isUnionType() {
     return toMaybeUnionType() != null;
   }
@@ -453,6 +474,11 @@ public abstract class JSType implements TypeI, Serializable {
     return toMaybeTemplateType() != null;
   }
 
+  @Override
+  public final boolean isTypeVariable() {
+    return isTemplateType();
+  }
+
   /**
    * Downcasts this to a TemplateType, or returns null if this is not
    * a function.
@@ -539,11 +565,6 @@ public abstract class JSType implements TypeI, Serializable {
       return fn.isNativeObjectType();
     }
     return false;
-  }
-
-  @Override
-  public boolean isOriginalConstructor() {
-    return isNominalConstructor();
   }
 
   /**
@@ -957,6 +978,7 @@ public abstract class JSType implements TypeI, Serializable {
   /**
    * Tests whether this type is voidable.
    */
+  @Override
   public boolean isVoidable() {
     return isSubtype(getNativeType(JSTypeNative.VOID_TYPE));
   }
@@ -1271,6 +1293,13 @@ public abstract class JSType implements TypeI, Serializable {
     }
   }
 
+  @Override
+  public Iterable<JSType> getUnionMembers() {
+    return isUnionType()
+        ? this.toMaybeUnionType().getAlternates()
+        : null;
+  }
+
   /**
    * If this is a union type, returns a union type that does not include
    * the null or undefined type.
@@ -1325,13 +1354,16 @@ public abstract class JSType implements TypeI, Serializable {
         ImplCache.create(), SubtypingMode.NORMAL);
   }
 
-  static enum SubtypingMode {
+  /**
+   * In files translated from Java, we typecheck null and undefined loosely.
+   */
+  public static enum SubtypingMode {
     NORMAL,
     IGNORE_NULL_UNDEFINED
   }
 
-  public boolean isSubtypeModuloNullUndefined(JSType that) {
-    return this.isSubtype(that, ImplCache.create(), SubtypingMode.IGNORE_NULL_UNDEFINED);
+  public boolean isSubtype(JSType that, SubtypingMode mode) {
+    return isSubtype(that, ImplCache.create(), mode);
   }
 
   /**
@@ -1373,6 +1405,10 @@ public abstract class JSType implements TypeI, Serializable {
         }
       }
       return false;
+    }
+    if (subtypingMode == SubtypingMode.IGNORE_NULL_UNDEFINED
+        && (thisType.isNullType() || thisType.isVoidType())) {
+      return true;
     }
 
     // TemplateTypeMaps. This check only returns false if the TemplateTypeMaps
@@ -1573,8 +1609,8 @@ public abstract class JSType implements TypeI, Serializable {
   }
 
   @Override
-  public boolean isBottom() {
-    return isNoType() || isNoResolvedType() || isNoObjectType();
+  public final boolean isBottom() {
+    return isEmptyType();
   }
 
   @Override

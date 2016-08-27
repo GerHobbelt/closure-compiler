@@ -69,6 +69,24 @@ public enum CompilationLevel {
   FROM_CONFIG_FILE
   ;
 
+  public static CompilationLevel fromString(String value) {
+    if (value == null) {
+      return null;
+    }
+    switch (value) {
+      case "WHITESPACE_ONLY":
+      case "WHITESPACE":
+        return CompilationLevel.WHITESPACE_ONLY;
+      case "SIMPLE_OPTIMIZATIONS":
+      case "SIMPLE":
+        return CompilationLevel.SIMPLE_OPTIMIZATIONS;
+      case "ADVANCED_OPTIMIZATIONS":
+      case "ADVANCED":
+        return CompilationLevel.ADVANCED_OPTIMIZATIONS;
+    }
+    return null;
+  }
+
   private CompilationLevel() {}
 
   public void setOptionsForCompilationLevel(CompilerOptions options) {
@@ -175,6 +193,8 @@ public enum CompilationLevel {
 
     // All the advanced optimizations.
     options.removeClosureAsserts = true;
+    options.removeAbstractMethods = true;
+    options.removeSuperMethods = true;
     options.reserveRawExports = true;
     options.setRenamingPolicy(
         VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
@@ -405,7 +425,8 @@ public enum CompilationLevel {
   }
 
   /**
-   * Enable additional optimizations that use type information.
+   * Enable additional optimizations that use type information. Only has
+   * an effect for ADVANCED_OPTIMIZATIONS; this is a no-op for other modes.
    * @param options The CompilerOptions object to set the options on.
    */
   public void setTypeBasedOptimizationOptions(CompilerOptions options) {
@@ -418,8 +439,6 @@ public enum CompilationLevel {
         options.setUseTypesForOptimization(true);
         break;
       case SIMPLE_OPTIMIZATIONS:
-        options.setUseTypesForOptimization(true);
-        break;
       case WHITESPACE_ONLY:
         break;
     }

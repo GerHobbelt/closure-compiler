@@ -633,7 +633,7 @@ public class IR {
    * so make a best guess.
    */
   private static boolean mayBeStatementNoReturn(Node n) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case EMPTY:
       case FUNCTION:
         // EMPTY and FUNCTION are used both in expression and statement
@@ -680,7 +680,7 @@ public class IR {
    * so make a best guess.
    */
   private static boolean mayBeExpression(Node n) {
-    switch (n.getType()) {
+    switch (n.getToken()) {
       case FUNCTION:
       case CLASS:
         // FUNCTION and CLASS are used both in expression and statement
@@ -700,6 +700,7 @@ public class IR {
       case ASSIGN_ADD:
       case ASSIGN_SUB:
       case ASSIGN_MUL:
+      case ASSIGN_EXPONENT:
       case ASSIGN_DIV:
       case ASSIGN_MOD:
       case AWAIT:
@@ -714,6 +715,7 @@ public class IR {
       case DELPROP:
       case DIV:
       case EQ:
+      case EXPONENT:
       case FALSE:
       case GE:
       case GETPROP:

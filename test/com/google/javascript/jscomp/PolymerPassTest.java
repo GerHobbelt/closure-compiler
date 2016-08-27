@@ -17,6 +17,7 @@ package com.google.javascript.jscomp;
 
 import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_DESCRIPTOR_NOT_VALID;
 import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_INVALID_DECLARATION;
+import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_INVALID_EXTENDS;
 import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_INVALID_PROPERTY;
 import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_MISSING_IS;
 import static com.google.javascript.jscomp.PolymerPassErrors.POLYMER_SHORTHAND_NOT_SUPPORTED;
@@ -465,7 +466,11 @@ public class PolymerPassTest extends Es6CompilerTestCase {
   }
 
   public void testNativeElementExtension() {
-    String js = LINE_JOINER.join("Polymer({", "  is: 'x-input',", "  extends: 'input',", "});");
+    String js = LINE_JOINER.join(
+        "Polymer({",
+        "  is: 'x-input',",
+        "  extends: 'input',",
+        "});");
 
     test(
         js,
@@ -483,6 +488,16 @@ public class PolymerPassTest extends Es6CompilerTestCase {
     testExternChanges(EXTERNS, js, INPUT_EXTERNS);
   }
 
+  public void testExtendNonExistentElement() {
+    String js = LINE_JOINER.join(
+        "Polymer({",
+        "  is: 'x-input',",
+        "  extends: 'nonexist',",
+        "});");
+
+    testError(js, POLYMER_INVALID_EXTENDS);
+  }
+
   public void testNativeElementExtensionExternsNotDuplicated() {
     String js =
         LINE_JOINER.join(
@@ -494,11 +509,11 @@ public class PolymerPassTest extends Es6CompilerTestCase {
             "  is: 'y-input',",
             "  extends: 'input',",
             "});");
-    String newExterns =
-        INPUT_EXTERNS
-            + "\n"
-            + LINE_JOINER.join(
-                "/** @interface */", "var PolymerYInputElementInterface = function() {};");
+    String newExterns = LINE_JOINER.join(
+        INPUT_EXTERNS,
+        "",
+        "/** @interface */",
+        "var PolymerYInputElementInterface = function() {};");
 
     testExternChanges(EXTERNS, js, newExterns);
   }
@@ -2055,7 +2070,12 @@ public class PolymerPassTest extends Es6CompilerTestCase {
 
     testError(
         LINE_JOINER.join(
-            "Polymer({", "  is: 'x-element',", "  behaviors: [", "    DoesNotExist", "  ],", "});"),
+            "Polymer({",
+            "  is: 'x-element',",
+            "  behaviors: [",
+            "    DoesNotExist",
+            "  ],",
+            "});"),
         POLYMER_UNQUALIFIED_BEHAVIOR);
   }
 

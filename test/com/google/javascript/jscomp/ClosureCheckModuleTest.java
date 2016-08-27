@@ -19,12 +19,13 @@ import static com.google.javascript.jscomp.ClosureCheckModule.EXPORT_NOT_A_MODUL
 import static com.google.javascript.jscomp.ClosureCheckModule.EXPORT_REPEATED_ERROR;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_REFERENCES_THIS;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_USES_THROW;
+import static com.google.javascript.jscomp.ClosureCheckModule.INVALID_DESTRUCTURING_REQUIRE;
 import static com.google.javascript.jscomp.ClosureCheckModule.LET_GOOG_REQUIRE;
 import static com.google.javascript.jscomp.ClosureCheckModule.MODULE_AND_PROVIDES;
 import static com.google.javascript.jscomp.ClosureCheckModule.MULTIPLE_MODULES_IN_FILE;
 import static com.google.javascript.jscomp.ClosureCheckModule.ONE_REQUIRE_PER_DECLARATION;
+import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_MODULE_GLOBAL_NAME;
-import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.REQUIRE_NOT_AT_TOP_LEVEL;
 
@@ -315,6 +316,27 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "",
             "var a = goog.require('foo.a'), b = goog.require('foo.b');"),
         ONE_REQUIRE_PER_DECLARATION);
+
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "var [foo, bar] = goog.require('other.x');"),
+        INVALID_DESTRUCTURING_REQUIRE);
+
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "var {foo, bar = 'str'} = goog.require('other.x');"),
+        INVALID_DESTRUCTURING_REQUIRE);
+
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "var {foo, bar: {name}} = goog.require('other.x');"),
+        INVALID_DESTRUCTURING_REQUIRE);
   }
 
   public void testIllegalShortImportReferencedByLongName() {
@@ -336,7 +358,62 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "var {doThing} = goog.require('foo.utils');",
             "",
             "exports = function() { return foo.utils.doThing(''); };"),
-        REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME);
+        REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME);
+  }
+
+  public void testIllegalImportNoAlias() {
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "goog.require('foo.utils');",
+            "",
+            "exports = function() { return foo.utils.doThing(''); };"),
+        REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME);
+  }
+
+  // TODO(johnlenz): Re-enable these tests (they are a bit tricky).
+  public void disable_testSingleNameImportNoAlias1() {
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "goog.require('foo');",
+            "",
+            "exports = function() { return foo.doThing(''); };"),
+        REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME);
+  }
+
+  public void disable_testSingleNameImportWithAlias() {
+    testErrorEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var bar = goog.require('foo');",
+            "",
+            "exports = function() { return foo.doThing(''); };"),
+        REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME);
+  }
+
+  public void testSingleNameImportCrossAlias() {
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var bar = goog.require('foo');",
+            "var foo = goog.require('bar');",
+            "",
+            "exports = function() { return foo.doThing(''); };"));
+  }
+
+  public void testLegalSingleNameImport() {
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var foo = goog.require('foo');",
+            "",
+            "exports = function() { return foo.doThing(''); };"));
   }
 
   public void testIllegalLetShortRequire() {

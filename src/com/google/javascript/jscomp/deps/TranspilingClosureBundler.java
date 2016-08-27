@@ -31,15 +31,14 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.PropertyRenamingPolicy;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.VariableRenamingPolicy;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -47,9 +46,13 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public final class TranspilingClosureBundler extends ClosureBundler {
-
   private static final HashFunction HASH_FUNCTION = Hashing.goodFastHash(64);
-  private static final int CACHE_SIZE = 100;
+  private static final int DEFAULT_CACHE_SIZE = 100;
+  /**
+   * Cache recent transpilations, keyed by the hash code of the input
+   * to avoid storing the whole input.
+   */
+  @VisibleForTesting final Cache<Long, String> cachedTranspilations;
 
   // TODO(sdh): Not all transpilation requires the runtime, only inject if actually needed.
   private final String es6Runtime;
@@ -59,17 +62,26 @@ public final class TranspilingClosureBundler extends ClosureBundler {
     this(getEs6Runtime());
   }
 
-  @VisibleForTesting
-  TranspilingClosureBundler(String es6Runtime) {
-    this.es6Runtime = es6Runtime;
+  /**
+   * Creates a new bundler that transpile the sources from ES6 to ES5.
+   *
+   * @param transpilationCache The cache to use to store already transpiled files
+   */
+  public TranspilingClosureBundler(Cache<Long, String> transpilationCache) {
+    this(getEs6Runtime(), transpilationCache);
   }
 
-  /**
-   * Cache recent transpilations, keyed by the hash code of the input
-   * to avoid storing the whole input.
-   */
-  @VisibleForTesting final Cache<Long, String> cachedTranspilations =
-      CacheBuilder.newBuilder().maximumSize(CACHE_SIZE).build();
+  @VisibleForTesting
+  TranspilingClosureBundler(String es6Runtime) {
+    this(es6Runtime,
+        CacheBuilder.newBuilder().maximumSize(DEFAULT_CACHE_SIZE).<Long, String>build());
+  }
+
+  @VisibleForTesting
+  TranspilingClosureBundler(String es6Runtime, Cache<Long, String> transpilationCache) {
+    this.es6Runtime = es6Runtime;
+    this.cachedTranspilations = transpilationCache;
+  }
 
   @Override
   public void appendTo(Appendable out, DependencyInfo info, CharSource content) throws IOException {
@@ -95,6 +107,8 @@ public final class TranspilingClosureBundler extends ClosureBundler {
     options.setPropertyRenaming(PropertyRenamingPolicy.OFF);
     options.setWrapGoogModulesForWhitespaceOnly(false);
     options.setPrettyPrint(true);
+    options.setSourceMapOutputPath("/dev/null");
+    options.setSourceMapIncludeSourcesContent(true);
     return options;
   }
 
@@ -107,17 +121,16 @@ public final class TranspilingClosureBundler extends ClosureBundler {
           hashCode,
           new Callable<String>() {
             @Override
-            public String call() {
+            public String call() throws IOException, UnsupportedEncodingException {
               // Neither the compiler nor the options is thread safe, so they can't be
               // saved as instance state.
               ByteArrayOutputStream baos = new ByteArrayOutputStream();
               Compiler compiler = new Compiler(new PrintStream(baos));
               // Threads can't be used in small unit tests.
               compiler.disableThreads();
-              SourceFile externs = SourceFile.fromCode("externs", "function Symbol() {}");
               SourceFile sourceFile = SourceFile.fromCode(path, js);
               compiler.<SourceFile, SourceFile>compile(
-                  ImmutableList.<SourceFile>of(externs),
+                  ImmutableList.<SourceFile>of(),
                   ImmutableList.<SourceFile>of(sourceFile),
                   getOptions());
               if (compiler.getErrorManager().getErrorCount() > 0) {
@@ -129,7 +142,14 @@ public final class TranspilingClosureBundler extends ClosureBundler {
                 }
                 throw new IllegalStateException(message);
               }
-              return compiler.toSource();
+              StringBuilder source = new StringBuilder().append(compiler.toSource());
+              StringBuilder sourceMap = new StringBuilder();
+              compiler.getSourceMap().appendTo(sourceMap, path);
+              return source
+                  .append("\n//# sourceMappingURL=data:,")
+                  .append(URLEncoder.encode(sourceMap.toString(), "UTF-8").replace("+", "%20"))
+                  .append("\n")
+                  .toString();
             }
           });
     } catch (ExecutionException | UncheckedExecutionException e) {
@@ -152,9 +172,9 @@ public final class TranspilingClosureBundler extends ClosureBundler {
     Compiler compiler = new Compiler();
     // Threads can't be used in small unit tests.
     compiler.disableThreads();
-    SourceFile externs = SourceFile.fromCode("externs", "function Symbol() {}");
     SourceFile sourceFile = SourceFile.fromCode("source", "");
-    compiler.compile(ImmutableList.of(externs), ImmutableList.of(sourceFile), options);
+    compiler.<SourceFile, SourceFile>compile(
+        ImmutableList.<SourceFile>of(), ImmutableList.<SourceFile>of(sourceFile), options);
     return compiler.toSource();
   }
 }
