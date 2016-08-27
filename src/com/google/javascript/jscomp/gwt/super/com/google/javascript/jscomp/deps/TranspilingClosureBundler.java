@@ -1,5 +1,5 @@
 /*
- * Copyright 2010 The Closure Compiler Authors.
+ * Copyright 2016 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,23 +16,5 @@
 
 package com.google.javascript.jscomp.deps;
 
-import com.google.javascript.jscomp.deps.SortedDependencies.CircularDependencyException;
-
-import java.util.List;
-
-/**
- * Tests for {@link ClosureSortedDependencies}
- */
-public class ClosureSortedDependenciesTest extends SortedDependenciesTestHelper {
-
-  @Override
-  public SortedDependencies<SimpleDependencyInfo> createSortedDependencies(
-      List<SimpleDependencyInfo> shuffled) throws CircularDependencyException {
-    return new ClosureSortedDependencies<>(shuffled);
-  }
-
-  @Override
-  public boolean handlesCycles() {
-    return false;
-  }
-}
+/** GWT compatible no-op replacement for {@code TranspilingClosureBundler} */
+public class TranspilingClosureBundler {}

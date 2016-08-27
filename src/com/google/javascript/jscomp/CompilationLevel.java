@@ -190,7 +190,6 @@ public enum CompilationLevel {
     options.setInlineConstantVars(true);
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);
-    options.setInlineGetters(true);
     options.setInlineVariables(Reach.ALL);
     options.setFlowSensitiveInlineVariables(true);
     options.setComputeFunctionSideEffects(true);

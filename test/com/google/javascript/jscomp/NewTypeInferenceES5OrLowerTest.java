@@ -2141,6 +2141,19 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "/** @return {?Foo} */",
         "Bar.prototype.method = function() { return null; };",
         "var /** !Foo */ x = goog.asserts.assertInstanceOf((new Bar).method(), Foo);"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f() {",
+        "  var /** string */ s;",
+        "  s = goog.asserts.assertString(/** @type {number|string} */ (123));",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f() {",
+        "  var /** string */ s;",
+        "  s = goog.asserts.assertString(123);",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testDontInferBottom() {
@@ -3408,6 +3421,29 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         " */",
         "function f(x, y) {",
         "  if (y instanceof x) {}",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @param {*} value",
+        " * @param {function(new: T, ...)} type",
+        " * @template T",
+        " */",
+        "function assertInstanceof(value, type) {}",
+        "/** @const */ var ctor = unresolvedGlobalVar;",
+        "function f(obj) {",
+        "  if (obj instanceof ctor) {",
+        "    return assertInstanceof(obj, ctor);",
+        "  }",
+        "}"),
+        GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "function f(x, y) {",
+        "  x(123);",
+        "  if (y instanceof x) {",
+        "    return y;",
+        "  }",
         "}"));
   }
 
@@ -9003,23 +9039,6 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "};"));
   }
 
-  public void testUnificationWithTopFunctionDoesntCrash() {
-    typeCheck(LINE_JOINER.join(
-        "/**",
-        " * @param {*} value",
-        " * @param {function(new: T, ...)} type",
-        " * @template T",
-        " */",
-        "function assertInstanceof(value, type) {}",
-        "/** @const */ var ctor = unresolvedGlobalVar;",
-        "function f(obj) {",
-        "  if (obj instanceof ctor) {",
-        "    return assertInstanceof(obj, ctor);",
-        "  }",
-        "}"),
-        GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
-  }
-
   public void testGetpropOnPossiblyInexistentPropertyDoesntCrash() {
     typeCheck(LINE_JOINER.join(
         "/** @constructor */ function Foo(){};",
@@ -11823,6 +11842,16 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "  innerFun(function(str) { str - 5; });",
         "});"),
         NewTypeInference.INVALID_OPERAND_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {function(T)} x",
+        " */",
+        "function f(x) {}",
+        "/** @const */",
+        "var g = f;",
+        "g(function(x) { return x - 1; });"));
   }
 
   public void testNamespacesWithNonEmptyObjectLiteral() {
@@ -15121,7 +15150,6 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function f(x) { x - 5; }",
         "function g(x) { x.match(/asdf/); return x.match; }",
         "var /** function(number) */ tmp = g({match: f});"),
-        NewTypeInference.INVALID_ARGUMENT_TYPE,
         NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
@@ -16258,5 +16286,445 @@ public final class NewTypeInferenceES5OrLowerTest extends NewTypeInferenceTestBa
         "function f(x, y) {}",
         "f(ns, ns2);"),
         NewTypeInference.NOT_UNIQUE_INSTANTIATION);
+  }
+
+  public void testSpecializeNamespaceProperties() {
+    typeCheck(LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/** @type {?number} */",
+        "ns.prop = null;",
+        "function f() {",
+        "  if (ns.prop !== null) {",
+        "    return ns.prop - 5;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/** @type {?number} */",
+        "ns.prop = null;",
+        "/** @return {number} */",
+        "function f() {",
+        "  if (ns.prop === null) {",
+        "    return 123;",
+        "  }",
+        "  return ns.prop;",
+        "}"));
+
+    typeCheckCustomExterns(
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "/** @type {?number} */",
+            "window.prop;"),
+        LINE_JOINER.join(
+            "function f() {",
+            "  if (window.prop !== null) {",
+            "    return window.prop - 5;",
+            "  }",
+            "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {};",
+        "/** @type {?number} */",
+        "Foo.prop = null;",
+        "function f() {",
+        "  if (Foo.prop !== null) {",
+        "    return Foo.prop - 5;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/** @constructor */",
+        "ns.Foo = function() {};",
+        "/** @type {?number} */",
+        "ns.Foo.prop = null;",
+        "function f() {",
+        "  if (ns.Foo.prop !== null) {",
+        "    return ns.Foo.prop - 5;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f() {};",
+        "/** @type {?number} */",
+        "f.prop = null;",
+        "function f() {",
+        "  if (f.prop !== null) {",
+        "    return f.prop - 5;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/** @type {?Object|undefined} */",
+        "ns.mutableProp = null;",
+        "function f() {",
+        "  if (ns.mutableProp != null) {",
+        "    var /** !Object */ x = ns.mutableProp;",
+        "  }",
+        "}"));
+  }
+
+  public void testInferScalarInsteadOfLooseObject() {
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.name.toLowerCase().startsWith('a');",
+        "}",
+        "h({name: 'asdf'});"));
+
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.name.toLowerCase().startsWith('a');",
+        "}",
+        "h({name: {}});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.name.toString();",
+        "}",
+        "h({name: 'asdf'});",
+        "h({name: {}});"));
+
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.name.length;",
+        "}",
+        "h({name: 'asdf'});",
+        "h({name: {}});"));
+
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.num.toExponential();",
+        "}",
+        "h({num: 123});"));
+
+    typeCheck(LINE_JOINER.join(
+        "function h(x) {",
+        "  return x.num.toExponential();",
+        "}",
+        "h({num: {}});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */ function Foo() {}",
+        "Foo.prototype.toLowerCase = function() {};",
+        "Foo.prototype.getProp = function() {};",
+        "var foo = new Foo;",
+        "foo.f = function() {",
+        "  if (foo.toLowerCase() > 'asdf') { throw new Error; }",
+        "  foo.getProp();",
+        "};"),
+        NewTypeInference.INEXISTENT_PROPERTY,
+        // spurious b/c foo is inferred as string in the inner scope
+        NewTypeInference.CROSS_SCOPE_GOTCHA);
+  }
+
+  public void testFixCrashWhenUnannotatedPrototypeMethod() {
+    typeCheck(LINE_JOINER.join(
+        "var a = {};",
+        "a.prototype.b = function() {",
+        "  this.c = function() {};",
+        "};"),
+        NewTypeInference.INEXISTENT_PROPERTY,
+        NewTypeInference.GLOBAL_THIS);
+  }
+
+  public void testSimpleInferPrototypeProperties() {
+    typeCheck(LINE_JOINER.join(
+        "/** @const */ var ns = {};",
+        "/** @const */ ns.prop = Object.prototype.hasOwnProperty;"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @const */ var ns = {};",
+        "/** @const */ ns.prop = Foobar.prototype.randomProp;"),
+        GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "Foo.prototype.method = function(x, y) { return x + y + 1 };",
+        "/** @const */",
+        "var ns = {};",
+        "/** @const */",
+        "ns.prop = Foo.prototype.method;"),
+        GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE);
+  }
+
+  public void testReportUknownTypes() {
+    reportUnknownTypes = true;
+
+    typeCheck(
+        "var x = globalvar;",
+        NewTypeInference.UNKNOWN_EXPR_TYPE);
+
+    typeCheck(
+        "function f(/** ? */ x) { return x; }",
+        NewTypeInference.UNKNOWN_EXPR_TYPE);
+
+    typeCheck(
+        "var x = ({})['asdf'];",
+        NewTypeInference.UNKNOWN_EXPR_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** !Object */ x) {",
+        "  x['prop' + 'asdf'] = 123;",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** !Object */ x) {",
+        "  x['asdf'] = 123;",
+        "}"),
+        NewTypeInference.UNKNOWN_EXPR_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @struct @constructor */",
+        "var Foo = function() {};",
+        "/**",
+        " * @struct",
+        " * @constructor",
+        " * @extends {Foo}",
+        " */",
+        "var Bar = function() {",
+        "  Foo.call(this);",
+        "};"));
+  }
+
+  public void testPinpointTypeDiffWhenMismatch() {
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** {a:number, b:string} */ x) {}",
+        "f({a: 123, b: 123});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : {a:number, b:string}",
+            "Found    : {a:number, b:number}",
+            "More details:",
+            "Incompatible types for property b.",
+            "Expected : string",
+            "Found    : number"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** {a:number, b:(string|undefined)} */ x) {}",
+        "f({a: 123, b: 123});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : {a:number, b:string|undefined=}",
+            "Found    : {a:number, b:number}",
+            "More details:",
+            "Incompatible types for property b.",
+            "Expected : string|undefined",
+            "Found    : number"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** {a:number, b:string} */ x) {}",
+        "f({a: 123});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : {a:number, b:string}",
+            "Found    : {a:number}",
+            "More details:",
+            "The found type is missing property b"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** {a:number, b:string} */ x) {}",
+        "function g(/** {a:number, b:(string|undefined)} */ x) { f(x); }"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : {a:number, b:string}",
+            "Found    : {a:number, b:string|undefined=}",
+            "More details:",
+            "In found type, property b is optional but should be required."));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** function((number|string)) */ x) {}",
+        "function g(/** number */ x) {}",
+        "f(g);"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : function(number|string):?",
+            "Found    : function(number):undefined",
+            "More details:",
+            "The expected and found types are functions which have incompatible"
+            + " types for argument 1.",
+            "Expected a supertype of : number|string",
+            "but found               : number"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** function():number */ x) {}",
+        "/** @return {string} */ function g() { return 'asdf'; }",
+        "f(g)"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : function():number",
+            "Found    : function():string",
+            "More details:",
+            "The expected and found types are functions which have incompatible"
+            + " return types.",
+            "Expected a subtype of : number",
+            "but found             : string"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "/** @constructor */ function Foo() {}",
+        "/** @constructor */ function Bar() {}",
+        "function f(/** !Foo */ x) {}",
+        "function g(/** (!Foo|!Bar) */ x) {",
+        "  f(x);",
+        "}"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : Foo",
+            "Found    : Bar|Foo",
+            "More details:",
+            "The found type is a union that includes an unexpected type: Bar"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "/** @constructor */ function Foo() {}",
+        "/** @constructor @extends {Foo} */ function Bar() {}",
+        "function f(/** !Foo */ x) {}",
+        "function g(/** ?Bar */ x) {",
+        "  f(x);",
+        "}"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : Foo",
+            "Found    : Bar|null",
+            "More details:",
+            "The found type is a union that "
+            + "includes an unexpected type: null"));
+
+    typeCheckMessageContents(LINE_JOINER.join(
+        "function f(/** number */ x) {}",
+        "function g(/** number|string */ x) {",
+        "  f(x);",
+        "}"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE,
+        LINE_JOINER.join(
+            "Invalid type for parameter 1 of function f.",
+            "Expected : number",
+            "Found    : number|string",
+            "More details:",
+            "The found type is a union that "
+            + "includes an unexpected type: string"));
+
+    typeCheckMessageContents(
+        "var /** {a:number} */ x; x = { a: 'asdf' }",
+        NewTypeInference.MISTYPED_ASSIGN_RHS,
+        LINE_JOINER.join(
+            "The right side in the assignment is not a subtype of the left side.",
+            "Expected : {a:number}",
+            "Found    : {a:string}",
+            "More details:",
+            "Incompatible types for property a.",
+            "Expected : number",
+            "Found    : string"));
+  }
+
+  public void testSpecializeAfterPropertyTest() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {",
+        "  this.prop = 123;",
+        "}",
+        "function f(/** !Foo|!Bar */ x) {",
+        "  if (x.prop) {",
+        "    var /** !Bar */ n = x;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {",
+        "  this.prop = 123;",
+        "}",
+        "function f(/** {a: (!Foo|!Bar)} */ x) {",
+        "  if (x.a.prop) {",
+        "    var /** !Bar */ n = x.a;",
+        "  }",
+        "}"));
+
+    // Here, we spuriously specialize to a Bar. Foo instances passed to g can
+    // have prop, but we don't see it. To avoid this unsoundness, one could
+    // restrict the specialization only to @struct instances.
+    // But the main motivation of specializing at property tests is to handle
+    // DOM elements better, which are not structs.
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {",
+        "  this.prop = 123;",
+        "}",
+        "function g(x) { x.prop = 234; }",
+        "function f(/** !Foo|!Bar */ x) {",
+        "  if (x.prop) {",
+        "    var /** !Bar */ n = x;",
+        "  }",
+        "}",
+        "var obj = new Foo;",
+        "g(obj);",
+        "f(obj);"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {",
+        "  this.prop = 123;",
+        "}",
+        "/** @constructor */",
+        "function Baz() {",
+        "  this.prop = 345;",
+        "}",
+        "function f(/** !Foo|!Bar|!Baz */ x) {",
+        "  if (x.prop) {",
+        "    var /** (!Bar|!Baz) */ n = x;",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {",
+        "  /** @type {number} */",
+        "  this.prop = 123;",
+        "}",
+        "function f(/** !Foo|!Bar */ x) {",
+        "  if (x.prop) {",
+        "    var /** string */ s = x.prop;",
+        "  }",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    // For simplicity, we don't specialize here
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() { this.startsWith = function(s) {}; }",
+        "function f(/** !Foo|!Bar|string */ x) {",
+        "  if (x.startsWith) {",
+        "    var /** !Bar|string */ y = x;",
+        "  }",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 }

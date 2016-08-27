@@ -148,14 +148,23 @@ public class J2clPass implements CompilerPass {
   public void process(Node externs, Node root) {
     inlineFunctionsInFile(
         root,
-        "j2cl/transpiler/vmbootstrap/Arrays.impl.js",
+        "vmbootstrap/Arrays.impl.js",
         ImmutableSet.of("$create", "$init", "$instanceIsOfType", "$castTo"),
         InliningMode.DIRECT);
     inlineFunctionsInFile(
         root,
-        "j2cl/transpiler/vmbootstrap/Casts.impl.js",
+        "vmbootstrap/Casts.impl.js",
         ImmutableSet.of("to"),
         InliningMode.DIRECT);
+    inlineFunctionsInFile(
+        root,
+        "nativebootstrap/Util.impl.js",
+        ImmutableSet.of(
+            "$setClassMetadata",
+            "$setClassMetadataForInterface",
+            "$setClassMetadataForEnum",
+            "$setClassMetadataForPrimitive"),
+        InliningMode.BLOCK);
     inlineFunctionsInFile(
         root, ALL_CLASS_FILE_NAMES, ImmutableSet.of("$markImplementor"), InliningMode.BLOCK);
   }
