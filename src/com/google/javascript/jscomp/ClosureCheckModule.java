@@ -32,7 +32,7 @@ import java.util.Map;
  */
 public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
   static final DiagnosticType AT_EXPORT_IN_GOOG_MODULE =
-      DiagnosticType.disabled(
+      DiagnosticType.error(
           "JSC_AT_EXPORT_IN_GOOG_MODULE",
           "@export has no effect here");
 
@@ -70,6 +70,16 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
           "JSC_ONE_REQUIRE_PER_DECLARATION",
           "There may only be one goog.require() per var/let/const declaration.");
 
+  static final DiagnosticType EXPORT_NOT_A_MODULE_LEVEL_STATEMENT =
+      DiagnosticType.error(
+          "JSC_EXPORT_NOT_A_MODULE_LEVEL_STATEMENT",
+          "Exports must be a statement at the top-level of a module");
+
+  static final DiagnosticType EXPORT_REPEATED_ERROR =
+      DiagnosticType.error(
+          "JSC_EXPORT_REPEATED_ERROR",
+          "Name cannot be exported multiple times. Previous export on line {0}.");
+
   static final DiagnosticType REFERENCE_TO_MODULE_GLOBAL_NAME =
       DiagnosticType.error(
           "JSC_REFERENCE_TO_MODULE_GLOBAL_NAME",
@@ -95,6 +105,7 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
 
   private String currentModuleName = null;
   private Map<String, String> shortRequiredNamespaces = new HashMap<>();
+  private Node defaultExportNode = null;
 
   public ClosureCheckModule(AbstractCompiler compiler) {
     this.compiler = compiler;
@@ -125,7 +136,7 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
-      case Token.CALL:
+      case CALL:
         Node callee = n.getFirstChild();
         if (callee.matchesQualifiedName("goog.module")) {
           if (currentModuleName == null) {
@@ -139,30 +150,23 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
           checkRequireCall(t, n, parent);
         }
         break;
-      case Token.ASSIGN: {
+      case ASSIGN: {
         Node lhs = n.getFirstChild();
-        if (lhs.isQualifiedName()) {
-          Node root = NodeUtil.getRootOfQualifiedName(lhs);
-          if (root.matchesQualifiedName("exports")
-              && (lhs.isName() || !root.getNext().getString().equals("prototype"))
-              && !NodeUtil.isLegacyGoogModuleFile(NodeUtil.getEnclosingScript(n))) {
-            JSDocInfo jsDoc = n.getJSDocInfo();
-            if (jsDoc != null && jsDoc.isExport()) {
-              t.report(n, AT_EXPORT_IN_NON_LEGACY_GOOG_MODULE);
-            }
-          }
+        if (lhs.isQualifiedName()
+            && NodeUtil.getRootOfQualifiedName(lhs).matchesQualifiedName("exports")) {
+          checkModuleExport(t, n, parent);
         }
         break;
       }
-      case Token.CLASS:
-      case Token.FUNCTION:
+      case CLASS:
+      case FUNCTION:
         if (!NodeUtil.isStatement(n)) {
           break;
         }
         // fallthrough
-      case Token.VAR:
-      case Token.LET:
-      case Token.CONST:
+      case VAR:
+      case LET:
+      case CONST:
         if (t.inGlobalHoistScope() && NodeUtil.getEnclosingClass(n) == null
             && NodeUtil.getEnclosingType(n, Token.OBJECTLIT) == null) {
           JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(n);
@@ -171,17 +175,17 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
           }
         }
         break;
-      case Token.THIS:
+      case THIS:
         if (t.inGlobalHoistScope()) {
           t.report(n, GOOG_MODULE_REFERENCES_THIS);
         }
         break;
-      case Token.THROW:
+      case THROW:
         if (t.inGlobalHoistScope()) {
           t.report(n, GOOG_MODULE_USES_THROW);
         }
         break;
-      case Token.GETPROP:
+      case GETPROP:
         if (currentModuleName != null && n.matchesQualifiedName(currentModuleName)) {
           t.report(n, REFERENCE_TO_MODULE_GLOBAL_NAME);
         } else if (shortRequiredNamespaces.containsKey(n.getQualifiedName())) {
@@ -194,10 +198,35 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
           }
         }
         break;
-      case Token.SCRIPT:
+      case SCRIPT:
         currentModuleName = null;
         shortRequiredNamespaces.clear();
+        defaultExportNode = null;
         break;
+    }
+  }
+
+  private void checkModuleExport(NodeTraversal t, Node n, Node parent) {
+    Preconditions.checkArgument(n.isAssign());
+    Node lhs = n.getFirstChild();
+    Preconditions.checkState(lhs.isQualifiedName());
+    Preconditions.checkState(NodeUtil.getRootOfQualifiedName(lhs).matchesQualifiedName("exports"));
+    if (lhs.isName()) {
+      if  (defaultExportNode != null) {
+        // Multiple exports
+        t.report(n, EXPORT_REPEATED_ERROR, String.valueOf(defaultExportNode.getLineno()));
+      } else if (!t.inGlobalScope() || !parent.isExprResult()) {
+        // Invalid export location.
+        t.report(n, EXPORT_NOT_A_MODULE_LEVEL_STATEMENT);
+      }
+      defaultExportNode = lhs;
+    }
+    if ((lhs.isName() || !NodeUtil.isPrototypeProperty(lhs))
+        && !NodeUtil.isLegacyGoogModuleFile(NodeUtil.getEnclosingScript(n))) {
+      JSDocInfo jsDoc = n.getJSDocInfo();
+      if (jsDoc != null && jsDoc.isExport()) {
+        t.report(n, AT_EXPORT_IN_NON_LEGACY_GOOG_MODULE);
+      }
     }
   }
 
@@ -212,17 +241,10 @@ public final class ClosureCheckModule implements Callback, HotSwapCompilerPass {
   private void checkRequireCall(NodeTraversal t, Node callNode, Node parent) {
     Preconditions.checkState(callNode.isCall());
     switch (parent.getType()) {
-      case Token.EXPR_RESULT:
+      case EXPR_RESULT:
         return;
-      case Token.GETPROP:
-        // TODO(blickly): Disallow this pattern once destructuring assignment works in the release.
-        if (parent.getParent().isName()) {
-          checkRequireCall(t, callNode, parent.getParent());
-          return;
-        }
-        break;
-      case Token.NAME:
-      case Token.DESTRUCTURING_LHS:
+      case NAME:
+      case DESTRUCTURING_LHS:
         checkShortGoogRequireCall(t, callNode, parent.getParent());
         return;
     }

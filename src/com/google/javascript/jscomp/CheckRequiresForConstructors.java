@@ -68,7 +68,7 @@ class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTraversal
     // Used during a normal compilation. The entire program + externs are available.
     FULL_COMPILE
   };
-  private final Mode mode;
+  private Mode mode;
 
   private final Set<String> providedNames = new HashSet<>();
   private final Map<String, Node> requires = new HashMap<>();
@@ -124,6 +124,9 @@ class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTraversal
 
   @Override
   public void hotSwapScript(Node scriptRoot, Node originalRoot) {
+    // TODO(joeltine): Remove this and properly handle hot swap passes. See
+    // b/28869281 for context.
+    mode = Mode.SINGLE_FILE;
     NodeTraversal.traverseEs6(compiler, scriptRoot, this);
   }
 
@@ -190,46 +193,46 @@ class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTraversal
   public void visit(NodeTraversal t, Node n, Node parent) {
     maybeAddJsDocUsages(t, n);
     switch (n.getType()) {
-      case Token.ASSIGN:
+      case ASSIGN:
         maybeAddProvidedName(n);
         break;
-      case Token.VAR:
-      case Token.LET:
-      case Token.CONST:
+      case VAR:
+      case LET:
+      case CONST:
         maybeAddProvidedName(n);
-        maybeAddGoogScopeUsage(n, parent);
+        maybeAddGoogScopeUsage(t, n, parent);
         break;
-      case Token.FUNCTION:
+      case FUNCTION:
         // Exclude function expressions.
         if (NodeUtil.isStatement(n)) {
           maybeAddProvidedName(n);
         }
         break;
-      case Token.NAME:
+      case NAME:
         if (!NodeUtil.isLValue(n)) {
           visitQualifiedName(n);
         }
         break;
-      case Token.GETPROP:
+      case GETPROP:
         // If parent is a GETPROP, they will handle the weak usages.
         if (!parent.isGetProp() && n.isQualifiedName()) {
           visitQualifiedName(n);
         }
         break;
-      case Token.CALL:
+      case CALL:
         visitCallNode(t, n, parent);
         break;
-      case Token.SCRIPT:
+      case SCRIPT:
         visitScriptNode(t);
         reset();
         break;
-      case Token.NEW:
+      case NEW:
         visitNewNode(t, n);
         break;
-      case Token.CLASS:
+      case CLASS:
         visitClassNode(t, n);
         break;
-      case Token.IMPORT:
+      case IMPORT:
         visitImportNode(n);
         break;
     }
@@ -570,12 +573,18 @@ class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTraversal
    * "var Dog = some.cute.Dog;" counts as a usage of some.cute.Dog, if it's immediately
    * inside a goog.scope function.
    */
-  private void maybeAddGoogScopeUsage(Node n, Node parent) {
+  private void maybeAddGoogScopeUsage(NodeTraversal t, Node n, Node parent) {
     Preconditions.checkState(NodeUtil.isNameDeclaration(n));
     if (n.getChildCount() == 1 && parent == googScopeBlock) {
       Node rhs = n.getFirstFirstChild();
       if (rhs != null && rhs.isQualifiedName()) {
-        usages.put(rhs.getQualifiedName(), rhs);
+        Node root = NodeUtil.getRootOfQualifiedName(rhs);
+        if (root.isName()) {
+          Var var = t.getScope().getVar(root.getString());
+          if (var == null || (var.isGlobal() && !var.isExtern())) {
+            usages.put(rhs.getQualifiedName(), rhs);
+          }
+        }
       }
     }
   }

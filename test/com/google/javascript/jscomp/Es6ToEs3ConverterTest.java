@@ -30,6 +30,7 @@ import java.util.Set;
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
 public final class Es6ToEs3ConverterTest extends CompilerTestCase {
+
   private static final String EXTERNS_BASE =
       LINE_JOINER.join(
           "/** @constructor @template T */",
@@ -252,6 +253,12 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
     testError("function Foo() { new.target; }", CANNOT_CONVERT_YET);
   }
 
+  public void testAsyncFunction() {
+    setLanguage(LanguageMode.ECMASCRIPT8, LanguageMode.ECMASCRIPT5);
+    testError("f = async function() {};", CANNOT_CONVERT_YET);
+    testError("async function f() {};", CANNOT_CONVERT_YET);
+  }
+
   public void testClassWithJsDoc() {
     test("class C { }", "/** @constructor @struct */ var C = function() { };");
 
@@ -456,7 +463,6 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
    * Class expressions that are the RHS of an assignment.
    */
   public void testClassExpressionInAssignment() {
-    // TODO (mattloring) update these tests for unique renaming (CL in review)
     test("goog.example.C = class { }",
         "/** @constructor @struct */ goog.example.C = function() {}");
 
@@ -1939,28 +1945,28 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
     test(
         "tag``",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = [''];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['']);",
             "$jscomp$templatelit$0.raw = [''];",
             "tag($jscomp$templatelit$0);"));
 
     test(
         "tag`${hello} world`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['', ' world'];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['', ' world']);",
             "$jscomp$templatelit$0.raw = ['', ' world'];",
             "tag($jscomp$templatelit$0, hello);"));
 
     test(
         "tag`${hello} ${world}`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['', ' ', ''];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['', ' ', '']);",
             "$jscomp$templatelit$0.raw = ['', ' ', ''];",
             "tag($jscomp$templatelit$0, hello, world);"));
 
     test(
         "tag`\"`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['\\\"'];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['\\\"']);",
             "$jscomp$templatelit$0.raw = ['\\\"'];",
             "tag($jscomp$templatelit$0);"));
 
@@ -1968,21 +1974,21 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
     test(
         "tag`a\tb`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['a\tb'];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['a\tb']);",
             "$jscomp$templatelit$0.raw = ['a\\tb'];",
             "tag($jscomp$templatelit$0);"));
 
     test(
         "tag()`${hello} world`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['', ' world'];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['', ' world']);",
             "$jscomp$templatelit$0.raw = ['', ' world'];",
             "tag()($jscomp$templatelit$0, hello);"));
 
     test(
         "a.b`${hello} world`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['', ' world'];",
+            "var $jscomp$templatelit$0 = /** @type {!ITemplateArray} */ (['', ' world']);",
             "$jscomp$templatelit$0.raw = ['', ' world'];",
             "a.b($jscomp$templatelit$0, hello);"));
 
@@ -1990,13 +1996,15 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
     test(
         "tag`<p class=\"foo\">${x}</p>`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['<p class=\"foo\">', '</p>'];",
+            "var $jscomp$templatelit$0 = "
+                + "/** @type {!ITemplateArray} */ (['<p class=\"foo\">', '</p>']);",
             "$jscomp$templatelit$0.raw = ['<p class=\"foo\">', '</p>'];",
             "tag($jscomp$templatelit$0, x);"));
     test(
         "tag`<p class='foo'>${x}</p>`",
         LINE_JOINER.join(
-            "var $jscomp$templatelit$0 = ['<p class=\\'foo\\'>', '</p>'];",
+            "var $jscomp$templatelit$0 = "
+                + "/** @type {!ITemplateArray} */ (['<p class=\\'foo\\'>', '</p>']);",
             "$jscomp$templatelit$0.raw = ['<p class=\\'foo\\'>', '</p>'];",
             "tag($jscomp$templatelit$0, x);"));
   }
@@ -2004,6 +2012,7 @@ public final class Es6ToEs3ConverterTest extends CompilerTestCase {
   public void testUnicodeEscapes() {
     test("var \\u{73} = \'\\u{2603}\'", "var s = \'\u2603\'");  // ☃
     test("var \\u{63} = \'\\u{1f42a}\'", "var c = \'\uD83D\uDC2A\'");  // 🐪
+    test("var str = `begin\\u{2026}end`", "var str = 'begin\\u2026end'");
   }
 
   @Override

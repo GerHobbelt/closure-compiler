@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-goog.module('$jscomp_set_test');
+goog.module('jscomp.runtime_tests.polyfill_tests.set_test');
 goog.setTestOnly();
 
-const jsunit = goog.require('goog.testing.jsunit');
 const testSuite = goog.require('goog.testing.testSuite');
-const testing = goog.require('testing');
+const testing = goog.require('jscomp.runtime_tests.polyfill_tests.testing');
+const userAgent = goog.require('goog.userAgent');
 
-const assertDeepEquals = testing.assertDeepEquals;
+const {
+  assertIteratorContents,
+} = testing;
 
 const DONE = {done: true, value: void 0};
 
@@ -56,8 +58,8 @@ testSuite({
       checkAddHas(set, String(i));
     }
     const keys = [+0, +Infinity, -Infinity, true, false, null, undefined];
-    for (let k of keys) {
-      checkAddHas(set, k);
+    for (let i = 0; i < keys.length; i++) {
+      checkAddHas(set, keys[i]);
     }
     assertEquals(37, set.size);
 
@@ -78,11 +80,12 @@ testSuite({
   },
 
   testAdd_sealedObjects() {
-    if (!Object.seal) return;
+    // NOTE: IE8 doesn't support Object.seal.
+    if (userAgent.IE && !userAgent.isVersionOrHigher(9)) return;
     const key1 = {};
     const key2 = {};
     const key3 = {};
-    Object.seal(key1);
+    Object.preventExtensions(key1);
     Object.seal(key2);
     Object.freeze(key3);
 
@@ -100,7 +103,8 @@ testSuite({
   },
 
   testKeyIdNotEnumerable() {
-    if (!Object.defineProperty) return;
+    // NOTE: IE8 doesn't support non-enumerable properties.
+    if (userAgent.IE && !userAgent.isVersionOrHigher(9)) return;
     const set = new Set();
     const key = {};
     set.add(key);
@@ -156,16 +160,25 @@ testSuite({
     const set = new Set();
     set.add('a');
     set.add('b');
-    const out = [];
+    const /** !Array<*> */ out = [];
     const receiver = {};
-    set.forEach(function(value, key, set) {
-      out.push(value, key, set, this);
-    }, receiver);
+    /**
+     * @this {!Object}
+     * @param {string} value
+     * @param {string} key
+     * @param {!Set<string>} set
+     */
+    function func(value, key, set) {
+      out.push(value, key);
+      out.push(set);
+      out.push(this);
+    }
+    set.forEach(func, receiver);
     assertArrayEquals(['a', 'a', set, receiver, 'b', 'b', set, receiver], out);
   },
 
   testForEach_concurrentMutation() {
-    const set = new Set();
+    const /** !Set */ set = new Set();
     set.add('a');
     set.add('a1');
     const keys = [];
@@ -179,7 +192,7 @@ testSuite({
   },
 
   testForEach_clear() {
-    const set = new Set();
+    const /** !Set */ set = new Set();
     set.add('a');
     set.add('b');
     let count = 0;
@@ -196,10 +209,10 @@ testSuite({
     set.add('a');
     set.add('b');
     const iter = set.entries();
-    assertDeepEquals({done: false, value: ['a', 'a']}, iter.next());
-    assertDeepEquals({done: false, value: ['b', 'b']}, iter.next());
-    assertDeepEquals(DONE, iter.next());
-    assertDeepEquals(DONE, iter.next());
+    assertObjectEquals({done: false, value: ['a', 'a']}, iter.next());
+    assertObjectEquals({done: false, value: ['b', 'b']}, iter.next());
+    assertObjectEquals(DONE, iter.next());
+    assertObjectEquals(DONE, iter.next());
   },
 
   testValues() {
@@ -207,10 +220,10 @@ testSuite({
     set.add('b');
     set.add('c');
     const iter = set.values();
-    assertDeepEquals({done: false, value: 'b'}, iter.next());
-    assertDeepEquals({done: false, value: 'c'}, iter.next());
-    assertDeepEquals(DONE, iter.next());
-    assertDeepEquals(DONE, iter.next());
+    assertObjectEquals({done: false, value: 'b'}, iter.next());
+    assertObjectEquals({done: false, value: 'c'}, iter.next());
+    assertObjectEquals(DONE, iter.next());
+    assertObjectEquals(DONE, iter.next());
   },
 
   testValues_continuesAfterClear() {
@@ -220,14 +233,14 @@ testSuite({
     const iter = set.values();
     set.clear();
     set.add('c');
-    assertDeepEquals({done: false, value: 'c'}, iter.next());
+    assertObjectEquals({done: false, value: 'c'}, iter.next());
     set.clear();
     set.add('d');
-    assertDeepEquals({done: false, value: 'd'}, iter.next());
-    assertDeepEquals(DONE, iter.next());
+    assertObjectEquals({done: false, value: 'd'}, iter.next());
+    assertObjectEquals(DONE, iter.next());
     // But once it's done, it doesn't come back
     set.add('e');
-    assertDeepEquals(DONE, iter.next());
+    assertObjectEquals(DONE, iter.next());
   },
 
   testKeys_continuesAfterDelete() {
@@ -240,15 +253,24 @@ testSuite({
     set.add('b');
     set.delete('c');
     set.add('d');
-    assertDeepEquals({done: false, value: 'b'}, iter.next());
-    assertDeepEquals({done: false, value: 'd'}, iter.next());
+    assertObjectEquals({done: false, value: 'b'}, iter.next());
+    assertObjectEquals({done: false, value: 'd'}, iter.next());
     set.add('e');
     set.delete('d');
     set.add('f');
     set.delete('e');
-    assertDeepEquals({done: false, value: 'f'}, iter.next());
-    assertDeepEquals(DONE, iter.next());
+    assertObjectEquals({done: false, value: 'f'}, iter.next());
+    assertObjectEquals(DONE, iter.next());
     set.add('g');
-    assertDeepEquals(DONE, iter.next());
-  }
+    assertObjectEquals(DONE, iter.next());
+  },
+
+  testIterator() {
+    const set = new Set();
+    set.add('d');
+    set.add(2);
+    set.add('c');
+    set.add(1);
+    assertIteratorContents(set, 'd', 2, 'c', 1);
+  },
 });

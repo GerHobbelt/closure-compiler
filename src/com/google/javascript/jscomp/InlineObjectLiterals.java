@@ -30,7 +30,6 @@ import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -83,9 +82,7 @@ class InlineObjectLiterals implements CompilerPass {
 
     @Override
     public void afterExitScope(NodeTraversal t, ReferenceMap referenceMap) {
-      for (Iterator<Var> it = t.getScope().getVars(); it.hasNext();) {
-        Var v = it.next();
-
+      for (Var v : t.getScope().getVarIterable()) {
         if (isVarInlineForbidden(v)) {
           continue;
         }
@@ -140,7 +137,9 @@ class InlineObjectLiterals implements CompilerPass {
       return var.isGlobal()
           || var.isExtern()
           || compiler.getCodingConvention().isExported(var.name)
-          || RenameProperties.RENAME_PROPERTY_FUNCTION_NAME.equals(var.name)
+          || compiler
+              .getCodingConvention()
+              .isPropertyRenameFunction(var.nameNode.getQualifiedName())
           || staleVars.contains(var);
     }
 

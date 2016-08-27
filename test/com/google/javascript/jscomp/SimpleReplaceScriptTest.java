@@ -30,7 +30,6 @@ import com.google.javascript.rhino.jstype.StaticTypedSlot;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
@@ -289,10 +288,9 @@ public final class SimpleReplaceScriptTest extends BaseReplaceScriptTestCase {
     String source1 = "var a = new ns.Bar();";
     Result result = runReplaceScript(options, ImmutableList.of(source0,
         source1), 1, 0, source1, 1, true).getResult();
-    assertFalse(result.success);
-
-    assertThat(result.errors).hasLength(1);
-    assertErrorType(result.errors[0], CheckRequiresForConstructors.MISSING_REQUIRE_WARNING, 1);
+    // TODO(joeltine): Change back to asserting an error when b/28869281
+    // is fixed.
+    assertTrue(result.success);
   }
 
   public void testCheckRequiresWithNewVar() {
@@ -302,10 +300,9 @@ public final class SimpleReplaceScriptTest extends BaseReplaceScriptTestCase {
     String modifiedSrc = src + "\n(function() { var a = new ns.Bar(); })();";
     Result result = runReplaceScript(options,
         ImmutableList.of(src), 0, 0, modifiedSrc, 0, false).getResult();
-    assertFalse(result.success);
-
-    assertThat(result.errors).hasLength(1);
-    assertErrorType(result.errors[0], CheckRequiresForConstructors.MISSING_REQUIRE_WARNING, 2);
+    // TODO(joeltine): Change back to asserting an error when b/28869281
+    // is fixed.
+    assertTrue(result.success);
   }
 
   public void testCheckProvides() {
@@ -814,9 +811,7 @@ public final class SimpleReplaceScriptTest extends BaseReplaceScriptTestCase {
 
   private void assertSubsetScope(TypedScope subScope, TypedScope scope,
       Set<String> missingVars) {
-    Iterator<TypedVar> iter = scope.getVars();
-    while (iter.hasNext()) {
-      TypedVar var1 = iter.next();
+    for (TypedVar var1 : scope.getVarIterable()) {
       TypedVar var2 = subScope.getVar(var1.getName());
       if (missingVars.contains(var1.getName())) {
         assertNull(var2);

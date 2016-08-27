@@ -43,7 +43,9 @@ import com.google.javascript.jscomp.newtypes.Typedef;
 import com.google.javascript.jscomp.newtypes.UniqueNameGenerator;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.TypeI;
+import com.google.javascript.rhino.TypeIRegistry;
+import com.google.javascript.rhino.jstype.JSTypeNative;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,7 +67,7 @@ import java.util.Set;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-class GlobalTypeInfo implements CompilerPass {
+class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
   static final DiagnosticType DUPLICATE_JSDOC = DiagnosticType.warning(
       "JSC_NTI_DUPLICATE_JSDOC",
@@ -427,7 +429,6 @@ class GlobalTypeInfo implements CompilerPass {
     for (JSError warning : typeParser.getWarnings()) {
       this.warnings.add(warning);
     }
-    this.typeParser = null;
     this.warnings = null;
     this.varNameGen = null;
     this.funNameGen = null;
@@ -565,6 +566,26 @@ class GlobalTypeInfo implements CompilerPass {
       rawType.addProtoProperty(pname, null, resultType, false);
     }
 
+    // Warn when inheriting from incompatible IObject types
+    if (rawType.inheritsFromIObject()) {
+      JSType wrapped = rawType.getInstanceAsJSType();
+      if (wrapped.getIndexType() == null) {
+        warnings.add(JSError.make(
+            rawType.getDefSite(),
+            SUPER_INTERFACES_HAVE_INCOMPATIBLE_PROPERTIES,
+            rawType.getName(),
+            "IObject<K,V>#index",
+            "the keys K have types that can't be joined."));
+      } else if (wrapped.getIndexedType() == null) {
+        warnings.add(JSError.make(
+            rawType.getDefSite(),
+            SUPER_INTERFACES_HAVE_INCOMPATIBLE_PROPERTIES,
+            rawType.getName(),
+            "IObject<K,V>#index",
+            "the values V should have a common subtype."));
+      }
+    }
+
     // Warn for a prop declared with @override that isn't overriding anything.
     for (String pname : nonInheritedPropNames) {
       PropertyDef propDef = propertyDefs.get(rawType, pname);
@@ -678,11 +699,11 @@ class GlobalTypeInfo implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getType()) {
-        case Token.FUNCTION: {
+        case FUNCTION: {
           visitFunctionEarly(n);
           break;
         }
-        case Token.VAR: {
+        case VAR: {
           Node nameNode = n.getFirstChild();
           String varName = nameNode.getString();
           if (NodeUtil.isNamespaceDecl(nameNode)) {
@@ -707,16 +728,16 @@ class GlobalTypeInfo implements CompilerPass {
           }
           break;
         }
-        case Token.NAME: {
+        case NAME: {
           if (this.currentScope.isFunction()) {
             NTIScope.mayRecordEscapedVar(this.currentScope, n.getString());
           }
           break;
         }
-        case Token.EXPR_RESULT: {
+        case EXPR_RESULT: {
           Node expr = n.getFirstChild();
           switch (expr.getType()) {
-            case Token.ASSIGN:
+            case ASSIGN:
               Node lhs = expr.getFirstChild();
               if (isCtorDefinedByCall(lhs)) {
                 visitNewCtorDefinedByCall(lhs);
@@ -727,7 +748,7 @@ class GlobalTypeInfo implements CompilerPass {
               }
               expr = lhs;
               // fall through
-            case Token.GETPROP:
+            case GETPROP:
               if (isPrototypeProperty(expr)
                   || NodeUtil.referencesThis(expr)
                   || !expr.isQualifiedName()) {
@@ -928,8 +949,8 @@ class GlobalTypeInfo implements CompilerPass {
       } else if (nameNode.isName()) {
         isRedeclaration = currentScope.isDefinedLocally(nameNode.getString(), false);
       } else {
-        Preconditions.checkState(nameNode.isGetProp(),
-            "Expected getprop, found %s", Token.name(nameNode.getType()));
+        Preconditions.checkState(
+            nameNode.isGetProp(), "Expected getprop, found %s", nameNode.getType());
         isRedeclaration = currentScope.isDefined(nameNode);
         if (isRedeclaration && fnDoc != null) {
           nameNode.getParent().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
@@ -1164,12 +1185,21 @@ class GlobalTypeInfo implements CompilerPass {
       } else {
         RawNominalType rawType = checkValidLendsToPrototypeAndGetClass(
             lendsQname, lendsName, objlit);
-        if (rawType == null) {
-          return;
-        }
-        for (Node prop : objlit.children()) {
-          String pname =  NodeUtil.getObjectLitKeyName(prop);
-          mayAddPropToPrototype(rawType, pname, prop, prop.getFirstChild());
+        if (rawType != null) {
+          for (Node prop : objlit.children()) {
+            String pname =  NodeUtil.getObjectLitKeyName(prop);
+            mayAddPropToPrototype(rawType, pname, prop, prop.getFirstChild());
+          }
+        } else {
+          // When rawType is null, some invalid declaration prevented the
+          // raw type from being registered. We must still compute the
+          // declared type of any function literals.
+          for (Node prop : objlit.children()) {
+            Node propInit = prop.getFirstChild();
+            if (propInit.isFunction()) {
+              visitFunctionLate(propInit, null);
+            }
+          }
         }
       }
     }
@@ -1214,8 +1244,11 @@ class GlobalTypeInfo implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getType()) {
-        case Token.FUNCTION:
+        case FUNCTION:
           Node grandparent = parent.getParent();
+          // We skip property and prototype declarations because if we compute their
+          // declared type here it will be wrong, and it will block the correct
+          // computation later.
           if (grandparent == null
               || (!isPrototypePropertyDeclaration(grandparent)
                   && !isClassPropertyDeclaration(
@@ -1224,9 +1257,9 @@ class GlobalTypeInfo implements CompilerPass {
             visitFunctionLate(n, ownerType);
           }
           break;
-        case Token.NAME: {
+        case NAME: {
           String name = n.getString();
-          if (name == null || "undefined".equals(name) || parent.isFunction()) {
+          if (name == null || parent.isFunction()) {
             return;
           }
           // TODO(dimvar): Handle local scopes introduced by catch properly,
@@ -1243,26 +1276,26 @@ class GlobalTypeInfo implements CompilerPass {
           }
           break;
         }
-        case Token.GETPROP:
+        case GETPROP:
           if (parent.isExprResult() && n.isQualifiedName()) {
             visitPropertyDeclaration(n);
           }
           break;
-        case Token.ASSIGN: {
+        case ASSIGN: {
           Node lvalue = n.getFirstChild();
           if (lvalue.isGetProp() && lvalue.isQualifiedName() && parent.isExprResult()) {
             visitPropertyDeclaration(lvalue);
           }
           break;
         }
-        case Token.CAST:
+        case CAST:
           castTypes.put(n,
               getDeclaredTypeOfNode(n.getJSDocInfo(), currentScope));
           break;
-        case Token.OBJECTLIT:
+        case OBJECTLIT:
           visitObjectLit(n, parent);
           break;
-        case Token.CALL:
+        case CALL:
           visitCall(n);
           break;
       }
@@ -1782,9 +1815,11 @@ class GlobalTypeInfo implements CompilerPass {
 
     private JSType simpleInferExprType(Node n) {
       switch (n.getType()) {
-        case Token.REGEXP:
+        case REGEXP:
           return commonTypes.getRegexpType();
-        case Token.ARRAYLIT: {
+        case CAST:
+          return castTypes.get(n);
+        case ARRAYLIT: {
           if (!n.hasChildren()) {
             return commonTypes.getArrayInstance();
           }
@@ -1800,16 +1835,16 @@ class GlobalTypeInfo implements CompilerPass {
           }
           return commonTypes.getArrayInstance(arrayType);
         }
-        case Token.TRUE:
+        case TRUE:
           return JSType.TRUE_TYPE;
-        case Token.FALSE:
+        case FALSE:
           return JSType.FALSE_TYPE;
-        case Token.THIS:
+        case THIS:
           return this.currentScope.getDeclaredTypeOf("this");
-        case Token.NAME:
+        case NAME:
           return simpleInferDeclaration(
               this.currentScope.getDeclaration(n.getString(), false));
-        case Token.OBJECTLIT: {
+        case OBJECTLIT: {
           JSType objLitType = JSType.TOP_OBJECT;
           for (Node prop : n.children()) {
             JSType propType = simpleInferExprType(prop.getFirstChild());
@@ -1822,14 +1857,25 @@ class GlobalTypeInfo implements CompilerPass {
           }
           return objLitType;
         }
-        case Token.GETPROP:
-          return simpleInferGetpropType(n);
-        case Token.COMMA:
-        case Token.ASSIGN:
+        case GETPROP:
+          return simpleInferPropAccessType(
+              n.getFirstChild(), n.getLastChild().getString());
+        case GETELEM:
+          return simpleInferGetelemType(n);
+        case COMMA:
+        case ASSIGN:
           return simpleInferExprType(n.getLastChild());
-        case Token.CALL:
-        case Token.NEW:
+        case CALL:
+        case NEW:
           return simpleInferCallNewType(n);
+        case AND:
+        case OR:
+          return simpleInferAndOrType(n);
+        case HOOK: {
+          JSType lhs = simpleInferExprType(n.getSecondChild());
+          JSType rhs = simpleInferExprType(n.getLastChild());
+          return lhs == null || rhs == null ? null : JSType.join(lhs, rhs);
+        }
         default:
           switch (NodeUtil.getKnownValueType(n)) {
             case NULL:
@@ -1842,7 +1888,6 @@ class GlobalTypeInfo implements CompilerPass {
               return JSType.STRING;
             case BOOLEAN:
               return JSType.BOOLEAN;
-            case UNDETERMINED:
             default:
               return null;
           }
@@ -1861,10 +1906,7 @@ class GlobalTypeInfo implements CompilerPass {
       return null;
     }
 
-    private JSType simpleInferGetpropType(Node n) {
-      Preconditions.checkArgument(n.isGetProp());
-      Node recv = n.getFirstChild();
-      String pname = n.getLastChild().getString();
+    private JSType simpleInferPropAccessType(Node recv, String pname) {
       if (recv.isGetProp() && recv.getLastChild().getString().equals("prototype")) {
         return simpleInferPrototypeProperty(recv.getFirstChild(), pname);
       }
@@ -1891,6 +1933,31 @@ class GlobalTypeInfo implements CompilerPass {
       return null;
     }
 
+    private JSType simpleInferGetelemType(Node n) {
+      Preconditions.checkState(n.isGetElem());
+      Node recv = n.getFirstChild();
+      Node propNode = n.getLastChild();
+      // As in NewTypeInference.java, we try to treat bracket accesses with a
+      // string literal as precisely as dot accesses.
+      if (propNode.isString()) {
+        JSType propType = simpleInferPropAccessType(recv, propNode.getString());
+        if (propType != null) {
+          return propType;
+        }
+      }
+      JSType recvType = simpleInferExprType(recv);
+      if (recvType != null) {
+        JSType indexType = recvType.getIndexType();
+        if (indexType != null) {
+          JSType propType = simpleInferExprType(propNode);
+          if (propType != null && propType.isSubtypeOf(indexType)) {
+            return recvType.getIndexedType();
+          }
+        }
+      }
+      return null;
+    }
+
     private JSType simpleInferDeclaration(Declaration decl) {
       if (decl == null) {
         return null;
@@ -1910,6 +1977,25 @@ class GlobalTypeInfo implements CompilerPass {
             funScope.getDeclaredFunctionType().toFunctionType());
       }
       return null;
+    }
+
+    private JSType simpleInferAndOrType(Node n) {
+      Preconditions.checkState(n.isOr() || n.isAnd());
+      JSType lhs = simpleInferExprType(n.getFirstChild());
+      if (lhs == null) {
+        return null;
+      }
+      JSType rhs = simpleInferExprType(n.getSecondChild());
+      if (rhs == null) {
+        return null;
+      }
+      if (lhs.equals(rhs)) {
+        return lhs;
+      }
+      if (n.isAnd()) {
+        return JSType.join(lhs.specialize(JSType.FALSY), rhs);
+      }
+      return JSType.join(lhs.specialize(JSType.TRUTHY), rhs);
     }
 
     private boolean mayAddPropToType(Node getProp, RawNominalType rawType) {
@@ -2259,8 +2345,7 @@ class GlobalTypeInfo implements CompilerPass {
         || defSite.isGetterDef() || defSite.isSetterDef()) {
       return defSite;
     }
-    throw new RuntimeException("Unknown defsite: "
-        + Token.name(defSite.getType()));
+    throw new RuntimeException("Unknown defsite: " + defSite.getType());
   }
 
   private boolean isConst(Node defSite) {
@@ -2312,6 +2397,79 @@ class GlobalTypeInfo implements CompilerPass {
       if (this.methodScope != null) {
         this.methodScope.setDeclaredType(updatedType);
       }
+    }
+  }
+
+  @Override
+  public TypeI createTypeFromCommentNode(Node n) {
+    return typeParser.getTypeOfCommentNode(n, null, globalScope);
+  }
+
+  @Override
+  public JSType getNativeFunctionType(JSTypeNative typeId) {
+    return getNativeType(typeId);
+  }
+
+  @Override
+  public JSType getNativeObjectType(JSTypeNative typeId) {
+    return getNativeType(typeId);
+  }
+
+  @Override
+  public JSType getNativeType(JSTypeNative typeId) {
+    // NOTE(aravindpg): not all JSTypeNative variants are handled here; add more as-needed.
+    switch (typeId) {
+      case ALL_TYPE:
+        return JSType.TOP;
+      case NO_TYPE:
+        return JSType.BOTTOM;
+      case UNKNOWN_TYPE:
+        return JSType.UNKNOWN;
+      case VOID_TYPE:
+        return JSType.UNDEFINED;
+      case NULL_TYPE:
+        return JSType.NULL;
+      case BOOLEAN_TYPE:
+        return JSType.BOOLEAN;
+      case STRING_TYPE:
+        return JSType.STRING;
+      case NUMBER_TYPE:
+        return JSType.NUMBER;
+      case REGEXP_TYPE:
+        return commonTypes.getRegexpType();
+      case ARRAY_TYPE:
+        return commonTypes.getArrayInstance();
+      case OBJECT_TYPE:
+        return JSType.TOP_OBJECT;
+      default:
+        throw new RuntimeException("Native type " + typeId.name() + " not found");
+    }
+  }
+
+  @Override
+  public String getReadableTypeName(Node n) {
+    // TODO(aravindpg): Unimplemented for now. Implementation should follow the one in
+    // JSTypeRegistry.
+    throw new UnsupportedOperationException("getReadableTypeName not implemented yet");
+  }
+
+  @Override
+  public JSType getType(String typeName) {
+    // Primitives are not present in the global scope, so hardcode them
+    switch (typeName) {
+      case "boolean":
+        return JSType.BOOLEAN;
+      case "number":
+        return JSType.NUMBER;
+      case "string":
+        return JSType.STRING;
+      case "null":
+        return JSType.NULL;
+      case "undefined":
+      case "void":
+        return JSType.UNDEFINED;
+      default:
+        return globalScope.getType(typeName);
     }
   }
 }

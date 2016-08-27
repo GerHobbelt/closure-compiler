@@ -365,7 +365,7 @@ public final class CompileTask
   }
 
   /**
-   * Adds a <path/> entry.
+   * Adds a {@code <path/>} entry.
    */
   public void addPath(Path list) {
     this.sourcePaths.add(list);

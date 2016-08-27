@@ -22,6 +22,7 @@ import com.google.javascript.jscomp.MinimizedCondition.MinimizationStyle;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.TernaryValue;
 
 /**
@@ -38,6 +39,7 @@ class PeepholeMinimizeConditions
   private static final int AND_PRECEDENCE = NodeUtil.precedence(Token.AND);
 
   private final boolean late;
+  private final boolean useTypes;
 
   /**
    * @param late When late is false, this mean we are currently running before
@@ -46,8 +48,9 @@ class PeepholeMinimizeConditions
    * merging statements with commas, etc). When this is true, we would
    * do anything to minimize for size.
    */
-  PeepholeMinimizeConditions(boolean late) {
+  PeepholeMinimizeConditions(boolean late, boolean useTypes) {
     this.late = late;
+    this.useTypes = useTypes;
   }
 
   /**
@@ -57,8 +60,8 @@ class PeepholeMinimizeConditions
   @SuppressWarnings("fallthrough")
   public Node optimizeSubtree(Node node) {
     switch(node.getType()) {
-      case Token.THROW:
-      case Token.RETURN: {
+      case THROW:
+      case RETURN: {
         Node result = tryRemoveRedundantExit(node);
         if (result != node) {
           return result;
@@ -69,35 +72,37 @@ class PeepholeMinimizeConditions
       // TODO(johnlenz): Maybe remove redundant BREAK and CONTINUE. Overlaps
       // with MinimizeExitPoints.
 
-      case Token.NOT:
+      case NOT:
         tryMinimizeCondition(node.getFirstChild());
         return tryMinimizeNot(node);
 
-      case Token.IF:
+      case IF:
+        performCoercionSubstitutions(node.getFirstChild());
         performConditionSubstitutions(node.getFirstChild());
         return tryMinimizeIf(node);
 
-      case Token.EXPR_RESULT:
+      case EXPR_RESULT:
         performConditionSubstitutions(node.getFirstChild());
         return tryMinimizeExprResult(node);
 
-      case Token.HOOK:
+      case HOOK:
+        performCoercionSubstitutions(node.getFirstChild());
         performConditionSubstitutions(node.getFirstChild());
         return tryMinimizeHook(node);
 
-      case Token.WHILE:
-      case Token.DO:
+      case WHILE:
+      case DO:
         tryMinimizeCondition(NodeUtil.getConditionExpression(node));
         return node;
 
-      case Token.FOR:
+      case FOR:
         if (!NodeUtil.isForIn(node)) {
           tryJoinForCondition(node);
           tryMinimizeCondition(NodeUtil.getConditionExpression(node));
         }
         return node;
 
-      case Token.BLOCK:
+      case BLOCK:
         return tryReplaceIf(node);
 
       default:
@@ -225,17 +230,17 @@ class PeepholeMinimizeConditions
 
   private static boolean statementMustExitParent(Node n) {
     switch (n.getType()) {
-      case Token.THROW:
-      case Token.RETURN:
+      case THROW:
+      case RETURN:
         return true;
-      case Token.BLOCK:
+      case BLOCK:
         if (n.hasChildren()) {
           Node child = n.getLastChild();
           return statementMustExitParent(child);
         }
         return false;
       // TODO(johnlenz): handle TRY/FINALLY
-      case Token.FUNCTION:
+      case FUNCTION:
       default:
         return false;
     }
@@ -403,18 +408,18 @@ class PeepholeMinimizeConditions
 
     Node notChild = n.getFirstChild();
     // negative operator of the current one : == -> != for instance.
-    int complementOperator;
+    Token complementOperator;
     switch (notChild.getType()) {
-      case Token.EQ:
+      case EQ:
         complementOperator = Token.NE;
         break;
-      case Token.NE:
+      case NE:
         complementOperator = Token.EQ;
         break;
-      case Token.SHEQ:
+      case SHEQ:
         complementOperator = Token.SHNE;
         break;
-      case Token.SHNE:
+      case SHNE:
         complementOperator = Token.SHEQ;
         break;
       // GT, GE, LT, LE are not handled in this because !(x<NaN) != x>=NaN.
@@ -913,23 +918,23 @@ class PeepholeMinimizeConditions
   private static boolean consumesDanglingElse(Node n) {
     while (true) {
       switch (n.getType()) {
-        case Token.IF:
+        case IF:
           if (n.getChildCount() < 3) {
             return true;
           }
           // This IF node has no else clause.
           n = n.getLastChild();
           continue;
-        case Token.BLOCK:
+        case BLOCK:
           if (n.getChildCount() != 1) {
             return false;
           }
           // This BLOCK has no curly braces.
           n = n.getLastChild();
           continue;
-        case Token.WITH:
-        case Token.WHILE:
-        case Token.FOR:
+        case WITH:
+        case WHILE:
+        case FOR:
           n = n.getLastChild();
           continue;
         default:
@@ -970,11 +975,65 @@ class PeepholeMinimizeConditions
    * @return The replacement for n, or the original if no change was made.
    */
   private Node tryMinimizeCondition(Node n) {
+    n = performCoercionSubstitutions(n);
     n = performConditionSubstitutions(n);
     MinimizedCondition minCond = MinimizedCondition.fromConditionNode(n);
     return replaceNode(
         minCond.getPlaceholder(),
         minCond.getMinimized(MinimizationStyle.PREFER_UNNEGATED));
+  }
+
+  /**
+   * Replaces 'foo ==/!=/===/!== null' with 'foo' or '!foo'. Should only be used for expressions
+   * used in conditions where the final result is coerced to a boolean.
+   *
+   * @return The replacement for n, or the original if no change was made.
+   */
+  private Node performCoercionSubstitutions(Node n) {
+    if (!useTypes) {
+      return n;
+    }
+
+    Node parent = n.getParent();
+
+    switch (n.getType()) {
+      case OR:
+      case AND:
+        performCoercionSubstitutions(n.getFirstChild());
+        performCoercionSubstitutions(n.getLastChild());
+        break;
+
+      case EQ:
+      case NE:
+      case SHEQ:
+      case SHNE:
+        Node left = n.getFirstChild();
+        Node right = n.getLastChild();
+        boolean leftIsNull = NodeUtil.isNullOrUndefined(left);
+        boolean rightIsNull = NodeUtil.isNullOrUndefined(right);
+        boolean leftIsObject = isObjectType(left);
+        boolean rightIsObject = isObjectType(right);
+        if (leftIsObject && rightIsNull || rightIsObject && leftIsNull) {
+          n.detachChildren();
+          Node objExpression = leftIsObject ? left : right;
+          Node replacement = n.getType() == Token.EQ || n.getType() == Token.SHEQ
+              ? IR.not(objExpression)
+              : objExpression;
+          parent.replaceChild(n, replacement);
+          reportCodeChange();
+          return replacement;
+        }
+        break;
+    }
+    return n;
+  }
+
+  private static boolean isObjectType(Node n) {
+    JSType jsType = n.getJSType();
+    if (jsType == null) {
+      return false;
+    }
+    return !jsType.isUnknownType() && jsType.isObject();
   }
 
   private Node replaceNode(Node lhs, MinimizedCondition.MeasuredNode rhs) {
@@ -1001,8 +1060,8 @@ class PeepholeMinimizeConditions
     Node parent = n.getParent();
 
     switch (n.getType()) {
-      case Token.OR:
-      case Token.AND: {
+      case OR:
+      case AND: {
         Node left = n.getFirstChild();
         Node right = n.getLastChild();
 
@@ -1030,7 +1089,7 @@ class PeepholeMinimizeConditions
         // the new AST is easier for other passes to handle.
         TernaryValue rightVal = NodeUtil.getPureBooleanValue(right);
         if (NodeUtil.getPureBooleanValue(right) != TernaryValue.UNKNOWN) {
-          int type = n.getType();
+          Token type = n.getType();
           Node replacement = null;
           boolean rval = rightVal.toBoolean(true);
 
@@ -1058,7 +1117,7 @@ class PeepholeMinimizeConditions
         return n;
       }
 
-      case Token.HOOK: {
+      case HOOK: {
         Node condition = n.getFirstChild();
         Node trueNode = n.getSecondChild();
         Node falseNode = n.getLastChild();

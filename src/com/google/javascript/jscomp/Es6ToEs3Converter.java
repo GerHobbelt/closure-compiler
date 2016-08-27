@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 /**
  * Converts ES6 code to valid ES5 code. This class does most of the transpilation, and
  * https://github.com/google/closure-compiler/wiki/ECMAScript6 lists which ES6 features are
@@ -112,18 +114,26 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
   @Override
   public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
-      case Token.REST:
+      case REST:
         visitRestParam(n, parent);
         break;
-      case Token.GETTER_DEF:
-      case Token.SETTER_DEF:
+      case GETTER_DEF:
+      case SETTER_DEF:
         if (compiler.getOptions().getLanguageOut() == LanguageMode.ECMASCRIPT3) {
           cannotConvert(n, "ES5 getters/setters (consider using --language_out=ES5)");
           return false;
         }
         break;
-      case Token.NEW_TARGET:
+      case NEW_TARGET:
         cannotConvertYet(n, "new.target");
+        break;
+      case FUNCTION:
+        if (n.isAsyncFunction()) {
+          cannotConvertYet(n, "async function");
+        }
+        break;
+      default:
+        break;
     }
     return true;
   }
@@ -131,36 +141,36 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
-      case Token.NAME:
+      case NAME:
         if (!n.isFromExterns() && isGlobalSymbol(t, n)) {
           initSymbolBefore(n);
         }
         break;
-      case Token.GETPROP:
+      case GETPROP:
         if (!n.isFromExterns()) {
           visitGetprop(t, n);
         }
         break;
-      case Token.OBJECTLIT:
+      case OBJECTLIT:
         visitObject(n);
         break;
-      case Token.MEMBER_FUNCTION_DEF:
+      case MEMBER_FUNCTION_DEF:
         if (parent.isObjectLit()) {
           visitMemberFunctionDefInObjectLit(n, parent);
         }
         break;
-      case Token.FOR_OF:
+      case FOR_OF:
         visitForOf(n, parent);
         break;
-      case Token.STRING_KEY:
+      case STRING_KEY:
         visitStringKey(n);
         break;
-      case Token.CLASS:
+      case CLASS:
         visitClass(n, parent);
         break;
-      case Token.ARRAYLIT:
-      case Token.NEW:
-      case Token.CALL:
+      case ARRAYLIT:
+      case NEW:
+      case CALL:
         for (Node child : n.children()) {
           if (child.isSpread()) {
             visitArrayLitOrCallWithSpread(n, parent);
@@ -168,10 +178,10 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
           }
         }
         break;
-      case Token.TAGGED_TEMPLATELIT:
+      case TAGGED_TEMPLATELIT:
         Es6TemplateLiterals.visitTaggedTemplateLiteral(t, n);
         break;
-      case Token.TEMPLATELIT:
+      case TEMPLATELIT:
         if (!parent.isTaggedTemplateLit()) {
           Es6TemplateLiterals.visitTemplateLiteral(t, n);
         }
@@ -248,7 +258,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
     iterName.makeNonIndexable();
     Node getNext = IR.call(IR.getprop(iterName.cloneTree(), IR.string("next")));
     String variableName;
-    int declType;
+    Token declType;
     if (variable.isName()) {
       declType = Token.NAME;
       variableName = variable.getQualifiedName();
@@ -500,7 +510,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
         }
         Node val = propdef.removeFirstChild();
         propdef.setType(Token.STRING);
-        int type = propdef.isQuotedString() ? Token.GETELEM : Token.GETPROP;
+        Token type = propdef.isQuotedString() ? Token.GETELEM : Token.GETPROP;
         Node access = new Node(type, IR.name(objName), propdef);
         result = IR.comma(IR.assign(access, val), result);
       }
@@ -637,47 +647,7 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
 
     addTypeDeclarations(metadata, enclosingStatement);
 
-    // Classes are @struct by default.
-    if (!newInfo.isUnrestrictedRecorded() && !newInfo.isDictRecorded()
-        && !newInfo.isStructRecorded()) {
-      newInfo.recordStruct();
-    }
-
-    if (ctorJSDocInfo != null) {
-      if (!ctorJSDocInfo.getSuppressions().isEmpty()) {
-        newInfo.recordSuppressions(ctorJSDocInfo.getSuppressions());
-      }
-
-      for (String param : ctorJSDocInfo.getParameterNames()) {
-        newInfo.recordParameter(param, ctorJSDocInfo.getParameterType(param));
-        newInfo.recordParameterDescription(param, ctorJSDocInfo.getDescriptionForParameter(param));
-      }
-
-      for (JSTypeExpression thrown : ctorJSDocInfo.getThrownTypes()) {
-        newInfo.recordThrowType(thrown);
-        newInfo.recordThrowDescription(thrown, ctorJSDocInfo.getThrowsDescriptionForType(thrown));
-      }
-
-      JSDocInfo.Visibility visibility = ctorJSDocInfo.getVisibility();
-      if (visibility != null && visibility != JSDocInfo.Visibility.INHERITED) {
-        newInfo.recordVisibility(visibility);
-      }
-
-      if (ctorJSDocInfo.isDeprecated()) {
-        newInfo.recordDeprecated();
-      }
-
-      if (ctorJSDocInfo.getDeprecationReason() != null
-          && !newInfo.isDeprecationReasonRecorded()) {
-        newInfo.recordDeprecationReason(ctorJSDocInfo.getDeprecationReason());
-      }
-
-      newInfo.mergePropertyBitfieldFrom(ctorJSDocInfo);
-
-      for (String templateType : ctorJSDocInfo.getTemplateTypeNames()) {
-        newInfo.recordTemplateTypeName(templateType);
-      }
-    }
+    updateClassJsDoc(ctorJSDocInfo, newInfo);
 
     if (NodeUtil.isStatement(classNode)) {
       constructor.getFirstChild().setString("");
@@ -708,6 +678,54 @@ public final class Es6ToEs3Converter implements NodeTraversal.Callback, HotSwapC
     }
 
     compiler.reportCodeChange();
+  }
+
+  /**
+   * @param ctorInfo the JSDocInfo from the constructor method of the ES6 class.
+   * @param newInfo the JSDocInfo that will be added to the constructor function in the ES3 output
+   */
+  private void updateClassJsDoc(@Nullable JSDocInfo ctorInfo, JSDocInfoBuilder newInfo) {
+    // Classes are @struct by default.
+    if (!newInfo.isUnrestrictedRecorded() && !newInfo.isDictRecorded()
+        && !newInfo.isStructRecorded()) {
+      newInfo.recordStruct();
+    }
+
+    if (ctorInfo != null) {
+      if (!ctorInfo.getSuppressions().isEmpty()) {
+        newInfo.recordSuppressions(ctorInfo.getSuppressions());
+      }
+
+      for (String param : ctorInfo.getParameterNames()) {
+        newInfo.recordParameter(param, ctorInfo.getParameterType(param));
+        newInfo.recordParameterDescription(param, ctorInfo.getDescriptionForParameter(param));
+      }
+
+      for (JSTypeExpression thrown : ctorInfo.getThrownTypes()) {
+        newInfo.recordThrowType(thrown);
+        newInfo.recordThrowDescription(thrown, ctorInfo.getThrowsDescriptionForType(thrown));
+      }
+
+      JSDocInfo.Visibility visibility = ctorInfo.getVisibility();
+      if (visibility != null && visibility != JSDocInfo.Visibility.INHERITED) {
+        newInfo.recordVisibility(visibility);
+      }
+
+      if (ctorInfo.isDeprecated()) {
+        newInfo.recordDeprecated();
+      }
+
+      if (ctorInfo.getDeprecationReason() != null
+          && !newInfo.isDeprecationReasonRecorded()) {
+        newInfo.recordDeprecationReason(ctorInfo.getDeprecationReason());
+      }
+
+      newInfo.mergePropertyBitfieldFrom(ctorInfo);
+
+      for (String templateType : ctorInfo.getTemplateTypeNames()) {
+        newInfo.recordTemplateTypeName(templateType);
+      }
+    }
   }
 
   /**

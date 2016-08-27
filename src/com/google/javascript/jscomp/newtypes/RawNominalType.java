@@ -27,6 +27,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -57,7 +58,7 @@ public final class RawNominalType extends Namespace {
   // have the same superclass and interfaces fields, because they have the
   // same raw type. You need to instantiate these fields to get the correct
   // type maps, eg, see NominalType#isSubtypeOf.
-  private NominalType superClass = null;
+  private NominalType superclass = null;
   private ImmutableSet<NominalType> interfaces = null;
   private final Kind kind;
   // Used in GlobalTypeInfo to find type mismatches in the inheritance chain.
@@ -208,21 +209,21 @@ public final class RawNominalType extends Namespace {
     Preconditions.checkState(ancestor.isClass());
     if (this == ancestor) {
       return true;
-    } else if (this.superClass == null) {
+    } else if (this.superclass == null) {
       return false;
     } else {
-      return this.superClass.hasAncestorClass(ancestor);
+      return this.superclass.hasAncestorClass(ancestor);
     }
   }
 
   /** @return Whether the superclass can be added without creating a cycle. */
-  public boolean addSuperClass(NominalType superClass) {
+  public boolean addSuperClass(NominalType superclass) {
     Preconditions.checkState(!this.isFinalized);
-    Preconditions.checkState(this.superClass == null);
-    if (superClass.hasAncestorClass(this)) {
+    Preconditions.checkState(this.superclass == null);
+    if (superclass.hasAncestorClass(this)) {
       return false;
     }
-    this.superClass = superClass;
+    this.superclass = superclass;
     return true;
   }
 
@@ -242,19 +243,22 @@ public final class RawNominalType extends Namespace {
     }
   }
 
-  private boolean inheritsFromIObject() {
-    Preconditions.checkState(!this.isFinalized);
+  boolean inheritsFromIObjectReflexive() {
     if (isBuiltinWithName("IObject")) {
       return true;
     }
     if (this.interfaces != null) {
       for (NominalType interf : this.interfaces) {
-        if (interf.getRawNominalType().inheritsFromIObject()) {
+        if (interf.inheritsFromIObjectReflexive()) {
           return true;
         }
       }
     }
     return false;
+  }
+
+  public boolean inheritsFromIObject() {
+    return !isBuiltinWithName("IObject") && inheritsFromIObjectReflexive();
   }
 
   /** @return Whether the interface can be added without creating a cycle. */
@@ -273,7 +277,7 @@ public final class RawNominalType extends Namespace {
     // TODO(dimvar): When a class extends a class that inherits from IObject,
     // it should be unrestricted.
     for (NominalType interf : interfaces) {
-      if (interf.getRawNominalType().inheritsFromIObject()) {
+      if (interf.getRawNominalType().inheritsFromIObjectReflexive()) {
         this.objectKind = ObjectKind.UNRESTRICTED;
       }
     }
@@ -282,7 +286,7 @@ public final class RawNominalType extends Namespace {
   }
 
   public NominalType getSuperClass() {
-    return superClass;
+    return this.superclass;
   }
 
   public ImmutableSet<NominalType> getInterfaces() {
@@ -325,8 +329,8 @@ public final class RawNominalType extends Namespace {
     if (p != null) {
       return p;
     }
-    if (superClass != null) {
-      p = superClass.getProp(pname);
+    if (this.superclass != null) {
+      p = this.superclass.getProp(pname);
       if (p != null) {
         return p;
       }
@@ -370,8 +374,8 @@ public final class RawNominalType extends Namespace {
     Property p = getProp(pname);
     if (p == null) {
       return null;
-    } else if (p.getDeclaredType() == null && superClass != null) {
-      return superClass.getPropDeclaredType(pname);
+    } else if (p.getDeclaredType() == null && this.superclass != null) {
+      return this.superclass.getPropDeclaredType(pname);
     }
     return p.getDeclaredType();
   }
@@ -411,8 +415,8 @@ public final class RawNominalType extends Namespace {
     Preconditions.checkState(this.isFinalized);
     if (this.allProps == null) {
       ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-      if (superClass != null) {
-        builder.addAll(superClass.getAllPropsOfClass());
+      if (this.superclass != null) {
+        builder.addAll(this.superclass.getAllPropsOfClass());
       }
       this.allProps = builder.addAll(classProps.keySet())
           .addAll(protoProps.keySet()).build();
@@ -532,8 +536,22 @@ public final class RawNominalType extends Namespace {
     if (this.interfaces == null) {
       this.interfaces = ImmutableSet.of();
     }
+    if (isInterface()) {
+      // When an interface property is not annotated with a type, we don't know
+      // at the definition site if it's untyped; it may inherit a type from a
+      // superinterface. At finalization, we have seen all supertypes, so we
+      // can now safely declare the property with type ?.
+      for (Map.Entry<String, Property> entry : this.protoProps.entrySet()) {
+        Property prop = entry.getValue();
+        if (!prop.isDeclared()) {
+          this.protoProps = this.protoProps.with(
+              entry.getKey(), Property.makeWithDefsite(
+                  prop.getDefSite(), JSType.UNKNOWN, JSType.UNKNOWN));
+        }
+      }
+    }
     JSType protoObject = JSType.fromObjectType(ObjectType.makeObjectType(
-        this.superClass, this.protoProps,
+        this.superclass, this.protoProps,
         null, null, false, ObjectKind.UNRESTRICTED));
     addCtorProperty("prototype", null, protoObject, false);
     this.isFinalized = true;

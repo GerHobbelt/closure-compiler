@@ -63,6 +63,10 @@ public final class NewTypeInferenceES6Test extends NewTypeInferenceTestBase {
     typeCheck("taggedTemp`${this.a}TaggedTemp`", NewTypeInference.GLOBAL_THIS);
   }
 
+  public void testTaggedTemplate() {
+    typeCheck("String.raw`one ${1} two`");
+  }
+
   public void testConstEmptyArrayNoWarning() {
     typeCheck("const x = [];");
   }
@@ -200,5 +204,25 @@ public final class NewTypeInferenceES6Test extends NewTypeInferenceTestBase {
         "}",
         "(new Bar).method('str');"),
         NewTypeInference.WRONG_ARGUMENT_COUNT);
+  }
+
+  public void testOuterVarDefinitionJoinDoesntCrash() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */ function Foo(){}",
+        "function f() {",
+        "  if (true) {",
+        "    function g() { new Foo; }",
+        "    g();",
+        "  }",
+        "}"));
+
+    // typeCheck(LINE_JOINER.join(
+    //     "function f() {",
+    //     "  if (true) {",
+    //     "    function g() { new Foo; }",
+    //     "    g();",
+    //     "  }",
+    //     "}"),
+    //     VarCheck.UNDEFINED_VAR_ERROR);
   }
 }
