@@ -1409,4 +1409,4 @@ Polymer.AppLayout.ElementWithBackground.prototype = {
   _deltaHeight: 0,
   /** @return {?Element} Element in local dom by id. */
   _getDOMRef: function(title){}
-}
+};
