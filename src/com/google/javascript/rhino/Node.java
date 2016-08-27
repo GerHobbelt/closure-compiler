@@ -148,7 +148,8 @@ public class Node implements Serializable {
                                   // goog.module() or goog.require() call.
       WAS_PREVIOUSLY_PROVIDED = 91, // Indicates a namespace that was provided at some point in the
                                   // past.
-      IS_ES6_CLASS = 92;          // Indicates that a FUNCTION node is converted from an ES6 class
+      IS_ES6_CLASS = 92,          // Indicates that a FUNCTION node is converted from an ES6 class
+      TRANSPILED = 93;            // Indicates that a SCRIPT represents a transpiled file
 
   private static final String propToString(int propType) {
       switch (propType) {
@@ -207,6 +208,7 @@ public class Node implements Serializable {
         case IS_MODULE_NAME:     return "is_module_name";
         case WAS_PREVIOUSLY_PROVIDED: return "was_previously_provided";
         case IS_ES6_CLASS: return "is_es6_class";
+        case TRANSPILED:   return "transpiled";
         default:
           throw new IllegalStateException("unexpected prop id " + propType);
       }
@@ -641,8 +643,13 @@ public class Node implements Serializable {
     return first;
   }
 
+  /**
+   * Get the first child of the first child. This method assumes that the first child exists.
+   *
+   * @return The first child of the first child.
+   */
   public Node getFirstFirstChild() {
-    return first == null ? null : first.first;
+    return first.first;
   }
 
   public Node getSecondChild() {
@@ -669,6 +676,12 @@ public class Node implements Serializable {
     return child.getPrevious(first);
   }
 
+  /**
+   * Gets the ith child, note that this is O(N) where N is the number of children.
+   *
+   * @param i The index
+   * @return The ith child
+   */
   public Node getChildAtIndex(int i) {
     Node n = first;
     while (i > 0) {
@@ -678,6 +691,12 @@ public class Node implements Serializable {
     return n;
   }
 
+  /**
+   * Gets the index of a child, note that this is O(N) where N is the number of children.
+   *
+   * @param child The child
+   * @return The index of the child
+   */
   public int getIndexOfChild(Node child) {
     Node n = first;
     int i = 0;

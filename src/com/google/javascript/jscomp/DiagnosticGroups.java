@@ -474,7 +474,11 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup MISPLACED_TYPE_ANNOTATION =
       DiagnosticGroups.registerGroup("misplacedTypeAnnotation",
+          CheckJSDoc.ARROW_FUNCTION_AS_CONSTRUCTOR,
+          CheckJSDoc.DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL,
           CheckJSDoc.DISALLOWED_MEMBER_JSDOC,
+          CheckJSDoc.INVALID_NO_SIDE_EFFECT_ANNOTATION,
+          CheckJSDoc.INVALID_MODIFIES_ANNOTATION,
           CheckJSDoc.MISPLACED_ANNOTATION,
           CheckJSDoc.MISPLACED_MSG_ANNOTATION);
 
@@ -529,7 +533,6 @@ public class DiagnosticGroups {
               CheckRequiresAndProvidesSorted.REQUIRES_NOT_SORTED,
               CheckRequiresAndProvidesSorted.PROVIDES_NOT_SORTED,
               CheckRequiresAndProvidesSorted.PROVIDES_AFTER_REQUIRES,
-              CheckUnusedPrivateProperties.UNUSED_PRIVATE_PROPERTY,
               CheckUnusedLabels.UNUSED_LABEL,
               CheckUselessBlocks.USELESS_BLOCK,
               ClosureCheckModule.LET_GOOG_REQUIRE,
@@ -548,6 +551,7 @@ public class DiagnosticGroups {
           CheckArrayWithGoogObject.ARRAY_PASSED_TO_GOOG_OBJECT,
           CheckNullableReturn.NULLABLE_RETURN,
           CheckNullableReturn.NULLABLE_RETURN_WITH_NAME,
+          CheckUnusedPrivateProperties.UNUSED_PRIVATE_PROPERTY,
           ImplicitNullabilityCheck.IMPLICITLY_NULLABLE_JSDOC);
 
   public static final DiagnosticGroup USE_OF_GOOG_BASE =
