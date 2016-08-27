@@ -96,7 +96,7 @@ $jscomp.array.findInternal_ = function(array, callback, thisArg) {
  * relies on the compiler to check the validity of inputs rather
  * than producing spec-compliant TypeErrors.
  *
- * @param {!IArrayLike<INPUT>|!Iterator<INPUT>|!Iterable<INPUT>|!Array<INPUT>}
+ * @param {!IArrayLike<INPUT>|!Iterator<INPUT>|!Iterable<INPUT>}
  *     arrayLike An array-like or iterable.
  * @param {(function(this: THIS, INPUT): OUTPUT)=} opt_mapFn
  *     Function to call on each argument.
@@ -130,13 +130,11 @@ $jscomp.array.from = function(
  * <p>Polyfills the static function Array.of().  Does not support
  * constructor inheritance (i.e. (subclass of Array).of).
  *
- * @param {...VALUE} elements Elements to include in the array.
- * @return {!Array<VALUE>}
- * @template VALUE
- * @suppress {checkTypes}
+ * @param {...*} elements Elements to include in the array.
+ * @return {!Array<*>}
+ * TODO(tbreisacher): Put back the at-template type after b/26884264 is fixed.
  */
 $jscomp.array.of = function(...elements) {
-  // TODO(sdh): Remove suppression when IArrayLike migration is done.
   return $jscomp.array.from(elements);
 };
 

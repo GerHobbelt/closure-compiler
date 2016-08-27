@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.testing.JSErrorSubject.assertError;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -26,6 +27,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import com.google.javascript.jscomp.AbstractCommandLineRunner.FlagEntry;
@@ -58,6 +60,7 @@ import java.util.zip.ZipOutputStream;
  * @author nicksantos@google.com (Nick Santos)
  */
 public final class CommandLineRunnerTest extends TestCase {
+  private static final Joiner LINE_JOINER = Joiner.on('\n');
 
   private Compiler lastCompiler = null;
   private CommandLineRunner lastCommandLineRunner = null;
@@ -150,6 +153,26 @@ public final class CommandLineRunnerTest extends TestCase {
 
     args.add("--extra_annotation_name=unknownTag");
     testSame("/** @unknownTag */ function f() {}");
+  }
+
+  // See b/26884264
+  public void testForOfTypecheck() throws IOException {
+    args.add("--jscomp_error=checkTypes");
+    args.add("--language_in=ES6_STRICT");
+    args.add("--language_out=ES3");
+    externs = AbstractCommandLineRunner.getBuiltinExterns(CompilerOptions.Environment.BROWSER);
+    test(
+        Joiner.on('\n').join(
+            "class Cat {meow() {}}",
+            "class Dog {}",
+            "",
+            "/** @type {!Array<!Dog>} */",
+            "var dogs = [];",
+            "",
+            "for (var dog of dogs) {",
+            "  dog.meow();",  // type error
+            "}"),
+        TypeCheck.INEXISTENT_PROPERTY);
   }
 
   public void testWarningGuardOrdering1() {
@@ -984,6 +1007,15 @@ public final class CommandLineRunnerTest extends TestCase {
         .isEqualTo("foo_m0.js.map");
   }
 
+  public void testInvalidSourceMapPattern() {
+    useModules = ModulePattern.CHAIN;
+    args.add("--create_source_map=out.map");
+    args.add("--module_output_path_prefix=foo_");
+    test(
+        new String[] {"var x = 3;", "var y = 5;"},
+        AbstractCommandLineRunner.INVALID_MODULE_SOURCEMAP_PATTERN);
+  }
+
   public void testSourceMapFormat1() {
     args.add("--js_output_file");
     args.add("/path/to/out.js");
@@ -1059,11 +1091,34 @@ public final class CommandLineRunnerTest extends TestCase {
     FlagEntry<JsSourceType> zipFile1 = createZipFile(zip1Contents);
 
     LinkedHashMap<String, String> zip2Contents = new LinkedHashMap<>();
-    zip2Contents.put("run.js", "window.alert(\"Hi Browser\");");
+    zip2Contents.put("run1.js", "window.alert(\"Hi Browser\");");
     FlagEntry<JsSourceType> zipFile2 = createZipFile(zip2Contents);
 
     compileFiles(
         "console.log(\"Hello World\");window.alert(\"Hi Browser\");", zipFile1, zipFile2);
+  }
+
+  public void testInputMultipleDuplicateZips() throws IOException, FlagUsageException {
+    args.add("--jscomp_error=duplicateZipContents");
+    FlagEntry<JsSourceType> zipFile1 =
+        createZipFile(ImmutableMap.of("run.js", "console.log(\"Hello World\");"));
+
+    FlagEntry<JsSourceType> zipFile2 =
+        createZipFile(ImmutableMap.of("run.js", "console.log(\"Hello World\");"));
+
+    compileFilesError(
+        SourceFile.DUPLICATE_ZIP_CONTENTS, zipFile1, zipFile2);
+  }
+
+  public void testInputMultipleConflictingZips() throws IOException, FlagUsageException {
+    FlagEntry<JsSourceType> zipFile1 =
+        createZipFile(ImmutableMap.of("run.js", "console.log(\"Hello World\");"));
+
+    FlagEntry<JsSourceType> zipFile2 =
+        createZipFile(ImmutableMap.of("run.js", "window.alert(\"Hi Browser\");"));
+
+    compileFilesError(
+        AbstractCommandLineRunner.CONFLICTING_DUPLICATE_ZIP_CONTENTS, zipFile1, zipFile2);
   }
 
   public void testInputMultipleContents() throws IOException, FlagUsageException {
@@ -1085,7 +1140,7 @@ public final class CommandLineRunnerTest extends TestCase {
     FlagEntry<JsSourceType> jsFile1 = createJsFile("testjsfile", "var a;");
 
     LinkedHashMap<String, String> zip2Contents = new LinkedHashMap<>();
-    zip2Contents.put("run.js", "window.alert(\"Hi Browser\");");
+    zip2Contents.put("run1.js", "window.alert(\"Hi Browser\");");
     FlagEntry<JsSourceType> zipFile2 = createZipFile(zip2Contents);
 
     compileFiles(
@@ -1094,9 +1149,11 @@ public final class CommandLineRunnerTest extends TestCase {
   }
 
   public void testInputMultipleJsFilesWithOneJsFlag() throws IOException, FlagUsageException {
+    // Test that file order is preserved with --js test3.js test2.js test1.js
     FlagEntry<JsSourceType> jsFile1 = createJsFile("test1", "var a;");
     FlagEntry<JsSourceType> jsFile2 = createJsFile("test2", "var b;");
-    compileJsFiles("var a;var b;", jsFile1, jsFile2);
+    FlagEntry<JsSourceType> jsFile3 = createJsFile("test3", "var c;");
+    compileJsFiles("var c;var b;var a;", jsFile3, jsFile2, jsFile1);
   }
 
   public void testInputMultipleJsFilesWithOneJsFlag1() throws IOException, FlagUsageException {
@@ -1342,20 +1399,20 @@ public final class CommandLineRunnerTest extends TestCase {
   }
 
   public void testChecksOnlySkipsOptimizations() {
-    args.add("--checks-only");
+    args.add("--checks_only");
     test("var foo = 1 + 1;",
       "var foo = 1 + 1;");
   }
 
   public void testChecksOnlyWithParseError() {
     args.add("--compilation_level=WHITESPACE_ONLY");
-    args.add("--checks-only");
+    args.add("--checks_only");
     test("val foo = 1;",
       RhinoErrorReporter.PARSE_ERROR);
   }
 
   public void testChecksOnlyWithWarning() {
-    args.add("--checks-only");
+    args.add("--checks_only");
     args.add("--warning_level=VERBOSE");
     test("/** @deprecated */function foo() {}; foo();",
       CheckAccessControls.DEPRECATED_NAME);
@@ -1499,43 +1556,48 @@ public final class CommandLineRunnerTest extends TestCase {
     setFilename(3, "app.js");
     test(
         new String[] {
-          "/** @provideGoog */\n"
-              + "/** @const */ var goog = goog || {};\n"
-              + "var COMPILED = false;\n"
-              + "goog.provide = function (arg) {};\n"
-              + "goog.require = function (arg) {};",
+          LINE_JOINER.join(
+              "/** @provideGoog */",
+              "/** @const */ var goog = goog || {};",
+              "var COMPILED = false;",
+              "goog.provide = function (arg) {};",
+              "goog.require = function (arg) {};"),
           "goog.provide('goog.array');",
-          "goog.require('goog.array');"
-              + "function Baz() {}"
-              + "Baz.prototype = {"
-              + "  baz: function() {"
-              + "    return goog.array.last(['asdf','asd','baz']);"
-              + "  },"
-              + "  bar: function () {"
-              + "    return 4 + 4;"
-              + "  }"
-              + "};"
-              + "module.exports = Baz;",
-          "var Baz = require('./Baz');"
-              + "var baz = new Baz();"
-              + "console.log(baz.baz());"
-              + "console.log(baz.bar());"
+          LINE_JOINER.join(
+              "goog.require('goog.array');",
+              "function Baz() {}",
+              "Baz.prototype = {",
+              "  baz: function() {",
+              "    return goog.array.last(['asdf','asd','baz']);",
+              "  },",
+              "  bar: function () {",
+              "    return 4 + 4;",
+              "  }",
+              "};",
+              "module.exports = Baz;"),
+          LINE_JOINER.join(
+              "var Baz = require('./Baz');",
+              "var baz = new Baz();",
+              "console.log(baz.baz());",
+              "console.log(baz.bar());")
         },
         new String[] {
-          "var goog=goog||{},COMPILED=!1;"
-              + "goog.provide=function(a){};goog.require=function(a){};",
+          LINE_JOINER.join(
+              "var goog=goog||{},COMPILED=!1;",
+              "goog.provide=function(a){};goog.require=function(a){};"),
           "goog.array={};",
-          "function Baz$$module$Baz(){}"
-              + "Baz$$module$Baz.prototype={"
-              + "  baz:function(){return goog.array.last(['asdf','asd','baz'])},"
-              + "  bar:function(){return 8}"
-              + "};"
-              + "var module$Baz=Baz$$module$Baz;",
-          "var module$app={},"
-              + "    Baz$$module$app=Baz$$module$Baz,"
-              + "    baz$$module$app=new Baz$$module$app;"
-              + "console.log(baz$$module$app.baz());"
-              + "console.log(baz$$module$app.bar())"
+          LINE_JOINER.join(
+              "function Baz$$module$Baz(){}",
+              "Baz$$module$Baz.prototype={",
+              "  baz:function(){return goog.array.last(['asdf','asd','baz'])},",
+              "  bar:function(){return 8}",
+              "};",
+              "var module$Baz=Baz$$module$Baz;"),
+          LINE_JOINER.join(
+              "var Baz = Baz$$module$Baz,",
+              "    baz = new Baz();",
+              "console.log(baz.baz());",
+              "console.log(baz.bar());")
         });
   }
 
@@ -1555,43 +1617,48 @@ public final class CommandLineRunnerTest extends TestCase {
 
     test(
         new String[] {
-          "/** @provideGoog */"
-              + "/** @const */ var goog = goog || {};"
-              + "var COMPILED = false;"
-              + "goog.provide = function (arg) {};"
-              + "goog.require = function (arg) {};",
+          LINE_JOINER.join(
+              "/** @provideGoog */",
+              "/** @const */ var goog = goog || {};",
+              "var COMPILED = false;",
+              "goog.provide = function (arg) {};",
+              "goog.require = function (arg) {};"),
           "goog.provide('goog.array');",
-          "goog.require('goog.array');"
-              + "function Baz() {}"
-              + "Baz.prototype = {"
-              + "  baz: function() {"
-              + "    return goog.array.last(['asdf','asd','baz']);"
-              + "  },"
-              + "  bar: function () {"
-              + "    return 4 + 4;"
-              + "  }"
-              + "};"
-              + "module.exports = Baz;",
-          "var Baz = require('./Baz');"
-              + "var baz = new Baz();"
-              + "console.log(baz.baz());"
-              + "console.log(baz.bar());"
+          LINE_JOINER.join(
+              "goog.require('goog.array');",
+              "function Baz() {}",
+              "Baz.prototype = {",
+              "  baz: function() {",
+              "    return goog.array.last(['asdf','asd','baz']);",
+              "  },",
+              "  bar: function () {",
+              "    return 4 + 4;",
+              "  }",
+              "};",
+              "module.exports = Baz;"),
+          LINE_JOINER.join(
+              "var Baz = require('./Baz');",
+              "var baz = new Baz();",
+              "console.log(baz.baz());",
+              "console.log(baz.bar());")
         },
         new String[] {
-          "var goog=goog||{},COMPILED=!1;"
-              + "goog.provide=function(a){};goog.require=function(a){};",
+          LINE_JOINER.join(
+          "var goog=goog||{},COMPILED=!1;",
+              "goog.provide=function(a){};goog.require=function(a){};"),
           "goog.array={};",
-          "function Baz$$module$Baz(){}"
-              + "Baz$$module$Baz.prototype={"
-              + "baz:function(){return goog.array.last([\"asdf\",\"asd\",\"baz\"])},"
-              + "bar:function(){return 8}"
-              + "};"
-              + "var module$Baz=Baz$$module$Baz;",
-          "var module$app={},"
-              + "Baz$$module$app=Baz$$module$Baz,"
-              + "baz$$module$app=new Baz$$module$app;"
-              + "console.log(baz$$module$app.baz());"
-              + "console.log(baz$$module$app.bar());"
+          LINE_JOINER.join(
+              "function Baz$$module$Baz(){}",
+              "Baz$$module$Baz.prototype={",
+              "baz:function(){return goog.array.last([\"asdf\",\"asd\",\"baz\"])},",
+              "bar:function(){return 8}",
+              "};",
+              "var module$Baz=Baz$$module$Baz;"),
+          LINE_JOINER.join(
+              "var Baz = Baz$$module$Baz,",
+              "    baz = new Baz();",
+              "console.log(baz.baz());",
+              "console.log(baz.bar());")
         });
   }
 
@@ -1604,20 +1671,25 @@ public final class CommandLineRunnerTest extends TestCase {
     setFilename(1, "app.js");
     test(
         new String[] {
-          "export default class Foo {" + "  bar() { console.log('bar'); }" + "}",
-          "var FooBar = require('./foo');"
-              + "var baz = new FooBar.default();"
-              + "console.log(baz.bar());"
+          LINE_JOINER.join(
+              "export default class Foo {",
+              "  bar() { console.log('bar'); }",
+              "}"),
+          LINE_JOINER.join(
+             "var FooBar = require('./foo');",
+             "var baz = new FooBar.default();",
+             "console.log(baz.bar());")
         },
         new String[] {
-          "var module$foo={},"
-              + "Foo$$module$foo=function(){};"
-              + "Foo$$module$foo.prototype.bar=function(){console.log(\"bar\")};"
-              + "module$foo.default=Foo$$module$foo;",
-          "var module$app={},"
-              + "FooBar$$module$app=module$foo,"
-              + "baz$$module$app=new FooBar$$module$app.default();"
-              + "console.log(baz$$module$app.bar());"
+          LINE_JOINER.join(
+              "var module$foo={},",
+              "Foo$$module$foo=function(){};",
+              "Foo$$module$foo.prototype.bar=function(){console.log(\"bar\")};",
+              "module$foo.default=Foo$$module$foo;"),
+          LINE_JOINER.join(
+              "var FooBar = module$foo,",
+              "    baz = new FooBar.default();",
+              "console.log(baz.bar());")
         });
   }
 
@@ -1630,18 +1702,23 @@ public final class CommandLineRunnerTest extends TestCase {
     setFilename(1, "app.js");
     test(
         new String[] {
-          "/** @constructor */ function Foo () {}"
-              + "Foo.prototype.bar = function() { console.log('bar'); };"
-              + "module.exports = Foo;",
-          "import * as FooBar from './foo';" + "var baz = new FooBar();" + "console.log(baz.bar());"
+          LINE_JOINER.join(
+              "/** @constructor */ function Foo () {}",
+              "Foo.prototype.bar = function() { console.log('bar'); };",
+              "module.exports = Foo;"),
+          LINE_JOINER.join(
+              "import * as FooBar from './foo';",
+              "var baz = new FooBar();",
+              "console.log(baz.bar());")
         },
         new String[] {
-          "function Foo$$module$foo(){}"
-              + "Foo$$module$foo.prototype.bar=function(){console.log(\"bar\")};"
-              + "var module$foo=Foo$$module$foo;",
-          "var module$app={},"
-              + "baz$$module$app$$module$app=new Foo$$module$foo();"
-              + "console.log(baz$$module$app$$module$app.bar());"
+          LINE_JOINER.join(
+              "function Foo$$module$foo(){}",
+              "Foo$$module$foo.prototype.bar=function(){console.log(\"bar\")};",
+              "var module$foo=Foo$$module$foo;"),
+          LINE_JOINER.join(
+              "var baz$$module$app = new Foo$$module$foo();",
+              "console.log(baz$$module$app.bar());")
         });
   }
 
@@ -1838,7 +1915,6 @@ public final class CommandLineRunnerTest extends TestCase {
   private void test(String[] original, String[] compiled, DiagnosticType warning) {
     exitCodes.clear();
     Compiler compiler = compile(original);
-    assertThat(exitCodes).containsExactly(0);
 
     if (warning == null) {
       assertEquals("Expected no warnings or errors\n" +
@@ -1860,6 +1936,8 @@ public final class CommandLineRunnerTest extends TestCase {
           "\nResult: " + compiler.toSource(root) +
           "\n" + explanation, explanation);
     }
+
+    assertThat(exitCodes).containsExactly(0);
   }
 
   /**
@@ -1954,10 +2032,22 @@ public final class CommandLineRunnerTest extends TestCase {
    */
   @SafeVarargs
   private final void compileFiles(String expectedOutput, FlagEntry<JsSourceType>... entries) {
+    setupFlags(entries);
+    compileArgs(expectedOutput, null);
+  }
+
+  @SafeVarargs
+  private final void compileFilesError(
+      DiagnosticType expectedError, FlagEntry<JsSourceType>... entries) {
+    setupFlags(entries);
+    compileArgs("", expectedError);
+  }
+
+  @SafeVarargs
+  private final void setupFlags(FlagEntry<JsSourceType>... entries) {
     for (FlagEntry<JsSourceType> entry : entries) {
       args.add("--" + entry.flag.flagName + "=" + entry.value);
     }
-    compileFiles(expectedOutput);
   }
 
   /**
@@ -1972,10 +2062,11 @@ public final class CommandLineRunnerTest extends TestCase {
     for (FlagEntry<JsSourceType> entry : entries) {
       args.add(entry.value);
     }
-    compileFiles(expectedOutput);
+    compileArgs(expectedOutput, null);
   }
 
-  private void compileFiles(String expectedOutput) throws FlagUsageException {
+  private void compileArgs(String expectedOutput, DiagnosticType expectedError)
+      throws FlagUsageException {
     String[] argStrings = args.toArray(new String[] {});
 
     CommandLineRunner runner =
@@ -1987,8 +2078,16 @@ public final class CommandLineRunnerTest extends TestCase {
       e.printStackTrace();
       fail("Unexpected exception " + e);
     }
-    String output = runner.getCompiler().toSource();
-    assertThat(output).isEqualTo(expectedOutput);
+    Compiler compiler = runner.getCompiler();
+    String output = compiler.toSource();
+    if (expectedError == null) {
+      assertThat(compiler.getErrors()).isEmpty();
+      assertThat(compiler.getWarnings()).isEmpty();
+      assertThat(output).isEqualTo(expectedOutput);
+    } else {
+      assertThat(compiler.getErrors()).hasLength(1);
+      assertError(compiler.getErrors()[0]).hasType(expectedError);
+    }
   }
 
   private Compiler compile(String[] original) {

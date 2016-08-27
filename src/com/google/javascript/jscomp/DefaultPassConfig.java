@@ -31,7 +31,6 @@ import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.PassFactory.HotSwapPassFactory;
-import com.google.javascript.jscomp.lint.CheckArguments;
 import com.google.javascript.jscomp.lint.CheckDuplicateCase;
 import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
@@ -199,6 +198,7 @@ public final class DefaultPassConfig extends PassConfig {
 
     // goog.module rewrite must happen even if options.skipNonTranspilationPasses is set.
     if (options.closurePass) {
+      checks.add(closureCheckModule);
       checks.add(closureRewriteModule);
     }
 
@@ -464,6 +464,7 @@ public final class DefaultPassConfig extends PassConfig {
     // into a fully qualified access and in so doing enables better dead code stripping.
     if (options.j2clPass) {
       passes.add(j2clPass);
+      passes.add(j2clPropertyInlinerPass);
     }
 
     passes.add(createEmptyPass("beforeStandardOptimizations"));
@@ -610,6 +611,13 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     passes.add(createEmptyPass("beforeMainOptimizations"));
+
+    // Because FlowSensitiveInlineVariables does not operate on the global scope due to compilation
+    // time, we need to run it once before InlineFunctions so that we don't miss inlining
+    // opportunities when a function will be inlined into the global scope.
+    if (options.flowSensitiveInlineVariables) {
+      passes.add(flowSensitiveInlineVariables);
+    }
 
     passes.addAll(getMainOptimizationLoop());
 
@@ -903,6 +911,7 @@ public final class DefaultPassConfig extends PassConfig {
       List<Callback> sharedCallbacks = new ArrayList<>();
       if (options.checkSuspiciousCode) {
         sharedCallbacks.add(new CheckSuspiciousCode());
+        sharedCallbacks.add(new CheckDuplicateCase(compiler));
       }
 
       if (options.enables(DiagnosticGroups.GLOBAL_THIS)) {
@@ -1235,6 +1244,15 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
+  /** Checks of correct usage of goog.module */
+  private final HotSwapPassFactory closureCheckModule =
+      new HotSwapPassFactory("closureCheckModule", true) {
+    @Override
+    protected HotSwapCompilerPass create(AbstractCompiler compiler) {
+      return new ClosureCheckModule(compiler);
+    }
+  };
+
   /** Rewrites goog.module */
   private final HotSwapPassFactory closureRewriteModule =
       new HotSwapPassFactory("closureRewriteModule", true) {
@@ -1332,7 +1350,7 @@ public final class DefaultPassConfig extends PassConfig {
             new PeepholeSubstituteAlternateSyntax(late),
             new PeepholeReplaceKnownMethods(late),
             new PeepholeRemoveDeadCode(),
-            new PeepholeFoldConstants(late),
+            new PeepholeFoldConstants(late, options.useTypesForOptimization),
             new PeepholeCollectPropertyAssignments());
     }
   };
@@ -1349,7 +1367,7 @@ public final class DefaultPassConfig extends PassConfig {
             new PeepholeMinimizeConditions(late),
             new PeepholeSubstituteAlternateSyntax(late),
             new PeepholeReplaceKnownMethods(late),
-            new PeepholeFoldConstants(late),
+            new PeepholeFoldConstants(late, options.useTypesForOptimization),
             new ReorderConstantExpression());
     }
   };
@@ -1540,8 +1558,6 @@ public final class DefaultPassConfig extends PassConfig {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
       ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
-          .add(new CheckArguments(compiler))
-          .add(new CheckDuplicateCase(compiler))
           .add(new CheckEmptyStatements(compiler))
           .add(new CheckEnums(compiler))
           .add(new CheckInterfaces(compiler))
@@ -2567,6 +2583,15 @@ public final class DefaultPassConfig extends PassConfig {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
           return new J2clPass(compiler);
+        }
+      };
+
+  /** Rewrites J2CL constructs to be more optimizable. */
+  private final PassFactory j2clPropertyInlinerPass =
+      new PassFactory("j2clES6Pass", true) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new J2clPropertyInlinerPass(compiler);
         }
       };
 

@@ -67,9 +67,9 @@ public final class RawNominalType extends Namespace {
   private final JSType wrappedAsNullableJSType;
   // Empty iff this type is not generic
   private final ImmutableList<String> typeParameters;
-  private final ObjectKind objectKind;
+  // Not final b/c interfaces that inherit from IObject mutate this during GTI
+  private ObjectKind objectKind;
   private FunctionType ctorFn;
-  private JSTypes commonTypes;
 
   private enum Kind {
     CLASS,
@@ -91,59 +91,68 @@ public final class RawNominalType extends Namespace {
     this.defSite = defSite;
     this.typeParameters = typeParameters;
     this.kind = kind;
-    this.objectKind = objectKind;
+    this.objectKind = isBuiltinHelper(name, "IObject", defSite)
+        ? ObjectKind.UNRESTRICTED : objectKind;
     this.wrappedAsNominal = new NominalType(ImmutableMap.<String, JSType>of(), this);
     ObjectType objInstance;
-    switch (name) {
-      case "Function":
-        objInstance = ObjectType.fromFunction(FunctionType.TOP_FUNCTION, this.wrappedAsNominal);
-        break;
-      case "Object":
-        // We do this to avoid having two instances of ObjectType that both
-        // represent the top JS object.
-        objInstance = ObjectType.TOP_OBJECT;
-        break;
-      default:
-        objInstance = ObjectType.fromNominalType(this.wrappedAsNominal);
+
+    if (isBuiltinHelper(name, "Function", defSite)) {
+      objInstance = ObjectType.fromFunction(FunctionType.TOP_FUNCTION, this.wrappedAsNominal);
+    } else if (isBuiltinHelper(name, "Object", defSite)) {
+      // We do this to avoid having two instances of ObjectType that both
+      // represent the top JS object.
+      objInstance = ObjectType.TOP_OBJECT;
+    } else {
+      objInstance = ObjectType.fromNominalType(this.wrappedAsNominal);
     }
     this.wrappedAsJSType = JSType.fromObjectType(objInstance);
     this.wrappedAsNullableJSType = JSType.join(JSType.NULL, this.wrappedAsJSType);
   }
 
   public static RawNominalType makeUnrestrictedClass(
-      Node defSite, QualifiedName name, ImmutableList<String> typeParameters) {
+      Node defSite, String name, ImmutableList<String> typeParameters) {
     return new RawNominalType(
-        defSite, name.toString(), typeParameters, Kind.CLASS, ObjectKind.UNRESTRICTED);
+        defSite, name, typeParameters, Kind.CLASS, ObjectKind.UNRESTRICTED);
   }
 
   public static RawNominalType makeStructClass(
-      Node defSite, QualifiedName name, ImmutableList<String> typeParameters) {
+      Node defSite, String name, ImmutableList<String> typeParameters) {
     return new RawNominalType(
-        defSite, name.toString(), typeParameters, Kind.CLASS, ObjectKind.STRUCT);
+        defSite, name, typeParameters, Kind.CLASS, ObjectKind.STRUCT);
   }
 
   public static RawNominalType makeDictClass(
-      Node defSite, QualifiedName name, ImmutableList<String> typeParameters) {
+      Node defSite, String name, ImmutableList<String> typeParameters) {
     return new RawNominalType(
-        defSite, name.toString(), typeParameters, Kind.CLASS, ObjectKind.DICT);
+        defSite, name, typeParameters, Kind.CLASS, ObjectKind.DICT);
   }
 
   public static RawNominalType makeNominalInterface(
-      Node defSite, QualifiedName name, ImmutableList<String> typeParameters) {
+      Node defSite, String name, ImmutableList<String> typeParameters) {
     // interfaces are struct by default
     return new RawNominalType(
-        defSite, name.toString(), typeParameters, Kind.INTERFACE, ObjectKind.STRUCT);
+        defSite, name, typeParameters, Kind.INTERFACE, ObjectKind.STRUCT);
   }
 
   public static RawNominalType makeStructuralInterface(
-      Node defSite, QualifiedName name, ImmutableList<String> typeParameters) {
+      Node defSite, String name, ImmutableList<String> typeParameters) {
     // interfaces are struct by default
     return new RawNominalType(
-        defSite, name.toString(), typeParameters, Kind.RECORD, ObjectKind.STRUCT);
+        defSite, name, typeParameters, Kind.RECORD, ObjectKind.STRUCT);
   }
 
   public Node getDefSite() {
     return this.defSite;
+  }
+
+  private static boolean isBuiltinHelper(
+      String nameToCheck, String builtinName, Node defSite) {
+    return defSite != null && defSite.isFromExterns()
+        && nameToCheck.equals(builtinName);
+  }
+
+  boolean isBuiltinWithName(String s) {
+    return isBuiltinHelper(this.name, s, this.defSite);
   }
 
   public boolean isClass() {
@@ -163,6 +172,8 @@ public final class RawNominalType extends Namespace {
   }
 
   public boolean isStruct() {
+    // The objectKind of interfaces can change during GTI.
+    Preconditions.checkState(isFinalized() || isClass());
     return this.objectKind.isStruct();
   }
 
@@ -186,11 +197,9 @@ public final class RawNominalType extends Namespace {
     return this.ctorFn;
   }
 
-  public void setCtorFunction(
-      FunctionType ctorFn, JSTypes commonTypes) {
+  public void setCtorFunction(FunctionType ctorFn) {
     Preconditions.checkState(!this.isFinalized);
     this.ctorFn = ctorFn;
-    this.commonTypes = commonTypes;
   }
 
   boolean hasAncestorClass(RawNominalType ancestor) {
@@ -231,6 +240,21 @@ public final class RawNominalType extends Namespace {
     }
   }
 
+  private boolean inheritsFromIObject() {
+    Preconditions.checkState(!this.isFinalized);
+    if (isBuiltinWithName("IObject")) {
+      return true;
+    }
+    if (this.interfaces != null) {
+      for (NominalType interf : this.interfaces) {
+        if (interf.getRawNominalType().inheritsFromIObject()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** @return Whether the interface can be added without creating a cycle. */
   public boolean addInterfaces(ImmutableSet<NominalType> interfaces) {
     Preconditions.checkState(!this.isFinalized);
@@ -242,6 +266,13 @@ public final class RawNominalType extends Namespace {
           this.interfaces = ImmutableSet.of();
           return false;
         }
+      }
+    }
+    // TODO(dimvar): When a class extends a class that inherits from IObject,
+    // it should be unrestricted.
+    for (NominalType interf : interfaces) {
+      if (interf.getRawNominalType().inheritsFromIObject()) {
+        this.objectKind = ObjectKind.UNRESTRICTED;
       }
     }
     this.interfaces = interfaces;
@@ -401,13 +432,13 @@ public final class RawNominalType extends Namespace {
   }
 
   /** Add a new undeclared property to instances of this class */
-  public void addUndeclaredClassProperty(String pname, Node defSite) {
+  public void addUndeclaredClassProperty(String pname, JSType type, Node defSite) {
     Preconditions.checkState(!this.isFinalized);
     // Only do so if there isn't a declared prop already.
     if (mayHaveProp(pname)) {
       return;
     }
-    classProps = classProps.with(pname, Property.makeWithDefsite(defSite, JSType.UNKNOWN, null));
+    classProps = classProps.with(pname, Property.makeWithDefsite(defSite, type, null));
   }
 
   //////////// Prototype Properties
@@ -452,13 +483,6 @@ public final class RawNominalType extends Namespace {
     }
   }
 
-  // Returns the object referred to by the prototype property of the
-  // constructor of this class.
-  private JSType createProtoObject() {
-    return JSType.fromObjectType(ObjectType.makeObjectType(
-        this.superClass, this.protoProps, null, false, ObjectKind.UNRESTRICTED));
-  }
-
   //////////// Constructor Properties
 
   public boolean hasCtorProp(String pname) {
@@ -481,24 +505,6 @@ public final class RawNominalType extends Namespace {
     return super.getPropDeclaredType(pname);
   }
 
-  // Returns the (function) object referred to by the constructor of this class.
-  // TODO(dimvar): this function shouldn't take any arguments; it should
-  // construct and cache the result based on the fields.
-  // But currently a couple of unit tests break because of "structural"
-  // constructors with a different number of arguments.
-  // For those, we should just be creating a basic function type, not be
-  // adding all the static properties.
-  JSType getConstructorObject(FunctionType ctorFn) {
-    Preconditions.checkState(this.isFinalized);
-    if (this.ctorFn != ctorFn || this.namespaceType == null) {
-      ObjectType ctorFnAsObj = ObjectType.makeObjectType(
-          this.commonTypes.getFunctionType(), this.otherProps, ctorFn,
-          ctorFn.isLoose(), ObjectKind.UNRESTRICTED);
-      return withNamedTypes(this.commonTypes, ctorFnAsObj);
-    }
-    return this.namespaceType;
-  }
-
   @Override
   public void finalize() {
     Preconditions.checkState(!this.isFinalized);
@@ -506,7 +512,10 @@ public final class RawNominalType extends Namespace {
     if (this.interfaces == null) {
       this.interfaces = ImmutableSet.of();
     }
-    addCtorProperty("prototype", null, createProtoObject(), false);
+    JSType protoObject = JSType.fromObjectType(ObjectType.makeObjectType(
+        this.superClass, this.protoProps,
+        null, null, false, ObjectKind.UNRESTRICTED));
+    addCtorProperty("prototype", null, protoObject, false);
     this.isFinalized = true;
   }
 
@@ -525,7 +534,11 @@ public final class RawNominalType extends Namespace {
 
   @Override
   protected JSType computeJSType(JSTypes commonTypes) {
-    return getConstructorObject(this.ctorFn);
+    Preconditions.checkState(this.isFinalized);
+    Preconditions.checkState(this.namespaceType == null);
+    return JSType.fromObjectType(ObjectType.makeObjectType(
+        commonTypes.getFunctionType(), null, ctorFn,
+        this, ctorFn.isLoose(), ObjectKind.UNRESTRICTED));
   }
 
   public NominalType getAsNominalType() {

@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Hashtable;
 import java.util.List;
@@ -115,12 +116,25 @@ import javax.annotation.Nullable;
 @GwtIncompatible("Unnecessary")
 public abstract class AbstractCommandLineRunner<A extends Compiler,
     B extends CompilerOptions> {
+
   static final DiagnosticType OUTPUT_SAME_AS_INPUT_ERROR = DiagnosticType.error(
       "JSC_OUTPUT_SAME_AS_INPUT_ERROR",
       "Bad output file (already listed as input file): {0}");
+
   static final DiagnosticType NO_TREE_GENERATED_ERROR = DiagnosticType.error(
       "JSC_NO_TREE_GENERATED_ERROR",
       "Code contains errors. No tree was generated.");
+  static final DiagnosticType INVALID_MODULE_SOURCEMAP_PATTERN =
+      DiagnosticType.error(
+          "JSC_INVALID_MODULE_SOURCEMAP_PATTERN",
+          "When using --module flags, the --create_source_map flag must contain "
+              + "%outname% in the value.");
+
+  static final DiagnosticType CONFLICTING_DUPLICATE_ZIP_CONTENTS = DiagnosticType.error(
+      "JSC_CONFLICTING_DUPLICATE_ZIP_CONTENTS",
+      "Two zip entries containing conflicting contents with the same relative path.\n"
+      + "Entry 1: {0}\n"
+      + "Entry 2: {1}");
 
   static final String WAITING_FOR_INPUT_WARNING =
       "The compiler is waiting for input via stdin.";
@@ -283,7 +297,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    */
   static DependencyOptions createDependencyOptions(
       CompilerOptions.DependencyMode dependencyMode,
-      List<DependencyOptions.ModuleIdentifier> entryPoints) {
+      List<ModuleIdentifier> entryPoints) {
     if (dependencyMode == CompilerOptions.DependencyMode.STRICT) {
       if (entryPoints.isEmpty()) {
         throw new FlagUsageException(
@@ -436,6 +450,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     options.tracer = config.tracerMode;
     options.setNewTypeInference(config.useNewTypeInference);
     options.instrumentationTemplateFile = config.instrumentationTemplateFile;
+    options.setPrintSourceAfterEachPass(config.printSourceAfterEachPass);
 
     // tweak the individual options using the options file:
     // THIS IS A DEVELOPMENT FEATURE, USE AT YOUR OWN RISK     
@@ -452,7 +467,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    * @return a mutable list
    * @throws IOException
    */
-  public static List<SourceFile> getBuiltinExterns(CompilerOptions options)
+  public static List<SourceFile> getBuiltinExterns(CompilerOptions.Environment env)
       throws IOException {
     InputStream input = AbstractCommandLineRunner.class.getResourceAsStream(
         "/externs.zip");
@@ -463,7 +478,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     Preconditions.checkNotNull(input);
 
     ZipInputStream zip = new ZipInputStream(input);
-    CompilerOptions.Environment env = options.getEnvironment();
     String envPrefix = env.toString().toLowerCase() + "/";
     String browserEnv = CompilerOptions.Environment.BROWSER.toString().toLowerCase();
     boolean flatExternStructure = true;
@@ -613,6 +627,41 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   }
 
   /**
+   * Check that relative paths inside zip files are unique, since multiple files
+   * with the same path inside different zips are considered duplicate inputs.
+   * Parameter {@code sourceFiles} may be modified if duplicates are removed.
+   */
+  public static List<JSError> removeDuplicateZipEntries(List<SourceFile> sourceFiles)
+      throws IOException {
+    ImmutableList.Builder<JSError> errors = ImmutableList.builder();
+    Map<String, SourceFile> sourceFilesByName = new HashMap<>();
+    Iterator<SourceFile> fileIterator = sourceFiles.listIterator();
+    while (fileIterator.hasNext()) {
+      SourceFile sourceFile = fileIterator.next();
+      String fullPath = sourceFile.getName();
+      if (!fullPath.contains("!/")) {
+        // Not a zip file
+        continue;
+      }
+      String relativePath = fullPath.split("!")[1];
+      if (!sourceFilesByName.containsKey(relativePath)) {
+        sourceFilesByName.put(relativePath, sourceFile);
+      } else {
+        SourceFile firstSourceFile = sourceFilesByName.get(relativePath);
+        if (firstSourceFile.getCode().equals(sourceFile.getCode())) {
+          errors.add(JSError.make(
+              SourceFile.DUPLICATE_ZIP_CONTENTS, firstSourceFile.getName(), sourceFile.getName()));
+          fileIterator.remove();
+        } else {
+          errors.add(JSError.make(
+              CONFLICTING_DUPLICATE_ZIP_CONTENTS, firstSourceFile.getName(), sourceFile.getName()));
+        }
+      }
+    }
+    return errors.build();
+  }
+
+  /**
    * Creates inputs from a list of source files, zips and json files.
    *
    * Can be overridden by subclasses who want to pull files from different
@@ -684,6 +733,9 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       for (JsonFileSpec jsonFile : jsonFiles) {
         inputs.add(SourceFile.fromCode(jsonFile.getPath(), jsonFile.getSrc()));
       }
+    }
+    for (JSError error : removeDuplicateZipEntries(inputs)) {
+      compiler.report(error);
     }
     return inputs;
   }
@@ -1038,6 +1090,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       }
     }
 
+    compiler.initWarningsGuard(options.getWarningsGuard());
     List<SourceFile> inputs =
         createSourceInputs(jsModuleSpecs, config.mixedJsSources, jsonFiles);
     if (!jsModuleSpecs.isEmpty()) {
@@ -1048,17 +1101,19 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
       if (config.skipNormalOutputs) {
         compiler.initModules(externs, modules, options);
+        compiler.orderInputs();
       } else {
         result = compiler.compileModules(externs, modules, options);
       }
     } else {
       if (config.skipNormalOutputs) {
         compiler.init(externs, inputs, options);
-        compiler.hoistExterns();
+        compiler.orderInputs();
       } else {
         result = compiler.compile(externs, inputs, options);
       }
     }
+
     if (createCommonJsModules) {
       // For CommonJS modules construct modules from actual inputs.
       modules = ImmutableList.copyOf(compiler.getDegenerateModuleGraph()
@@ -1143,7 +1198,11 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           outputSourceMap(options, config.jsOutputFile);
         }
       } else {
-        outputModuleBinaryAndSourceMaps(modules, options);
+        DiagnosticType error = outputModuleBinaryAndSourceMaps(modules, options);
+        if (error != null) {
+          compiler.report(JSError.make(error));
+          return 1;
+        }
       }
 
       // Output the externs if required.
@@ -1237,8 +1296,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     }
   }
 
-  private void outputModuleBinaryAndSourceMaps(List<JSModule> modules, B options)
-      throws IOException {
+  private DiagnosticType outputModuleBinaryAndSourceMaps(List<JSModule> modules, B options)
+      throws FlagUsageException, IOException {
     parsedModuleWrappers = parseModuleWrappers(
         config.moduleWrapper, modules);
     maybeCreateDirsForPath(config.moduleOutputPathPrefix);
@@ -1250,9 +1309,12 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     // When the json_streams flag is specified, sourcemaps are always generated
     // per module
-    if (!(shouldGenerateMapPerModule(options) || isOutputInJson())) {
-      mapFileOut = fileNameToOutputWriter2(
-          expandSourceMapPath(options, null));
+    if (!(shouldGenerateMapPerModule(options)
+        || options.sourceMapOutputPath == null
+        || config.jsonStreamMode == JsonStreamMode.OUT
+        || config.jsonStreamMode == JsonStreamMode.BOTH)) {
+      // warn that this is not supported
+      return INVALID_MODULE_SOURCEMAP_PATTERN;
     }
 
     for (JSModule m : modules) {
@@ -1263,14 +1325,14 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           mapFileOut = fileNameToOutputWriter2(expandSourceMapPath(options, m));
         }
 
-        try (Writer writer = fileNameToLegacyOutputWriter(
-            getModuleOutputFileName(m))) {
+        String moduleFilename = getModuleOutputFileName(m);
+        try (Writer writer = fileNameToLegacyOutputWriter(moduleFilename)) {
           if (options.sourceMapOutputPath != null) {
             compiler.getSourceMap().reset();
           }
           writeModuleOutput(writer, m);
           if (options.sourceMapOutputPath != null) {
-            compiler.getSourceMap().appendTo(mapFileOut, getModuleOutputFileName(m));
+            compiler.getSourceMap().appendTo(mapFileOut, moduleFilename);
           }
         }
 
@@ -1284,6 +1346,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     if (mapFileOut != null) {
       mapFileOut.close();
     }
+    return null;
   }
 
   /**
@@ -2304,13 +2367,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       return this;
     }
 
-    private List<DependencyOptions.ModuleIdentifier> entryPoints = ImmutableList.of();
+    private List<ModuleIdentifier> entryPoints = ImmutableList.of();
 
     /**
      * Set module entry points, which makes the compiler only include
      * those files and sort them in dependency order.
      */
-    CommandLineConfig setEntryPoints(List<DependencyOptions.ModuleIdentifier> entryPoints) {
+    CommandLineConfig setEntryPoints(List<ModuleIdentifier> entryPoints) {
       Preconditions.checkNotNull(entryPoints);
       this.entryPoints = entryPoints;
       return this;
@@ -2335,11 +2398,11 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
      * Helper method to convert a list of closure entry points a list of the new
      * ModuleIdentifier values
      */
-    static List<DependencyOptions.ModuleIdentifier> entryPointsFromClosureEntryPoints(
+    static List<ModuleIdentifier> entryPointsFromClosureEntryPoints(
         List<String> closureEntryPoints) {
-      List<DependencyOptions.ModuleIdentifier> entryPoints = new ArrayList<>();
+      List<ModuleIdentifier> entryPoints = new ArrayList<>();
       for (String closureEntryPoint : closureEntryPoints) {
-        entryPoints.add(DependencyOptions.ModuleIdentifier.forClosure(closureEntryPoint));
+        entryPoints.add(ModuleIdentifier.forClosure(closureEntryPoint));
       }
       return entryPoints;
     }
@@ -2478,6 +2541,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     CommandLineConfig setNewTypeInference(boolean useNewTypeInference) {
       this.useNewTypeInference = useNewTypeInference;
+      return this;
+    }
+
+    private boolean printSourceAfterEachPass = false;
+
+    CommandLineConfig setPrintSourceAfterEachPass(boolean printSource) {
+      this.printSourceAfterEachPass = printSource;
       return this;
     }
 

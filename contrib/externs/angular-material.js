@@ -47,7 +47,8 @@ md.$bottomSheet = function() {};
  *   resolve: (!Object|undefined),
  *   controllerAs: (string|undefined),
  *   parent: (!Element|undefined),
- *   disableParentScroll: (boolean|undefined)
+ *   disableParentScroll: (boolean|undefined),
+ *   bindToController: (boolean|undefined),
  * }}
  */
 md.$bottomSheet.options;
@@ -585,6 +586,28 @@ md.$mdIconProvider.prototype.defaultIconSize = function(iconSize) {};
  */
 md.$mdIconProvider.prototype.defaultFontSet = function(name) {};
 
+/******************************************************************************
+ * $mdMedia Service
+ *****************************************************************************/
+
+/**
+ * @typedef {function(string): boolean}
+ */
+md.$mdMedia;
+
+/******************************************************************************
+ * $mdMenu Service
+ *****************************************************************************/
+
+/** @constructor */
+md.$mdMenu = function() {};
+
+/**
+ * @param {*=} opt_reason Data to resolve the promise with.
+ * @param {*=} opt_options
+ * @return {!angular.$q.Promise}
+ */
+md.$mdMenu.prototype.hide = function(opt_reason, opt_options) {};
 
 /******************************************************************************
  * $mdDateLocaleProvider

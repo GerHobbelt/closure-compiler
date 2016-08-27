@@ -1843,6 +1843,11 @@ angular.NgModelController.prototype.$validate = function() {};
  */
 angular.NgModelController.prototype.$commitViewValue = function() {};
 
+/**
+ * @type {!Object.<string, boolean>|undefined}
+ */
+angular.NgModelController.prototype.$pending;
+
 /******************************************************************************
  * FormController
  *****************************************************************************/
@@ -2033,14 +2038,14 @@ angular.$route = function() {};
 angular.$route.prototype.reload = function() {};
 
 /**
- * @param {!Object<string,string>} object
+ * @param {!Object<string, string>} object
  */
 angular.$route.prototype.updateParams = function(object) {};
 
 /** @type {!angular.$route.Route} */
 angular.$route.prototype.current;
 
-/** @type {Array.<!angular.$route.Route>} */
+/** @type {Object.<?string, !angular.$route.Route>} */
 angular.$route.prototype.routes;
 
 /** @constructor */

@@ -53,6 +53,7 @@ public final class Es6RewriteBlockScopedDeclarationTest extends CompilerTestCase
   public void testSimple() {
     test("let x = 3;", "var x = 3;");
     test("const x = 3;", "/** @const */ var x = 3;");
+    test("const x = 1, y = 2;", "/** @const */ var x = 1; /** @const */ var y = 2;");
     test("const a = 0; a;", "/** @const */ var a = 0; a;");
     test("if (a) { let x; }", "if (a) { var x; }");
     test("function f() { const x = 3; }",
@@ -860,7 +861,7 @@ public final class Es6RewriteBlockScopedDeclarationTest extends CompilerTestCase
   }
 
   // https://github.com/google/closure-compiler/issues/1124
-  public void testGithubIssue1124() {
+  public void testFunctionsInLoop() {
     test(
         LINE_JOINER.join(
             "while (true) {",
@@ -920,6 +921,51 @@ public final class Es6RewriteBlockScopedDeclarationTest extends CompilerTestCase
             "  })($jscomp$loop$0)();",
             "  $jscomp$loop$0 = {x:$jscomp$loop$0.x};",
             "}"));
+  }
+
+  // https://github.com/google/closure-compiler/issues/1557
+  public void testNormalizeDeclarations() {
+    test(LINE_JOINER.join(
+        "while(true) {",
+        "  let x, y;",
+        "  function f() {",
+        "    x = 1;",
+        "    y = 2;",
+        "  }",
+        "}"),
+        LINE_JOINER.join(
+        "var $jscomp$loop$0 = {};",
+        "while(true) {",
+        "  $jscomp$loop$0.x = undefined;",
+        "  var f = function($jscomp$loop$0) {",
+        "    return function f() {",
+        "      $jscomp$loop$0.x = 1;",
+        "      $jscomp$loop$0.y = 2;",
+        "    }",
+        "  }($jscomp$loop$0);",
+        "  $jscomp$loop$0 = {x: $jscomp$loop$0.x, y: $jscomp$loop$0.y};",
+        "}"));
+
+    test(LINE_JOINER.join(
+        "while(true) {",
+        "  let x, y;",
+        "  function f() {",
+        "    y = 2;",
+        "    x = 1;",
+        "  }",
+        "}"),
+        LINE_JOINER.join(
+        "var $jscomp$loop$0 = {};",
+        "while(true) {",
+        "  $jscomp$loop$0.x = undefined;",
+        "  var f = function($jscomp$loop$0) {",
+        "    return function f() {",
+        "      $jscomp$loop$0.y = 2;",
+        "      $jscomp$loop$0.x = 1;",
+        "    }",
+        "  }($jscomp$loop$0);",
+        "  $jscomp$loop$0 = {y: $jscomp$loop$0.y, x: $jscomp$loop$0.x};",
+        "}"));
   }
 
   public void testTypeAnnotationsOnLetConst() {
