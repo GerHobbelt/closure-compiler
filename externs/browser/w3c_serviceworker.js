@@ -17,6 +17,7 @@
  * @fileoverview Externs for service worker.
  *
  * @see http://www.w3.org/TR/service-workers/
+ * @see https://w3c.github.io/push-api/
  * @externs
  */
 
@@ -119,16 +120,34 @@ PushMessageData.prototype.text = function() {};
 
 
 /**
+ * @typedef {(!BufferSource|string)}
+ * @see https://w3c.github.io/push-api/#idl-def-PushMessageDataInit
+ */
+var PushMessageDataInit;
+
+
+/**
  * @see http://www.w3.org/TR/push-api/#idl-def-PushEvent
  * @constructor
  * @param {string} type
- * @param {!ExtendableEventInit=} opt_eventInitDict
+ * @param {!PushEventInit=} opt_eventInitDict
  * @extends {ExtendableEvent}
  */
 function PushEvent(type, opt_eventInitDict) {}
 
 /** @type {?PushMessageData} */
 PushEvent.prototype.data;
+
+
+/**
+ * @record
+ * @extends {ExtendableEventInit}
+ * @see https://w3c.github.io/push-api/#idl-def-PushEvent
+ */
+function PushEventInit() {};
+
+/** @type {(undefined|!PushMessageDataInit)} */
+PushEventInit.prototype.data;
 
 
 /**
@@ -254,7 +273,7 @@ ServiceWorkerGlobalScope.prototype.skipWaiting = function() {};
 /** @type {!Console} */
 ServiceWorkerGlobalScope.prototype.console;
 
-/** @type {?function(!InstallEvent)} */
+/** @type {?function(!ExtendableEvent)} */
 ServiceWorkerGlobalScope.prototype.oninstall;
 
 /** @type {?function(!ExtendableEvent)} */
@@ -275,11 +294,25 @@ ServiceWorkerGlobalScope.prototype.onbeforeevicted;
  */
 ServiceWorkerGlobalScope.prototype.onevicted;
 
-/** @type {?function(!MessageEvent)} */
+/** @type {?function(!ExtendableMessageEvent)} */
 ServiceWorkerGlobalScope.prototype.onmessage;
 
 /** @type {IDBFactory} */
 ServiceWorkerGlobalScope.prototype.indexedDB;
+
+/**
+ * Extended by Push API
+ * @type {?function(!PushEvent)}
+ * @see https://w3c.github.io/push-api/#widl-ServiceWorkerGlobalScope-onpush
+ */
+ServiceWorkerGlobalScope.prototype.onpush;
+
+/**
+ * Extended by Push API
+ * @type {?function(!ExtendableEvent)}
+ * @see https://w3c.github.io/push-api/#widl-ServiceWorkerGlobalScope-onpushsubscriptionchange
+ */
+ServiceWorkerGlobalScope.prototype.onpushsubscriptionchange;
 
 /**
  * @see http://www.w3.org/TR/service-workers/#service-worker-client-interface
@@ -475,33 +508,72 @@ function ExtendableEvent(type, opt_eventInitDict) {}
 ExtendableEvent.prototype.waitUntil = function(f) {};
 
 /**
- * @typedef {{
- *   bubbles: (boolean|undefined),
- *   cancelable: (boolean|undefined)
- * }}
+ * Defined for the forward compatibility across the derived events
+ * 
+ * @record
+ * @extends {EventInit}
+ * @see https://www.w3.org/TR/service-workers/#extendable-event-init-dictionary
  */
-var ExtendableEventInit;
+function ExtendableEventInit() {};
 
 /**
- * @see http://www.w3.org/TR/service-workers/#install-event-interface
- * @constructor
+ * TODO(vobruba-martin): Remove this property after the issue #1926 on GitHub is resolved
+ * or after a new property is added.
+ * @see https://github.com/google/closure-compiler/issues/1926
+ * @type {undefined}
+ */
+ExtendableEventInit.prototype.__do_not_use_this_dummy_property;
+
+/**
  * @param {string} type
- * @param {InstallEventInit=} opt_eventInitDict
+ * @param {!ExtendableMessageEventInit=} opt_init
+ * @constructor
  * @extends {ExtendableEvent}
+ * @template T
+ * @see https://www.w3.org/TR/service-workers/#extendablemessage-event-interface
  */
-function InstallEvent(type, opt_eventInitDict) {}
+function ExtendableMessageEvent(type, opt_init) {};
 
-/** @type {ServiceWorker} */
-ExtendableEvent.prototype.activeWorker;
+/** @type {T} */
+ExtendableMessageEvent.prototype.data;
+
+/** @type {string} */
+ExtendableMessageEvent.prototype.origin;
+
+/** @type {string} */
+ExtendableMessageEvent.prototype.lastEventId;
 
 /**
- * @typedef {{
- *   bubbles: (boolean|undefined),
- *   cancelable: (boolean|undefined),
- *   activeWorker: (!ServiceWorker|undefined)
- * }}
+ * TODO(vobruba-martin): This type should be {(!ServiceWorkerClient|!ServiceWorker|!MessagePort)}
+ * but CC doesn't let us to override it nor suppress a warning.
+ * @type {Window}
  */
-var InstallEventInit;
+ExtendableMessageEvent.prototype.source;
+
+/** @type {!Array<!MessagePort>} */
+ExtendableMessageEvent.prototype.ports;
+
+/**
+ * @record
+ * @extends {ExtendableEventInit}
+ * @see https://www.w3.org/TR/service-workers/#extendablemessage-event-init-dictionary
+ */
+function ExtendableMessageEventInit() {};
+
+/** @type {(undefined|*)} */
+ExtendableMessageEventInit.prototype.data;
+
+/** @type {(undefined|string)} */
+ExtendableMessageEventInit.prototype.origin;
+
+/** @type {(undefined|string)} */
+ExtendableMessageEventInit.prototype.lastEventId;
+
+/** @type {(undefined|!ServiceWorkerClient|!ServiceWorker|!MessagePort)} */
+ExtendableMessageEventInit.prototype.source;
+
+/** @type {(undefined|!Array<!MessagePort>)} */
+ExtendableMessageEventInit.prototype.ports;
 
 /**
  * @see http://www.w3.org/TR/service-workers/#fetch-event-interface
@@ -538,13 +610,19 @@ FetchEvent.prototype.forwardTo = function(url) {};
  */
 FetchEvent.prototype.default = function() {};
 
+
 /**
- * @typedef {{
- *   bubbles: (boolean|undefined),
- *   cancelable: (boolean|undefined),
- *   request: (!Request|undefined),
- *   client: (!ServiceWorkerClient|undefined),
- *   isReload: (!boolean|undefined)
- * }}
+ * @record
+ * @extends {ExtendableEventInit}
+ * @see https://www.w3.org/TR/service-workers/#fetch-event-init-dictionary
  */
-var FetchEventInit;
+function FetchEventInit() {};
+
+/** @type {(undefined|!Request)} */
+FetchEventInit.prototype.request;
+
+/** @type {(undefined|!ServiceWorkerClient)} */
+FetchEventInit.prototype.client;
+
+/** @type {(undefined|boolean)} */
+FetchEventInit.prototype.isReload;
