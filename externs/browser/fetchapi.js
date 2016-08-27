@@ -28,7 +28,7 @@
 
 /**
  * @enum {string}
- * @see https://w3c.github.io/webappsec-referrer-policy/#enumdef-referrerpolicy
+ * @see https://fetch.spec.whatwg.org/#referrerpolicy
  */
 var ReferrerPolicy = {
   NONE: '',
@@ -164,22 +164,22 @@ var RequestInfo;
  */
 function Request(input, opt_init) {}
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.bodyUsed;
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.arrayBuffer = function() {};
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.blob = function() {};
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.formData = function() {};
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.json = function() {};
 
-/** @override */
+/** @inheritDoc */
 Request.prototype.text = function() {};
 
 /** @type {string} */
@@ -191,7 +191,7 @@ Request.prototype.url;
 /** @type {!Headers} */
 Request.prototype.headers;
 
-/** @type {!FetchRequestType} */
+/** @type {!RequestType} */
 Request.prototype.type;
 
 /** @type {!RequestDestination} */
@@ -263,7 +263,7 @@ RequestInit.prototype.window;
  * @enum {string}
  * @see https://fetch.spec.whatwg.org/#requesttype
  */
-var FetchRequestType = {
+var RequestType = {
   NONE: '',
   AUDIO: 'audio',
   FONT: 'font',
@@ -365,22 +365,22 @@ Response.error = function() {};
  */
 Response.redirect = function(url, opt_status) {};
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.bodyUsed;
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.arrayBuffer = function() {};
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.blob = function() {};
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.formData = function() {};
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.json = function() {};
 
-/** @override */
+/** @inheritDoc */
 Response.prototype.text = function() {};
 
 /** @type {!ResponseType} */
