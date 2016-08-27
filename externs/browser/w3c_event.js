@@ -26,30 +26,34 @@
 
 /**
  * @interface
+ * @see https://dom.spec.whatwg.org/#interface-eventtarget
  */
 function EventTarget() {}
 
 /**
  * @param {string} type
  * @param {EventListener|function(!Event):(boolean|undefined)} listener
- * @param {boolean} useCapture
+ * @param {(boolean|!AddEventListenerOptions)=} opt_options
  * @return {undefined}
+ * @see https://dom.spec.whatwg.org/#dom-eventtarget-addeventlistener
  */
-EventTarget.prototype.addEventListener = function(type, listener, useCapture)
+EventTarget.prototype.addEventListener = function(type, listener, opt_options)
     {};
 
 /**
  * @param {string} type
  * @param {EventListener|function(!Event):(boolean|undefined)} listener
- * @param {boolean} useCapture
+ * @param {(boolean|!EventListenerOptions)=} opt_options
  * @return {undefined}
+ * @see https://dom.spec.whatwg.org/#dom-eventtarget-removeeventlistener
  */
-EventTarget.prototype.removeEventListener = function(type, listener, useCapture)
+EventTarget.prototype.removeEventListener = function(type, listener, opt_options)
     {};
 
 /**
  * @param {!Event} evt
  * @return {boolean}
+ * @see https://dom.spec.whatwg.org/#dom-eventtarget-dispatchevent
  */
 EventTarget.prototype.dispatchEvent = function(evt) {};
 
@@ -63,6 +67,28 @@ function EventListener() {}
  * @return {undefined}
  */
 EventListener.prototype.handleEvent = function(evt) {};
+
+/**
+ * @record
+ * @see https://dom.spec.whatwg.org/#dictdef-eventlisteneroptions
+ */
+function EventListenerOptions() {};
+
+/** @type {(undefined|boolean)} */
+EventListenerOptions.prototype.capture;
+
+/**
+ * @record
+ * @extends {EventListenerOptions}
+ * @see https://dom.spec.whatwg.org/#dictdef-addeventlisteneroptions
+ */
+function AddEventListenerOptions() {};
+
+/** @type {(undefined|boolean)} */
+AddEventListenerOptions.prototype.once;
+
+/** @type {(undefined|boolean)} */
+AddEventListenerOptions.prototype.passive;
 
 // The EventInit interface and the parameters to the Event constructor are part
 // of DOM Level 3 (suggested) and the DOM "Living Standard" (mandated). They are

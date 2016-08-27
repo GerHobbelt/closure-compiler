@@ -27,26 +27,15 @@
  */
 function MediaSource() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 MediaSource.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 MediaSource.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 MediaSource.prototype.dispatchEvent = function(evt) {};
 
 /** @type {Array<SourceBuffer>} */
@@ -105,26 +94,15 @@ MediaSource.isTypeSupported = function(type) {};
  */
 function SourceBuffer() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 SourceBuffer.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 SourceBuffer.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 SourceBuffer.prototype.dispatchEvent = function(evt) {};
 
 /** @type {string} */

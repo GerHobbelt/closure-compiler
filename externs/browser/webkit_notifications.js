@@ -63,26 +63,15 @@ Notification.permission;
  */
 Notification.requestPermission = function(opt_callback) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 Notification.prototype.addEventListener =
-    function(type, listener, opt_useCapture) {};
+    function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 Notification.prototype.removeEventListener =
-    function(type, listener, opt_useCapture) {};
+    function(type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 Notification.prototype.dispatchEvent = function(evt) {};
 
 /**

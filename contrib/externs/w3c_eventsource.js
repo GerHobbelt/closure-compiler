@@ -29,26 +29,15 @@
  */
 function EventSource(url, opt_eventSourceInitDict) {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-EventSource.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @inheritDoc */
+EventSource.prototype.addEventListener = function(type, listener, opt_options)
+    {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-EventSource.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @inheritDoc */
+EventSource.prototype.removeEventListener = function(type, listener, opt_options)
+    {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 EventSource.prototype.dispatchEvent = function(evt) {};
 
 /**

@@ -153,26 +153,15 @@ MediaStreamTrackEvent.prototype.track;
  */
 function MediaStream(streamOrTracks) {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 MediaStream.prototype.addEventListener = function(type, listener,
-    opt_useCapture) {};
+    opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 MediaStream.prototype.removeEventListener = function(type, listener,
-    opt_useCapture) {};
+    opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 MediaStream.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -923,26 +912,15 @@ var RTCDataChannelInit;
  */
 function RTCPeerConnection(configuration, constraints) {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 RTCPeerConnection.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @inheritDoc */
 RTCPeerConnection.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @inheritDoc */
 RTCPeerConnection.prototype.dispatchEvent = function(evt) {};
 
 /**
