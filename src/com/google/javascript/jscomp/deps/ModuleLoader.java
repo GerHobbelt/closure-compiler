@@ -200,11 +200,14 @@ public final class ModuleLoader {
           break;
 
         case BROWSER:
+          // Safari Technical Preview and Edge are the only browsers supporting modules
+          // currently. Modules import statements require a file extension (they are a URL).
           if (isAbsoluteIdentifier(moduleAddress) || isRelativeIdentifier(moduleAddress)) {
-            // Edge is the only browser supporting modules currently and requires
-            // a file extension. This may be loosened as more browsers support
-            // ES2015 modules natively.
             loadAddress = locate(moduleAddress);
+          } else {
+            // Module paths with a first character that is not a '.' or '/' are relative
+            // to the importer directory.
+            loadAddress = locate("./" + moduleAddress);
           }
           break;
 

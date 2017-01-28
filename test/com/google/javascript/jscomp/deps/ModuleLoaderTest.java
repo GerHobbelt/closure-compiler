@@ -231,6 +231,8 @@ public final class ModuleLoaderTest extends TestCase {
     assertUri("A/index.js", loader.resolve("app.js").resolveJsModule("./A/index.js"));
     assertUri("A/index.js", loader.resolve("folder/app.js").resolveJsModule("../A/index.js"));
     assertNull(loader.resolve("folder/app.js").resolveJsModule("index"));
+    assertUri("A/index.js", loader.resolve("app.js").resolveJsModule("A/index.js"));
+    assertUri("A/index.js", loader.resolve("A/foo.js").resolveJsModule("index.js"));
   }
 
   public void testLocateNodeModuleBrowser() throws Exception {
