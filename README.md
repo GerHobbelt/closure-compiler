@@ -25,7 +25,7 @@ Note: The Closure Compiler requires [Java 7 or higher](http://www.java.com/).
 
 1. Download [Maven](http://maven.apache.org/download.cgi).
 
-2. Add sonatype snapshots repository to `~/.m2/settings.xml`:
+2. Add sonatype snapshots repository to `~/.m2/settings.xml` inside the `<profiles>` section (see also: https://maven.apache.org/settings.html#Quick_Overview):
    ```
    <profile>
      <id>allow-snapshots</id>
@@ -48,7 +48,7 @@ unit tests too).
     as per the [Running section](#running) of this Readme. If you want to depend on the compiler via
     Maven in another Java project, use the `com.google.javascript/closure-compiler-unshaded` artifact.
 
-    Running `mvn -DskipTests -pl externs/pom.xml,pom-main.xml,pom-main-shaded.xml`
+    Running `mvn -DskipTests -pl "!pom-gwt.xml"`
     will skip building the GWT version of the compiler. This can speed up the build process significantly.
 
 ### Using [Eclipse](http://www.eclipse.org/)
