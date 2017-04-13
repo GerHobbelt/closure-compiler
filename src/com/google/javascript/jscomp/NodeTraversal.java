@@ -22,7 +22,6 @@ import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
@@ -258,7 +257,7 @@ public class NodeTraversal {
     @Override
     public boolean shouldTraverse(NodeTraversal nodeTraversal, Node n,
         Node parent) {
-      return include == nodeTypes.contains(n.getType());
+      return include == nodeTypes.contains(n.getToken());
     }
   }
 
@@ -564,7 +563,7 @@ public class NodeTraversal {
         new AbstractPreOrderCallback() {
           @Override
           public final boolean shouldTraverse(NodeTraversal t, Node n, Node p) {
-            if ((n == jsRoot || n.isFunction()) && comp.hasScopeChanged(n)) {
+            if ((n.isScript() || n.isFunction()) && comp.hasScopeChanged(n)) {
               cb.enterFunction(comp, n);
             }
             return true;
@@ -619,7 +618,7 @@ public class NodeTraversal {
    * Traverses a branch.
    */
   private void traverseBranch(Node n, Node parent) {
-    Token type = n.getType();
+    Token type = n.getToken();
     if (type == Token.SCRIPT) {
       inputId = n.getInputId();
       sourceName = getSourceName(n);
@@ -869,6 +868,14 @@ public class NodeTraversal {
    */
   public boolean inGlobalScope() {
     return getScopeDepth() == 0;
+  }
+
+  /** Determines whether the traversal is currently in the scope of the block of a function. */
+  public boolean inFunctionBlockScope() {
+    Node scopeRoot = getScopeRoot();
+    return scopeRoot.isBlock()
+        && scopeRoot.getParent() != null
+        && scopeRoot.getParent().isFunction();
   }
 
   /**

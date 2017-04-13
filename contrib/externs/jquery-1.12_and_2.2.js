@@ -158,6 +158,22 @@ jQueryAjaxSettingsExtra.prototype.responseFields;
 
 
 /**
+ * @record
+ */
+function jQueryAjaxTransport(){};
+
+/** @return {undefined} */
+jQueryAjaxTransport.abort = function() {};
+
+/**
+ * @param {!IObject<string,string>} headers
+ * @param {function(number, string, !IObject<string,string>=, string=):undefined} completeCallback
+ * @return {undefined}
+ */
+jQueryAjaxTransport.send = function(headers, completeCallback) {};
+
+
+/**
  * @constructor
  * @param {(jQuerySelector|Object|jQuery|string|function())=} arg1
  * @param {(Element|jQuery|Document|
@@ -168,14 +184,9 @@ jQueryAjaxSettingsExtra.prototype.responseFields;
 function jQuery(arg1, arg2) {};
 
 /**
- * @constructor
- * @param {(jQuerySelector|Object|jQuery|string|function())=} arg1
- * @param {(Element|jQuery|Document|
- *     Object<string, (string|function(!jQuery.Event))>)=} arg2
- * @return {!jQuery}
- * @extends {jQuery}
+ * @const
  */
-function $(arg1, arg2) {};
+var $ = jQuery;
 
 /**
  * @param {(jQuerySelector|Array<Element>|string|jQuery)} arg1
@@ -259,6 +270,13 @@ jQuery.prototype.ajaxStop = function(handler) {};
  * @return {!jQuery}
  */
 jQuery.prototype.ajaxSuccess = function(handler) {};
+
+/**
+ * @param {string} dataType
+ * @param {function(!jQueryAjaxSettingsExtra, !jQueryAjaxSettings, !jQuery.jqXHR):(!jQueryAjaxTransport|undefined)} handler
+ * @return {undefined}
+ */
+jQuery.ajaxTransport = function(dataType, handler) {};
 
 /**
  * @deprecated Please use .addBack(selector) instead.

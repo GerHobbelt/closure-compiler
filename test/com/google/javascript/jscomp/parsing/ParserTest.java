@@ -17,10 +17,14 @@
 package com.google.javascript.jscomp.parsing;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.parsing.JsDocInfoParser.BAD_TYPE_WIKI_LINK;
 import static com.google.javascript.jscomp.testing.NodeSubject.assertNode;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.debugging.sourcemap.SourceMapConsumerV3;
+import com.google.javascript.jscomp.SourceFile;
+import com.google.javascript.jscomp.SourceMapInput;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.ParserRunner.ParseResult;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
@@ -32,7 +36,6 @@ import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
 import com.google.javascript.rhino.testing.TestErrorReporter;
-
 import java.util.List;
 
 public final class ParserTest extends BaseJSTypeTestCase {
@@ -43,7 +46,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
       "Trailing comma is not legal in an ECMA-262 object initializer";
 
   private static final String MISSING_GT_MESSAGE =
-      "Bad type annotation. missing closing >";
+      "Bad type annotation. missing closing >" + BAD_TYPE_WIKI_LINK;
 
 
   private static final String UNLABELED_BREAK = "unlabelled break must be inside loop or switch";
@@ -885,10 +888,12 @@ public final class ParserTest extends BaseJSTypeTestCase {
   public void testIncorrectJSDocDoesNotAlterJSParsing6() throws Exception {
     assertNodeEquality(
         parse("C.prototype.say=function(nums) {alert(nums.join(','));};"),
-        parseWarning("/** @param {bool!*%E$} */" +
-            "C.prototype.say=function(nums) {alert(nums.join(','));};",
-            "Bad type annotation. expected closing }",
-            "Bad type annotation. expecting a variable name in a @param tag"));
+        parseWarning(
+            "/** @param {bool!*%E$} */"
+                + "C.prototype.say=function(nums) {alert(nums.join(','));};",
+            "Bad type annotation. expected closing }" + BAD_TYPE_WIKI_LINK,
+            "Bad type annotation. expecting a variable name in a @param tag."
+                + BAD_TYPE_WIKI_LINK));
   }
 
   public void testIncorrectJSDocDoesNotAlterJSParsing7() throws Exception {
@@ -3301,6 +3306,26 @@ public final class ParserTest extends BaseJSTypeTestCase {
     }
   }
 
+  public void testParseInlineSourceMap() {
+    String code = "var X = (function () {\n"
+        + "    function X(input) {\n"
+        + "        this.y = input;\n"
+        + "    }\n"
+        + "    return X;\n"
+        + "}());\n"
+        + "console.log(new X(1));\n"
+        + "//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZm9vLmpz"
+        + "Iiwic291cmNlUm9vdCI6IiIsInNvdXJjZXMiOlsiZm9vLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQU"
+        + "FBO0lBR0UsV0FBWSxLQUFhO1FBQ3ZCLElBQUksQ0FBQyxDQUFDLEdBQUcsS0FBSyxDQUFDO0lBQ2pCLENBQUM7"
+        + "SUFDSCxRQUFDO0FBQUQsQ0FBQyxBQU5ELElBTUM7QUFFRCxPQUFPLENBQUMsR0FBRyxDQUFDLElBQUksQ0FBQy"
+        + "xDQUFDLENBQUMsQ0FBQyxDQUFDLENBQUMifQ==";
+    ParseResult result = doParse(code);
+    assertThat(result.sourceMap).named("inline source map").isNotNull();
+    SourceMapInput input = new SourceMapInput(SourceFile.fromCode("test.js.map", result.sourceMap));
+    SourceMapConsumerV3 sourceMap = input.getSourceMap();
+    assertThat(sourceMap.getOriginalSources()).containsExactly("foo.ts");
+  }
+
   private String getRequiresEs6Message(Feature feature) {
     return requiresLanguageModeMessage(LanguageMode.ECMASCRIPT6, feature);
   }
@@ -3356,6 +3381,10 @@ public final class ParserTest extends BaseJSTypeTestCase {
    * @return The parse tree.
    */
   private Node parseWarning(String string, String... warnings) {
+    return doParse(string, warnings).ast;
+  }
+
+  private ParserRunner.ParseResult doParse(String string, String... warnings) {
     TestErrorReporter testErrorReporter = new TestErrorReporter(null, warnings);
     StaticSourceFile file = new SimpleSourceFile("input", false);
     ParserRunner.ParseResult result = ParserRunner.parse(
@@ -3363,7 +3392,6 @@ public final class ParserTest extends BaseJSTypeTestCase {
         string,
         createConfig(),
         testErrorReporter);
-    Node script = result.ast;
 
     // check expected features if specified
     if (expectedFeatures != null) {
@@ -3373,8 +3401,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
     // verifying that all warnings were seen
     testErrorReporter.assertHasEncounteredAllErrors();
     testErrorReporter.assertHasEncounteredAllWarnings();
-
-    return script;
+    return result;
   }
 
   /**
@@ -3391,7 +3418,8 @@ public final class ParserTest extends BaseJSTypeTestCase {
           mode,
           Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE,
           Config.RunMode.KEEP_GOING,
-          null);
+          null,
+          true);
     } else {
       return ParserRunner.createConfig(mode, null);
     }

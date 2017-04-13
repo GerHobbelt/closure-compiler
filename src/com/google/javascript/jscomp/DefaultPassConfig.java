@@ -29,7 +29,6 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.CoverageInstrumentationPass.InstrumentOption;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
-import com.google.javascript.jscomp.J2clSourceFileChecker.J2clChangeTracker;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.PassFactory.HotSwapPassFactory;
 import com.google.javascript.jscomp.lint.CheckArrayWithGoogObject;
@@ -574,6 +573,12 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(initNameAnalyzeReport);
     }
 
+    // TODO(mlourenco): Ideally this would be in getChecks() instead of getOptimizations(). But
+    // for that it needs to understand constant properties as well. See b/31301233#10.
+    // Needs to happen after inferConsts and collapseProperties. Detects whether invocations of
+    // the method goog.string.Const.from are done with an argument which is a string literal.
+    passes.add(checkConstParams);
+
     // Running smart name removal before disambiguate properties allows disambiguate properties
     // to be more effective if code that would prevent disambiguation can be removed.
     if (options.extraSmartNameRemoval && options.smartNameRemoval) {
@@ -628,10 +633,6 @@ public final class DefaultPassConfig extends PassConfig {
     if (options.chainCalls) {
       passes.add(chainCalls);
     }
-
-    // Detects whether invocations of the method goog.string.Const.from are done
-    // with an argument which is a string literal.
-    passes.add(checkConstParams);
 
     assertAllOneTimePasses(passes);
 
@@ -802,7 +803,7 @@ public final class DefaultPassConfig extends PassConfig {
       // that can be removed, rerun the peephole optimizations to clean them
       // up.
       if (options.foldConstants) {
-        passes.add(peepholeOptimizations);
+        passes.add(peepholeOptimizationsOnce);
       }
     }
 
@@ -923,6 +924,10 @@ public final class DefaultPassConfig extends PassConfig {
       }
     }
 
+    if (options.j2clPassMode.shouldAddJ2clPasses()) {
+      passes.add(j2clOptBundlePass);
+    }
+
     assertAllLoopablePasses(passes);
     return passes;
   }
@@ -941,8 +946,6 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     if (options.foldConstants) {
-      // These used to be one pass.
-      passes.add(minimizeExitPoints);
       passes.add(peepholeOptimizations);
     }
 
@@ -956,18 +959,6 @@ public final class DefaultPassConfig extends PassConfig {
 
     if (options.removeUnusedClassProperties) {
       passes.add(removeUnusedClassProperties);
-    }
-
-    if (options.j2clPassMode.shouldAddJ2clPasses()) {
-      if (!options.limitJ2clOptimization) {
-        j2clChangeTracker.setDisabled();
-      }
-
-      passes.add(j2clClinitPrunerPass);
-      passes.add(j2clConstantHoisterPass);
-      passes.add(j2clEqualitySameRewriterPass);
-
-      j2clChangeTracker.reset();
     }
 
     assertAllLoopablePasses(passes);
@@ -1489,18 +1480,34 @@ public final class DefaultPassConfig extends PassConfig {
   };
 
   /** Various peephole optimizations. */
+  private static CompilerPass createPeepholeOptimizationsPass(AbstractCompiler compiler) {
+    final boolean late = false;
+    final boolean useTypesForOptimization =  compiler.getOptions().useTypesForOptimization;
+    return new PeepholeOptimizationsPass(compiler,
+          new MinimizeExitPoints(compiler),
+          new PeepholeMinimizeConditions(late, useTypesForOptimization),
+          new PeepholeSubstituteAlternateSyntax(late),
+          new PeepholeReplaceKnownMethods(late),
+          new PeepholeRemoveDeadCode(),
+          new PeepholeFoldConstants(late, useTypesForOptimization),
+          new PeepholeCollectPropertyAssignments());
+  };
+
+  /** Various peephole optimizations. */
   private final PassFactory peepholeOptimizations =
-      new PassFactory("peepholeOptimizations", false) {
+      new PassFactory("peepholeOptimizations", false /* oneTimePass */) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
-      final boolean late = false;
-      return new PeepholeOptimizationsPass(compiler,
-            new PeepholeMinimizeConditions(late, options.useTypesForOptimization),
-            new PeepholeSubstituteAlternateSyntax(late),
-            new PeepholeReplaceKnownMethods(late),
-            new PeepholeRemoveDeadCode(),
-            new PeepholeFoldConstants(late, options.useTypesForOptimization),
-            new PeepholeCollectPropertyAssignments());
+      return createPeepholeOptimizationsPass(compiler);
+    }
+  };
+
+  /** Various peephole optimizations. */
+  private final PassFactory peepholeOptimizationsOnce =
+      new PassFactory("peepholeOptimizations", true /* oneTimePass */) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return createPeepholeOptimizationsPass(compiler);
     }
   };
 
@@ -1743,11 +1750,16 @@ public final class DefaultPassConfig extends PassConfig {
       new HotSwapPassFactory("analyzerChecks", true) {
     @Override
     protected HotSwapCompilerPass create(AbstractCompiler compiler) {
-      ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder()
-          .add(new CheckNullableReturn(compiler))
+      ImmutableList.Builder<Callback> callbacks = ImmutableList.<Callback>builder();
+      if (options.enables(DiagnosticGroups.ANALYZER_CHECKS_INTERNAL)) {
+        callbacks.add(new CheckNullableReturn(compiler))
           .add(new CheckArrayWithGoogObject(compiler))
-          .add(new CheckUnusedPrivateProperties(compiler))
           .add(new ImplicitNullabilityCheck(compiler));
+      }
+      // These are grouped together for better execution efficiency.
+      if (options.enables(DiagnosticGroups.UNUSED_PRIVATE_PROPERTY)) {
+        callbacks.add(new CheckUnusedPrivateProperties(compiler));
+      }
       return combineChecks(compiler, callbacks.build());
     }
   };
@@ -2133,17 +2145,6 @@ public final class DefaultPassConfig extends PassConfig {
     protected CompilerPass create(AbstractCompiler compiler) {
       return new InlineVariables(
           compiler, InlineVariables.Mode.CONSTANTS_ONLY, true);
-    }
-  };
-
-  /**
-   * Perform local control flow optimizations.
-   */
-  private final PassFactory minimizeExitPoints =
-      new PassFactory("minimizeExitPoints", false) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new MinimizeExitPoints(compiler);
     }
   };
 
@@ -2728,32 +2729,25 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  private final J2clChangeTracker j2clChangeTracker = new J2clChangeTracker();
-
   /** Rewrites J2CL constructs to be more optimizable. */
-  private final PassFactory j2clClinitPrunerPass =
-      new PassFactory("j2clClinitPrunerPass", false) {
+  private final PassFactory j2clOptBundlePass =
+      new PassFactory("j2clOptBundlePass", false) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          return new J2clClinitPrunerPass(compiler, j2clChangeTracker);
-        }
-      };
+          final J2clClinitPrunerPass j2clClinitPrunerPass = new J2clClinitPrunerPass(compiler);
+          final J2clConstantHoisterPass j2clConstantHoisterPass =
+              (new J2clConstantHoisterPass(compiler));
+          final J2clEqualitySameRewriterPass j2clEqualitySameRewriterPass =
+              (new J2clEqualitySameRewriterPass(compiler));
+          return new CompilerPass() {
 
-  /** Rewrites J2CL constructs to be more optimizable. */
-  private final PassFactory j2clConstantHoisterPass =
-      new PassFactory("j2clConstantHoisterPass", false) {
-        @Override
-        protected CompilerPass create(AbstractCompiler compiler) {
-          return new J2clConstantHoisterPass(compiler, j2clChangeTracker);
-        }
-      };
-
-  /** Rewrites J2CL constructs to be more optimizable. */
-  private final PassFactory j2clEqualitySameRewriterPass =
-      new PassFactory("j2clEqualitySameRewriterPass", false) {
-        @Override
-        protected CompilerPass create(AbstractCompiler compiler) {
-          return new J2clEqualitySameRewriterPass(compiler, j2clChangeTracker);
+            @Override
+            public void process(Node externs, Node root) {
+              j2clClinitPrunerPass.process(externs, root);
+              j2clConstantHoisterPass.process(externs, root);
+              j2clEqualitySameRewriterPass.process(externs, root);
+            }
+          };
         }
       };
 
@@ -2779,7 +2773,6 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory("j2clSourceFileChecker", true) {
         @Override
         protected CompilerPass create(final AbstractCompiler compiler) {
-          j2clChangeTracker.ensureRegistered(compiler);
           return new J2clSourceFileChecker(compiler);
         }
       };

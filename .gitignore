@@ -10,6 +10,9 @@ build/*
 target/
 .checkstyle
 .settings
+.classpath
+.project
+/bin
 
 # editor bak files
 *~

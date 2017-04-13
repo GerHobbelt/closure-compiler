@@ -80,7 +80,7 @@ import java.util.regex.Matcher;
  * window, document.
  *
  */
-public class Compiler extends AbstractCompiler implements ErrorHandler {
+public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFileMapping {
   static final String SINGLETON_MODULE_NAME = "$singleton$";
 
   static final DiagnosticType MODULE_DEPENDENCY_ERROR =
@@ -165,6 +165,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
   // Original sources referenced by the source maps.
   private ConcurrentHashMap<String, SourceFile> sourceMapOriginalSources
       = new ConcurrentHashMap<>();
+
+  /** Configured {@link SourceMapInput}s, plus any source maps discovered in source files. */
+  private final ConcurrentHashMap<String, SourceMapInput> inputSourceMaps =
+      new ConcurrentHashMap<>();
 
   // Map from filenames to lists of all the comments in each file.
   private Map<String, List<Comment>> commentsPerFile = new HashMap<>();
@@ -483,10 +487,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
    * Do any initialization that is dependent on the compiler options.
    */
   private void initBasedOnOptions() {
+    inputSourceMaps.putAll(options.inputSourceMaps);
     // Create the source map if necessary.
     if (options.sourceMapOutputPath != null) {
       sourceMap = options.sourceMapFormat.getInstance();
       sourceMap.setPrefixMappings(options.sourceMapLocationMappings);
+      if (options.applyInputSourceMaps) {
+        sourceMap.setSourceFileMapping(this);
+      }
     }
   }
 
@@ -963,7 +971,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
   @Override
   final void afterPass(String passName) {
     if (options.printSourceAfterEachPass) {
-      String currentJsSource = toSource();
+      String currentJsSource = getCurrentJsSource();
       if (!currentJsSource.equals(this.lastJsSource)) {
         System.out.println();
         System.out.println("// " + passName + " yields:");
@@ -972,6 +980,25 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
         lastJsSource = currentJsSource;
       }
     }
+  }
+
+  final String getCurrentJsSource() {
+    String filename = options.fileToPrintAfterEachPass;
+    if (filename == null) {
+      return toSource();
+    } else {
+      Node script = getScriptNode(filename);
+      return script != null ? toSource(script) : ("File '" + filename + "' not found");
+    }
+  }
+
+  final Node getScriptNode(String filename) {
+    for (Node file : jsRoot.children()) {
+      if (file.getSourceFileName() != null && file.getSourceFileName().endsWith(filename)) {
+        return file;
+      }
+    }
+    return null;
   }
 
   /**
@@ -1718,6 +1745,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
   @Override
   Node parseTestCode(String js) {
     initCompilerOptionsIfTesting();
+    initBasedOnOptions();
     CompilerInput input = new CompilerInput(
         SourceFile.fromCode("[testcode]", js));
     if (inputsById == null) {
@@ -2231,7 +2259,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
             options.canContinueAfterErrors()
                 ? Config.RunMode.KEEP_GOING
                 : Config.RunMode.STOP_AFTER_ERROR,
-            options.extraAnnotationNames);
+            options.extraAnnotationNames,
+            options.parseInlineSourceMaps);
     return config;
   }
 
@@ -2354,9 +2383,17 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
   }
 
   @Override
+  public void addInputSourceMap(String sourceFileName, SourceMapInput inputSourceMap) {
+    inputSourceMaps.put(sourceFileName, inputSourceMap);
+  }
+
+  @Override
   public OriginalMapping getSourceMapping(String sourceName, int lineNumber,
       int columnNumber) {
-    SourceMapInput sourceMap = options.inputSourceMaps.get(sourceName);
+    if (sourceName == null) {
+      return null;
+    }
+    SourceMapInput sourceMap = inputSourceMaps.get(sourceName);
     if (sourceMap == null) {
       return null;
     }
@@ -2619,6 +2656,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler {
   }
 
   private void processNewScript(JsAst ast, Node originalRoot) {
+    languageMode = options.getLanguageIn();
+
     Node js = ast.getAstRoot(this);
     Preconditions.checkNotNull(js);
 

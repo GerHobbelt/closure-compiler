@@ -94,6 +94,12 @@
     </dependency>
 
     <dependency>
+      <groupId>com.google.jsinterop</groupId>
+      <artifactId>jsinterop-annotations</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+
+    <dependency>
       <groupId>com.google.truth</groupId>
       <artifactId>truth</artifactId>
       <version>0.28</version>
@@ -199,6 +205,7 @@
           <excludes>
             <exclude>**/debugger/**</exclude>
             <exclude>**/gwt/**</exclude>
+            <exclude>**/super/**</exclude>
             <exclude>**/testing/**</exclude>
             <exclude>**/webservice/**</exclude>
           </excludes>

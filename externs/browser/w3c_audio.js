@@ -219,6 +219,12 @@ AudioContext.prototype.createMediaStreamSource = function(mediaStream) {};
 AudioContext.prototype.createGainNode = function() {};
 
 /**
+ * @return {!Promise<void>}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/close
+ */
+AudioContext.prototype.close = function() {};
+
+/**
  * @param {number} numberOfChannels
  * @param {number} length
  * @param {number} sampleRate

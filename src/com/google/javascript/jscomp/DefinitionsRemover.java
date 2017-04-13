@@ -21,7 +21,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-
 import java.util.Set;
 
 /**
@@ -60,11 +59,10 @@ class DefinitionsRemover {
     } else if (parent.isParamList()) {
       Node function = parent.getParent();
       return new FunctionArgumentDefinition(function, n, isExtern);
-    } else if (parent.getType() == Token.COLON && parent.getFirstChild() == n
-        && isExtern) {
+    } else if (parent.getToken() == Token.COLON && parent.getFirstChild() == n && isExtern) {
       Node grandparent = parent.getParent();
-      Preconditions.checkState(grandparent.getType() == Token.LB);
-      Preconditions.checkState(grandparent.getParent().getType() == Token.LC);
+      Preconditions.checkState(grandparent.getToken() == Token.LB);
+      Preconditions.checkState(grandparent.getParent().getToken() == Token.LC);
       return new RecordTypePropertyDefinition(n);
     }
     return null;
@@ -94,11 +92,12 @@ class DefinitionsRemover {
       return true;
     } else if (parent.isParamList()) {
       return true;
-    } else if (parent.getType() == Token.COLON && parent.getFirstChild() == n
+    } else if (parent.getToken() == Token.COLON
+        && parent.getFirstChild() == n
         && n.isFromExterns()) {
       Node grandparent = parent.getParent();
-      Preconditions.checkState(grandparent.getType() == Token.LB);
-      Preconditions.checkState(grandparent.getParent().getType() == Token.LC);
+      Preconditions.checkState(grandparent.getToken() == Token.LB);
+      Preconditions.checkState(grandparent.getParent().getToken() == Token.LC);
       return true;
     }
     return false;
@@ -156,6 +155,10 @@ class DefinitionsRemover {
     public boolean isExtern() {
       return isExtern;
     }
+
+    public String toString() {
+      return getLValue().getQualifiedName() + " = " + getRValue().toString();
+    }
   }
 
   /**
@@ -171,7 +174,9 @@ class DefinitionsRemover {
       super(inExterns);
       Preconditions.checkNotNull(lValue);
       Preconditions.checkArgument(
-          ALLOWED_TYPES.contains(lValue.getType()), "Unexpected lValue type %s", lValue.getType());
+          ALLOWED_TYPES.contains(lValue.getToken()),
+          "Unexpected lValue type %s",
+          lValue.getToken());
       this.lValue = lValue;
     }
 
@@ -375,7 +380,7 @@ class DefinitionsRemover {
       // getLValue sooner or later in order to provide this added
       // flexibility.
 
-      switch (name.getType()) {
+      switch (name.getToken()) {
         case SETTER_DEF:
         case GETTER_DEF:
         case STRING_KEY:

@@ -44,7 +44,6 @@ import com.google.javascript.jscomp.deps.SourceCodeEscapers;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
-
 import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
 import java.io.Closeable;
@@ -387,6 +386,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     options.sourceMapDetailLevel = config.sourceMapDetailLevel;
     options.sourceMapFormat = config.sourceMapFormat;
     options.sourceMapLocationMappings = config.sourceMapLocationMappings;
+    options.parseInlineSourceMaps = config.parseInlineSourceMaps;
+    options.applyInputSourceMaps = config.applyInputSourceMaps;
 
     ImmutableMap.Builder<String, SourceMapInput> inputSourceMaps
         = new ImmutableMap.Builder<>();
@@ -1276,7 +1277,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   }
 
   private DiagnosticType outputModuleBinaryAndSourceMaps(List<JSModule> modules, B options)
-      throws FlagUsageException, IOException {
+      throws IOException {
     parsedModuleWrappers = parseModuleWrappers(
         config.moduleWrapper, modules);
     maybeCreateDirsForPath(config.moduleOutputPathPrefix);
@@ -1328,12 +1329,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     return null;
   }
 
-  /**
-   * Given an output module, convert it to a JSONFileSpec with associated
-   * sourcemap
-   */
-  private JsonFileSpec createJsonFileFromModule(JSModule module) throws
-      FlagUsageException, IOException{
+  /** Given an output module, convert it to a JSONFileSpec with associated sourcemap */
+  private JsonFileSpec createJsonFileFromModule(JSModule module) throws IOException {
     compiler.getSourceMap().reset();
 
     StringBuilder output = new StringBuilder();
@@ -2117,6 +2114,14 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       return this;
     }
 
+    private boolean parseInlineSourceMaps = false;
+
+    public CommandLineConfig setParseInlineSourceMaps(
+        boolean parseInlineSourceMaps) {
+      this.parseInlineSourceMaps = parseInlineSourceMaps;
+      return this;
+    }
+
     private String variableMapInputFile = "";
 
     /**
@@ -2303,6 +2308,17 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         List<SourceMap.LocationMapping> locationMappings) {
 
       this.sourceMapLocationMappings = ImmutableList.copyOf(locationMappings);
+      return this;
+    }
+
+    private boolean applyInputSourceMaps = false;
+
+    /**
+     * Whether to apply input source maps to the output, i.e. map back to original inputs from
+     * input files that have source maps applied to them.
+     */
+    public CommandLineConfig setApplyInputSourceMaps(boolean applyInputSourceMaps) {
+      this.applyInputSourceMaps = applyInputSourceMaps;
       return this;
     }
 

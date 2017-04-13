@@ -706,9 +706,6 @@ public class CompilerOptions {
   /** Processes the output of J2CL */
   J2clPassMode j2clPassMode;
 
-  /** J2CL can't extend the optimization loop. */
-  boolean limitJ2clOptimization = false;
-
   /** Remove methods that only make a super call without changing the arguments. */
   boolean removeAbstractMethods;
 
@@ -893,14 +890,20 @@ public class CompilerOptions {
     trustedStrings = yes;
   }
 
-  String reportPath;
-
-  // Should only be used when debugging compiler bugs using small JS inputs.
+  // Should only be used when debugging compiler bugs.
   boolean printSourceAfterEachPass;
+  // Used to narrow down the printed source when overall input size is large.
+  String fileToPrintAfterEachPass;
 
   public void setPrintSourceAfterEachPass(boolean printSource) {
     this.printSourceAfterEachPass = printSource;
   }
+
+  public void setFileToPrintAfterEachPass(String filename) {
+    this.fileToPrintAfterEachPass = filename;
+  }
+
+  String reportPath;
 
   /** Where to save a report of global name usage */
   public void setReportPath(String reportPath) {
@@ -960,6 +963,17 @@ public class CompilerOptions {
   /** The source map file format */
   public SourceMap.Format sourceMapFormat =
       SourceMap.Format.DEFAULT;
+
+  /**
+   * Whether to parse inline source maps.
+   */
+  boolean parseInlineSourceMaps = true;
+
+  /**
+   * Whether to apply input source maps to the output, i.e. map back to original inputs from
+   * input files that have source maps applied to them.
+   */
+  boolean applyInputSourceMaps = false;
 
   public List<SourceMap.LocationMapping> sourceMapLocationMappings =
       Collections.emptyList();
@@ -1630,10 +1644,6 @@ public class CompilerOptions {
     if (j2clPassMode.isExplicitlyOn()) {
       setWarningLevel(DiagnosticGroup.forType(SourceFile.DUPLICATE_ZIP_CONTENTS), CheckLevel.OFF);
     }
-  }
-
-  public void setLimitJ2clOptimization(boolean limitJ2clOptimization) {
-    this.limitJ2clOptimization = limitJ2clOptimization;
   }
 
   public void setCodingConvention(CodingConvention codingConvention) {
@@ -2471,6 +2481,10 @@ public class CompilerOptions {
 
   public void setSourceMapOutputPath(String sourceMapOutputPath) {
     this.sourceMapOutputPath = sourceMapOutputPath;
+  }
+
+  public void setApplyInputSourceMaps(boolean applyInputSourceMaps) {
+    this.applyInputSourceMaps = applyInputSourceMaps;
   }
 
   public void setSourceMapIncludeSourcesContent(boolean sourceMapIncludeSourcesContent) {
