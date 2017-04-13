@@ -210,7 +210,7 @@ public final class ProcessEs6Modules extends AbstractPostOrderCallback {
     if (alreadyRequired.add(moduleName)) {
       Node require = IR.exprResult(
           IR.call(NodeUtil.newQName(compiler, "goog.require"), IR.string(moduleName)));
-      require.copyInformationFromForTree(importDecl);
+      require.useSourceInfoIfMissingFromForTree(importDecl);
       script.addChildAfter(require, googRequireInsertSpot);
       googRequireInsertSpot = require;
       t.getInput().addRequire(moduleName);
@@ -391,7 +391,7 @@ public final class ProcessEs6Modules extends AbstractPostOrderCallback {
       Node googProvide = IR.exprResult(
           IR.call(NodeUtil.newQName(compiler, "goog.provide"),
               IR.string(moduleName)));
-      script.addChildToFront(googProvide.copyInformationFromForTree(script));
+      script.addChildToFront(googProvide.useSourceInfoIfMissingFromForTree(script));
       t.getInput().addProvide(moduleName);
     }
 
@@ -511,10 +511,9 @@ public final class ProcessEs6Modules extends AbstractPostOrderCallback {
           ModuleOriginalNamePair pair = importMap.get(name);
           Node moduleAccess = NodeUtil.newQName(compiler, pair.module);
           if (pair.originalName.isEmpty()) {
-            n.getParent().replaceChild(
-                n, moduleAccess.useSourceInfoIfMissingFromForTree(n));
+            n.replaceWith(moduleAccess.useSourceInfoIfMissingFromForTree(n));
           } else {
-            n.getParent().replaceChild(n,
+            n.replaceWith(
                 IR.getprop(moduleAccess, IR.string(pair.originalName))
                     .useSourceInfoIfMissingFromForTree(n));
           }
@@ -529,7 +528,7 @@ public final class ProcessEs6Modules extends AbstractPostOrderCallback {
     private void fixTypeNode(NodeTraversal t, Node typeNode) {
       if (typeNode.isString()) {
         String name = typeNode.getString();
-        if (ModuleLoader.isRelativeIdentifier(name) || ModuleLoader.isAbsoluteIdentifier(name)) {
+        if (ModuleLoader.isPathIdentifier(name)) {
           int lastSlash = name.lastIndexOf('/');
           int endIndex = name.indexOf('.', lastSlash);
           String localTypeName = null;

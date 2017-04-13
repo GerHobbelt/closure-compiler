@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static com.google.javascript.jscomp.testing.JSErrorSubject.assertError;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -102,6 +103,8 @@ public abstract class CompilerTestCase extends TestCase {
    * whether the expected JS strings should be normalized.
    */
   private boolean normalizeEnabled = false;
+
+  private boolean polymerPass = false;
 
   /** Whether the tranpilation passes runs before pass being tested. */
   private boolean transpileEnabled = false;
@@ -415,6 +418,10 @@ public abstract class CompilerTestCase extends TestCase {
     this.allowExternsChanges = allowExternsChanges;
   }
 
+  public void enablePolymerPass() {
+    polymerPass = true;
+  }
+
   /**
    * Perform type checking before running the test pass. This will check
    * for type errors and annotate nodes with type information.
@@ -454,7 +461,6 @@ public abstract class CompilerTestCase extends TestCase {
   /**
    * Process closure library primitives.
    */
-  // TODO(nicksantos): Fix other passes to use this when appropriate.
   protected void enableClosurePass() {
     closurePassEnabled = true;
   }
@@ -518,7 +524,6 @@ public abstract class CompilerTestCase extends TestCase {
    *
    * @see MarkNoSideEffectCalls
    */
-  // TODO(nicksantos): This pass doesn't get run anymore. It should be removed.
   void enableMarkNoSideEffects() {
     markNoSideEffects = true;
   }
@@ -649,6 +654,13 @@ public abstract class CompilerTestCase extends TestCase {
    * @param js Input
    */
   public void testNoWarning(String js) {
+    test(js, null, null, null);
+  }
+
+  /**
+   * Verifies that the compiler generates no warnings for the given input.
+   */
+  public void testNoWarning(String[] js) {
     test(js, null, null, null);
   }
 
@@ -1228,10 +1240,7 @@ public abstract class CompilerTestCase extends TestCase {
     }
     assertWithMessage("Unexpected parse error(s): " + errorMsg).that(root).isNotNull();
     if (!expectParseWarningsThisTest) {
-      assertEquals(
-          "Unexpected parse warning(s): " + LINE_JOINER.join(compiler.getWarnings()),
-          0,
-          compiler.getWarnings().length);
+      assertThat(compiler.getWarnings()).named("parser warnings").isEmpty();
     } else {
       assertThat(compiler.getWarningCount()).isGreaterThan(0);
     }
@@ -1258,6 +1267,12 @@ public abstract class CompilerTestCase extends TestCase {
       if (compiler.getErrorCount() == 0) {
         errorManagers[i] = new BlackHoleErrorManager();
         compiler.setErrorManager(errorManagers[i]);
+
+        if (polymerPass && i == 0) {
+          recentChange.reset();
+          new PolymerPass(compiler).process(externsRoot, mainRoot);
+          hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
+        }
 
         if (rewriteClosureCode && i == 0) {
           new ClosureRewriteClass(compiler).process(null, mainRoot);
@@ -1354,10 +1369,7 @@ public abstract class CompilerTestCase extends TestCase {
     }
 
     if (error == null) {
-      assertEquals(
-          "Unexpected error(s):\n" + LINE_JOINER.join(compiler.getErrors()),
-          0,
-          compiler.getErrorCount());
+      assertThat(compiler.getErrors()).isEmpty();
 
       // Verify the symbol table.
       ErrorManager symbolTableErrorManager = new BlackHoleErrorManager();
@@ -1371,17 +1383,13 @@ public abstract class CompilerTestCase extends TestCase {
       JSError[] stErrors = symbolTableErrorManager.getErrors();
       if (expectedSymbolTableError != null) {
         assertEquals("There should be one error.", 1, stErrors.length);
-        assertThat(stErrors[0].getType()).isEqualTo(expectedSymbolTableError);
+        assertError(stErrors[0]).hasType(expectedSymbolTableError);
       } else {
-        assertEquals(
-            "Unexpected symbol table error(s): " + LINE_JOINER.join(stErrors), 0, stErrors.length);
+        assertThat(stErrors).named("symbol table errors").isEmpty();
       }
 
       if (warning == null) {
-        assertEquals(
-            "Unexpected warning(s): " + LINE_JOINER.join(aggregateWarnings),
-            0,
-            aggregateWarningCount);
+        assertThat(aggregateWarnings).isEmpty();
       } else {
         assertEquals(
             "There should be one warning, repeated "
@@ -1393,7 +1401,7 @@ public abstract class CompilerTestCase extends TestCase {
         for (int i = 0; i < numRepetitions; ++i) {
           JSError[] warnings = errorManagers[i].getWarnings();
           JSError actual = warnings[0];
-          assertThat(actual.getType()).isEqualTo(warning);
+          assertError(actual).hasType(warning);
           validateSourceLocation(actual);
 
           if (description != null) {
@@ -1462,7 +1470,7 @@ public abstract class CompilerTestCase extends TestCase {
                   + "\n" + explanation);
             }
           }
-        } else if (expected != null) {
+        } else {
           String[] expectedSources = new String[expected.size()];
           for (int i = 0; i < expected.size(); ++i) {
             try {

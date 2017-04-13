@@ -389,7 +389,7 @@ PolymerElement.prototype.toggleClass = function(name, bool, node) {};
  * if bool is truthy and removing it if bool is falsey. If node is specified,
  * sets the attribute on node instead of the host element.
  * @param {string} name
- * @param {boolean} bool
+ * @param {boolean=} bool
  * @param {HTMLElement=} node
  */
 PolymerElement.prototype.toggleAttribute = function(name, bool, node) {};
@@ -603,6 +603,13 @@ PolymerElement.prototype.importHref = function(href, onload, onerror) {};
 PolymerElement.prototype.isLightDescendant = function(node) {};
 
 /**
+ * Checks whether an element is in this element's local DOM tree.
+ * @param {?Node} node The element to be checked.
+ * @return {boolean} true if node is in this element's local DOM tree.
+ */
+PolymerElement.prototype.isLocalDescendant = function(node) {};
+
+/**
  * Delete an element from an array.
  * @param {!Array|string} array Path to array from which to remove the item (or
  *     the array itself).
@@ -765,6 +772,12 @@ PolymerDomApi.prototype.previousSibling;
 /** @type {?Node} */
 PolymerDomApi.prototype.nextSibling;
 
+/** @type {?HTMLElement} */
+PolymerDomApi.prototype.previousElementSibling;
+
+/** @type {?HTMLElement} */
+PolymerDomApi.prototype.nextElementSibling;
+
 /** @type {string} */
 PolymerDomApi.prototype.textContent;
 
@@ -807,13 +820,18 @@ PolymerDomApi.prototype.setAttribute = function(attribute, value) {};
 PolymerDomApi.prototype.removeAttribute = function(attribute) {};
 
 /**
- * @typedef {function({
+ * @typedef {function(!PolymerDomApi.ObserveInfo)}
+ */
+PolymerDomApi.ObserveCallback;
+
+/**
+ * @typedef {{
  *   target: !Node,
  *   addedNodes: !Array<!Node>,
  *   removedNodes: !Array<!Node>
- * })}
+ * }}
  */
-PolymerDomApi.ObserveCallback;
+PolymerDomApi.ObserveInfo;
 
 /**
  * A virtual type for observer callback handles.
@@ -883,6 +901,18 @@ PolymerEventApi.prototype.event;
 
 
 Polymer.Async;
+
+/**
+ * @param {function()} callback
+ * @param {number=} waitTime
+ * @return {number}
+ */
+Polymer.Async.run = function (callback, waitTime) {};
+
+/**
+ * @param {number} handle
+ */
+Polymer.Async.cancel = function(handle) {};
 
 /**
  * polymer-onerror experiment relies on this private API, so expose it only

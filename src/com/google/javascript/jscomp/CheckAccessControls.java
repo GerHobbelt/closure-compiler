@@ -829,10 +829,6 @@ class CheckAccessControls implements ScopedCallback, HotSwapCompilerPass {
       Node parent,
       boolean isClassType,
       TypeI ownerType) {
-    TypeI currentClass = getCurrentClass();
-    if (currentClass != null && ownerType.isEquivalentTo(currentClass)) {
-      return;
-    }
 
     if (isClassType && isValidPrivateConstructorAccess(parent)) {
       return;
@@ -845,6 +841,7 @@ class CheckAccessControls implements ScopedCallback, HotSwapCompilerPass {
     String readableTypeName = ownerType.equals(accessedType)
         ? typeRegistry.getReadableTypeName(getprop.getFirstChild())
         : ownerType.toString();
+    // TODO(tbreisacher): Should we also include the filename where ownerType is defined?
     compiler.report(
         t.makeError(getprop,
             BAD_PRIVATE_PROPERTY_ACCESS,

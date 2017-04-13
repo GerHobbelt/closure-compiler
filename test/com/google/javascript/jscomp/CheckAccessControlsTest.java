@@ -57,6 +57,7 @@ public final class CheckAccessControlsTest extends TypeICompilerTestCase {
     super(CompilerTypeTestCase.DEFAULT_EXTERNS);
     parseTypeInfo = true;
     enableClosurePass();
+    enableRewriteClosureCode();
   }
 
   @Override
@@ -208,7 +209,7 @@ public final class CheckAccessControlsTest extends TypeICompilerTestCase {
     this.mode = TypeInferenceMode.NTI_ONLY;
     testDepProp(
         js,
-        "Property bar of type Object{bar:?, baz:function(this:Foo):?} has been deprecated:"
+        "Property bar of type {bar:?, baz:function(this:Foo):?} has been deprecated:"
             + " It is now in production, use that model...");
   }
 
@@ -381,34 +382,16 @@ public final class CheckAccessControlsTest extends TypeICompilerTestCase {
   }
 
   public void testPrivateAccessForProperties3() {
-    testSame(new String[] {
+    // Even though baz is "part of the Foo class" the access is disallowed since it's
+    // not in the same file.
+    testError(new String[] {
         "/** @constructor */ function Foo() {}"
         + "/** @private */ Foo.prototype.bar_ = function() {}; (new Foo).bar_();",
-        "Foo.prototype.baz = function() { this.bar_(); };"});
+        "Foo.prototype.baz = function() { this.bar_(); };"},
+        BAD_PRIVATE_PROPERTY_ACCESS);
   }
 
   public void testPrivateAccessForProperties4() {
-    // If a prototype property is defined via a computed access in a separate file from the
-    // constructor itself, then when running with NTI we fail to recognize that property as being a
-    // prototype property. This is enough of a corner case that we are fine with allowing it.
-    // If they are in the same file then things work as expected
-    // (see testPrivateAccessForProperties4b).
-    this.mode = TypeInferenceMode.OTI_ONLY;
-    testSame(new String[] {
-        "/** @constructor */ function Foo() {}"
-        + "/** @private */ Foo.prototype.bar_ = function() {};",
-        "Foo.prototype['baz'] = function() { (new Foo()).bar_(); };"});
-  }
-
-  public void testPrivateAccessForProperties4a() {
-    // Identical to 4 except the computed access
-    testSame(new String[] {
-        "/** @constructor */ function Foo() {}"
-        + "/** @private */ Foo.prototype.bar_ = function() {};",
-        "Foo.prototype.baz = function() { (new Foo()).bar_(); };"});
-  }
-
-  public void testPrivateAccessForProperties4b() {
     testSame(
         "/** @constructor */ function Foo() {}"
         + "/** @private */ Foo.prototype.bar_ = function() {};"
@@ -416,21 +399,87 @@ public final class CheckAccessControlsTest extends TypeICompilerTestCase {
   }
 
   public void testPrivateAccessForProperties5() {
-    testError(new String[] {
-        "/** @constructor */\n"
-        + "function Parent () {\n"
-        + "  /** @private */\n"
-        + "  this.prop = 'foo';\n"
-        + "};",
-        "/**\n"
-        + " * @constructor\n"
-        + " * @extends {Parent}\n"
-        + " */\n"
-        + "function Child() {\n"
-        + "  this.prop = 'asdf';\n"
-        + "}\n"
-        + "Child.prototype = new Parent();"},
-        BAD_PRIVATE_PROPERTY_ACCESS);
+    test(
+        new String[] {
+          LINE_JOINER.join(
+              "/** @constructor */",
+              "function Parent () {",
+              "  /** @private */",
+              "  this.prop = 'foo';",
+              "};"),
+          LINE_JOINER.join(
+              "/**",
+              " * @constructor",
+              " * @extends {Parent}",
+              " */",
+              "function Child() {",
+              "  this.prop = 'asdf';",
+              "}",
+              "Child.prototype = new Parent();")
+        },
+        null,
+        BAD_PRIVATE_PROPERTY_ACCESS,
+        null,
+        "Access to private property prop of Parent not allowed here.");
+  }
+
+  public void testPrivateAccessForProperties6() {
+    test(
+        new String[] {
+          LINE_JOINER.join(
+              "goog.provide('x.y.z.Parent');",
+              "",
+              "/** @constructor */",
+              "x.y.z.Parent = function() {",
+              "  /** @private */",
+              "  this.prop = 'foo';",
+              "};"),
+          LINE_JOINER.join(
+              "goog.require('x.y.z.Parent');",
+              "",
+              "/**",
+              " * @constructor",
+              " * @extends {x.y.z.Parent}",
+              " */",
+              "function Child() {",
+              "  this.prop = 'asdf';",
+              "}",
+              "Child.prototype = new x.y.z.Parent();")
+        },
+        null,
+        BAD_PRIVATE_PROPERTY_ACCESS,
+        null,
+        "Access to private property prop of x.y.z.Parent not allowed here.");
+  }
+
+  public void testPrivateAccess_googModule() {
+    String[] js = new String[] {
+          LINE_JOINER.join(
+              "goog.module('example.One');",
+              "/** @constructor */ function One() {}",
+              "/** @private */ One.prototype.m = function() {};",
+              "exports = One;"),
+          LINE_JOINER.join(
+              "goog.module('example.two');",
+              "var One = goog.require('example.One');",
+              "(new One()).m();"),
+        };
+
+    this.mode = TypeInferenceMode.OTI_ONLY;
+    test(
+        js,
+        null,
+        BAD_PRIVATE_PROPERTY_ACCESS,
+        null,
+        "Access to private property m of One not allowed here.");
+
+    this.mode = TypeInferenceMode.NTI_ONLY;
+    test(
+        js,
+        null,
+        BAD_PRIVATE_PROPERTY_ACCESS,
+        null,
+        "Access to private property m of module$exports$example$One not allowed here.");
   }
 
   public void testNoPrivateAccessForProperties1() {

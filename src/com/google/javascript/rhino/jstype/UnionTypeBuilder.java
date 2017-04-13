@@ -45,14 +45,13 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.NO_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.VOID_TYPE;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.jstype.JSType.SubtypingMode;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -110,7 +109,7 @@ public class UnionTypeBuilder implements Serializable {
     this.maxUnionSize = maxUnionSize;
   }
 
-  Collection<JSType> getAlternates() {
+  ImmutableList<JSType> getAlternates() {
     JSType specialCaseType = reduceAlternatesWithoutUnion();
     if (specialCaseType != null) {
       return ImmutableList.of(specialCaseType);
@@ -120,7 +119,13 @@ public class UnionTypeBuilder implements Serializable {
     if (wildcard != null && containsVoidType) {
       return ImmutableList.of(wildcard, registry.getNativeType(VOID_TYPE));
     }
-    return Collections.unmodifiableList(alternates);
+    // This copy should be pretty cheap since in the common case alternates only contains 2-3 items
+    return ImmutableList.copyOf(alternates);
+  }
+
+  @VisibleForTesting
+  int getAlternatesCount() {
+    return alternates.size();
   }
 
   private boolean isSubtype(
@@ -161,7 +166,10 @@ public class UnionTypeBuilder implements Serializable {
     if (!isAllType && !isNativeUnknownType) {
       if (alternate.isUnionType()) {
         UnionType union = alternate.toMaybeUnionType();
-        for (JSType unionAlt : union.getAlternatesWithoutStructuralTyping()) {
+        List<JSType> alternatesWithoutStructuralTyping =
+            union.getAlternatesWithoutStructuralTypingList();
+        for (int i = 0; i < alternatesWithoutStructuralTyping.size(); i++) {
+          JSType unionAlt = alternatesWithoutStructuralTyping.get(i);
           addAlternate(unionAlt);
         }
       } else {

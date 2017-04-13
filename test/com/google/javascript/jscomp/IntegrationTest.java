@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CompilerOptions.DisposalCheckingPolicy;
+import com.google.javascript.jscomp.CompilerOptions.J2clPassMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CompilerOptions.Reach;
 import com.google.javascript.jscomp.deps.ModuleLoader;
@@ -313,6 +314,36 @@ public final class IntegrationTest extends IntegrationTestCase {
          "(new ClassB).fn(3);\n" +
          "",
          TypeValidator.TYPE_MISMATCH_WARNING);
+  }
+
+  // http://b/31448683
+  public void testBug31448683() {
+    CompilerOptions options = createCompilerOptions();
+    WarningLevel.QUIET.setOptionsForWarningLevel(options);
+    options.setInlineFunctions(true);
+    test(
+        options,
+        LINE_JOINER.join(
+            "function f() {",
+            "  x = x || 1",
+            "  var x;",
+            "  console.log(x);",
+            "}",
+            "for (var _ in [1]) {",
+            "  f();",
+            "}"),
+        LINE_JOINER.join(
+            "for(var _ in[1]) {",
+            "  {",
+            "     var x$jscomp$inline_0 = void 0;",
+            "     x$jscomp$inline_0 = x$jscomp$inline_0 || 1;",
+            "     console.log(x$jscomp$inline_0);",
+            "  }",
+            "}"));
+  }
+
+  public void testBug32660578() {
+    testSame(createCompilerOptions(), "function f() { alert(x); for (var x in []) {} }");
   }
 
   public void testWindowIsTypedEs6() {
@@ -1738,6 +1769,130 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, code, "function f() { var x; 3; 4; x = 5; return x; } f();");
   }
 
+  public void testPreservesCastInformation() {
+    // Only set the suffix instead of both prefix and suffix, because j2cl pass
+    // looks for that exact suffix, and IntegrationTestCase adds an input
+    // id number between prefix and suffix.
+    inputFileNameSuffix = "vmbootstrap/Arrays.impl.java.js";
+    CompilerOptions options = new CompilerOptions();
+    String code = LINE_JOINER.join(
+        "/** @constructor */",
+        "var Arrays = function() {};",
+        "Arrays.$create = function() { return {}; }",
+        "/** @constructor */",
+        "function Foo() { this.myprop = 1; }",
+        "/** @constructor */",
+        "function Bar() { this.myprop = 2; }",
+        "var x = /** @type {!Foo} */ (Arrays.$create()).myprop;");
+
+    options.setCheckTypes(true);
+    options.setJ2clPass(J2clPassMode.TRUE);
+    options.setDisambiguateProperties(true);
+
+    test(options, code,
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "var Arrays = function() {};",
+            "Arrays.$create = function() { return {}; }",
+            "/** @constructor */",
+            "function Foo() { this.Foo$myprop = 1; }",
+            "/** @constructor */",
+            "function Bar() { this.Bar$myprop = 2; }",
+            "var x = {}.Foo$myprop;"));
+  }
+
+  public void testInliningLocalVarsPreservesCasts() {
+    String code = LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() { this.myprop = 1; }",
+        "/** @constructor */",
+        "function Bar() { this.myprop = 2; }",
+        "/** @return {Object} */",
+        "function getSomething() {",
+        "  var x = new Bar();",
+        "  return new Foo();",
+        "}",
+        "(function someMethod() {",
+        "  var x = getSomething();",
+        "  var y = /** @type {Foo} */ (x).myprop;",
+        "  return 1 != y;",
+        "})()");
+
+    CompilerOptions options = new CompilerOptions();
+    options.setCheckTypes(true);
+    options.setSmartNameRemoval(true);
+    options.setFoldConstants(true);
+    options.setExtraSmartNameRemoval(true);
+    options.setInlineVariables(true);
+    options.setDisambiguateProperties(true);
+
+    // Verify that property disambiguation continues to work after the local
+    // var and cast have been removed by inlining.
+    test(options, code,
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Foo() { this.Foo$myprop = 1; }",
+            "/** @constructor */",
+            "function Bar() { this.Bar$myprop = 2; }",
+            "/** @return {Object} */",
+            "function getSomething() {",
+            "  var x = new Bar();",
+            "  return new Foo();",
+            "}",
+            "(function someMethod() {",
+            "  return 1 != getSomething().Foo$myprop;",
+            "})()"));
+  }
+
+  /**
+   * Tests that inlining of local variables doesn't destroy type information
+   * when the cast is from a non-nullable type to a nullable type.
+   */
+  public void testInliningLocalVarsPreservesCastsNullable() {
+    String code = LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() { this.myprop = 1; }",
+        "/** @constructor */",
+        "function Bar() { this.myprop = 2; }",
+        // Note that this method return a non-nullable type.
+        "/** @return {!Object} */",
+        "function getSomething() {",
+        "  var x = new Bar();",
+        "  return new Foo();",
+        "}",
+        "(function someMethod() {",
+        "  var x = getSomething();",
+        // Note that this casts from !Object to ?Foo.
+        "  var y = /** @type {Foo} */ (x).myprop;",
+        "  return 1 != y;",
+        "})()");
+
+    CompilerOptions options = new CompilerOptions();
+    options.setCheckTypes(true);
+    options.setSmartNameRemoval(true);
+    options.setFoldConstants(true);
+    options.setExtraSmartNameRemoval(true);
+    options.setInlineVariables(true);
+    options.setDisambiguateProperties(true);
+
+    // Verify that property disambiguation continues to work after the local
+    // var and cast have been removed by inlining.
+    test(options, code,
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Foo() { this.Foo$myprop = 1; }",
+            "/** @constructor */",
+            "function Bar() { this.Bar$myprop = 2; }",
+            "/** @return {Object} */",
+            "function getSomething() {",
+            "  var x = new Bar();",
+            "  return new Foo();",
+            "}",
+            "(function someMethod() {",
+            "  return 1 != getSomething().Foo$myprop;",
+            "})()"));
+  }
+
   public void testInlineFunctions() {
     CompilerOptions options = createCompilerOptions();
     String code = "function f() { return 3; } f(); ";
@@ -2445,8 +2600,8 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testIssue724() {
     CompilerOptions options = createCompilerOptions();
-    CompilationLevel.ADVANCED_OPTIMIZATIONS
-        .setOptionsForCompilationLevel(options);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setCheckTypes(false);
     String code =
         "isFunction = function(functionToCheck) {" +
         "  var getType = {};" +
@@ -2547,6 +2702,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         .setOptionsForCompilationLevel(options);
     options.setRenamingPolicy(
         VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    options.setCheckTypes(false);
     test(options, source, expected);
   }
 
@@ -3011,8 +3167,8 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testNamelessParameter() {
     CompilerOptions options = createCompilerOptions();
-    CompilationLevel.ADVANCED_OPTIMIZATIONS
-        .setOptionsForCompilationLevel(options);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setCheckTypes(false);
     String code =
         "var impl_0;" +
         "$load($init());" +
@@ -3261,7 +3417,6 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testInlineProperties() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
-    options.setCheckTypes(true);
     level.setOptionsForCompilationLevel(options);
     level.setTypeBasedOptimizationOptions(options);
 
@@ -3732,6 +3887,43 @@ public final class IntegrationTest extends IntegrationTestCase {
             "  window['d'] = 12;",
             "}"),
             "null===window['c']&&(window['d']=12)");
+  }
+
+  // GitHub issue #2122: https://github.com/google/closure-compiler/issues/2122
+  public void testNoRemoveSuperCallWithWrongArgumentCount() {
+    CompilerOptions options = createCompilerOptions();
+    options.setCheckTypes(true);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    test(options,
+        LINE_JOINER.join(
+            "var goog = {}",
+            "goog.inherits = function(childCtor, parentCtor) {",
+            "  childCtor.superClass_ = parentCtor.prototype;",
+            "};",
+            "/** @constructor */",
+            "var Foo = function() {}",
+            "/**",
+            " * @param {number=} width",
+            " * @param {number=} height",
+            " */",
+            "Foo.prototype.resize = function(width, height) {",
+            "  window.size = width * height;",
+            "}",
+            "/**",
+            " * @constructor",
+            " * @extends {Foo}",
+            " */",
+            "var Bar = function() {}",
+            "goog.inherits(Bar, Foo);",
+            "/** @override */",
+            "Bar.prototype.resize = function(width, height) {",
+            "  goog.base(this, 'resize', width);",
+            "};",
+            "(new Bar).resize(100, 200);"),
+        LINE_JOINER.join(
+            "function a(){}a.prototype.a=function(b,e){window.c=b*e};",
+            "function d(){}d.b=a.prototype;d.prototype.a=function(b){d.b.a.call(this,b)};",
+            "(new d).a(100, 200);"));
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

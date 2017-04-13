@@ -170,10 +170,15 @@ final class NewTypeInference implements CompilerPass {
           "JSC_NTI_NOT_A_CONSTRUCTOR",
           "Expected a constructor but found type {0}.");
 
-  static final DiagnosticType INSTANTIATE_ABSTRACT_CLASS =
+  static final DiagnosticType CANNOT_INSTANTIATE_ABSTRACT_CLASS =
       DiagnosticType.warning(
-          "JSC_NTI_INSTANTIATE_ABSTRACT_CLASS",
+          "JSC_NTI_CANNOT_INSTANTIATE_ABSTRACT_CLASS",
           "Cannot instantiate abstract class {0}.");
+
+  static final DiagnosticType UNDEFINED_SUPER_CLASS =
+      DiagnosticType.warning(
+          "JSC_UNDEFINED_SUPER_CLASS",
+          "Undefined super class for {0}.");
 
   static final DiagnosticType ASSERT_FALSE =
       DiagnosticType.warning(
@@ -287,6 +292,11 @@ final class NewTypeInference implements CompilerPass {
           + "left : {0}\n"
           + "right: {1}");
 
+  static final DiagnosticType ABSTRACT_METHOD_NOT_CALLABLE =
+      DiagnosticType.warning(
+          "JSC_NTI_ABSTRACT_METHOD_NOT_CALLABLE",
+          "Abstract method {0} cannot be called");
+
   // Not part of ALL_DIAGNOSTICS because it should not be enabled with
   // --jscomp_error=newCheckTypes. It should only be enabled explicitly.
 
@@ -301,8 +311,10 @@ final class NewTypeInference implements CompilerPass {
           "This {0} expression has the unknown type.");
 
   static final DiagnosticGroup COMPATIBLE_DIAGNOSTICS = new DiagnosticGroup(
+      ABSTRACT_METHOD_NOT_CALLABLE,
       ASSERT_FALSE,
       CANNOT_BIND_CTOR,
+      CANNOT_INSTANTIATE_ABSTRACT_CLASS,
       CONST_PROPERTY_DELETED,
       CONST_PROPERTY_REASSIGNED,
       CONST_REASSIGNED,
@@ -316,7 +328,6 @@ final class NewTypeInference implements CompilerPass {
       ILLEGAL_PROPERTY_CREATION,
       IN_USED_WITH_STRUCT,
       INEXISTENT_PROPERTY,
-      INSTANTIATE_ABSTRACT_CLASS,
       INVALID_ARGUMENT_TYPE,
       INVALID_CAST,
       INVALID_INDEX_TYPE,
@@ -406,9 +417,7 @@ final class NewTypeInference implements CompilerPass {
   private JSType NUMBER_OR_STRING;
   private JSType STRING;
   private JSType TOP;
-  private JSType TOP_DICT;
   private JSType TOP_OBJECT;
-  private JSType TOP_STRUCT;
   private JSType TRUE_TYPE;
   private JSType TRUTHY;
   private JSType UNDEFINED;
@@ -461,9 +470,7 @@ final class NewTypeInference implements CompilerPass {
       this.NUMBER_OR_STRING = this.commonTypes.NUMBER_OR_STRING;
       this.STRING = this.commonTypes.STRING;
       this.TOP = this.commonTypes.TOP;
-      this.TOP_DICT = this.commonTypes.TOP_DICT;
-      this.TOP_OBJECT = this.commonTypes.TOP_OBJECT;
-      this.TOP_STRUCT = this.commonTypes.TOP_STRUCT;
+      this.TOP_OBJECT = this.commonTypes.getTopObject();
       this.TRUE_TYPE = this.commonTypes.TRUE_TYPE;
       this.TRUTHY = this.commonTypes.TRUTHY;
       this.UNDEFINED = this.commonTypes.UNDEFINED;
@@ -1153,9 +1160,9 @@ final class NewTypeInference implements CompilerPass {
 
     if (declRetType != null) {
       builder.addRetType(declRetType);
-      if (!isAllowedToNotReturn(fn) &&
-          !UNDEFINED.isSubtypeOf(declRetType) &&
-          hasPathWithNoReturn(this.cfg)) {
+      if (!isAllowedToNotReturn(fn)
+          && !UNDEFINED.isSubtypeOf(declRetType)
+          && hasPathWithNoReturn(this.cfg)) {
         warnings.add(JSError.make(
             fnRoot, MISSING_RETURN_STATEMENT, declRetType.toString()));
       }
@@ -1234,6 +1241,9 @@ final class NewTypeInference implements CompilerPass {
     }
     if (!NodeUtil.isPrototypeMethod(fn)) {
       return false;
+    }
+    if (methodScope.getDeclaredFunctionType().isAbstract()) {
+      return true;
     }
     JSType maybeInterface;
     Node ntQnameNode = NodeUtil.getPrototypeClassName(fn.getParent().getFirstChild());
@@ -1927,8 +1937,8 @@ final class NewTypeInference implements CompilerPass {
       if (!funType.isSomeConstructorOrInterface() || funType.isInterfaceDefinition()) {
         warnings.add(JSError.make(expr, NOT_A_CONSTRUCTOR, funType.toString()));
         return analyzeCallNodeArgsFwdWhenError(expr, envAfterCallee);
-      } else if (funType.isAbstract()) {
-        warnings.add(JSError.make(expr, INSTANTIATE_ABSTRACT_CLASS, funType.toString()));
+      } else if (funType.isConstructorOfAbstractClass()) {
+        warnings.add(JSError.make(expr, CANNOT_INSTANTIATE_ABSTRACT_CLASS, funType.toString()));
         return analyzeCallNodeArgsFwdWhenError(expr, envAfterCallee);
       }
     }
@@ -2371,7 +2381,13 @@ final class NewTypeInference implements CompilerPass {
     if (currentScope.hasThis()) {
       NominalType thisClass = Preconditions.checkNotNull(
           envGetType(inEnv, THIS_ID).getNominalTypeIfSingletonObj());
-      NominalType superClass = Preconditions.checkNotNull(thisClass.getInstantiatedSuperclass());
+      NominalType superClass = thisClass.getInstantiatedSuperclass();
+      if (superClass == null) {
+        // This indicates bad code and there will probably be other errors reported.
+        // In particular JSC_NTI_INHERITANCE_CYCLE for `class Foo extends Foo ...`.
+        warnings.add(JSError.make(expr, UNDEFINED_SUPER_CLASS, thisClass.toString()));
+        return new EnvTypePair(inEnv, UNKNOWN);
+      }
       if (currentScope.isConstructor()) {
         JSType superCtor = commonTypes.fromFunctionType(superClass.getConstructorFunction());
         return new EnvTypePair(inEnv, superCtor);
@@ -2384,7 +2400,13 @@ final class NewTypeInference implements CompilerPass {
     JSType thisClassAsJstype = analyzeExprFwd(classNameNode, inEnv).type;
     FunctionType thisCtor = thisClassAsJstype.getFunTypeIfSingletonObj();
     NominalType thisClass = thisCtor.getThisType().getNominalTypeIfSingletonObj();
-    NominalType superClass = Preconditions.checkNotNull(thisClass.getInstantiatedSuperclass());
+    NominalType superClass = thisClass.getInstantiatedSuperclass();
+    if (superClass == null) {
+      // This indicates bad code and there will probably be other errors reported.
+      // In particular JSC_NTI_INHERITANCE_CYCLE for `class Foo extends Foo ...`.
+      warnings.add(JSError.make(expr, UNDEFINED_SUPER_CLASS, funName.toString()));
+      return new EnvTypePair(inEnv, UNKNOWN);
+    }
     return new EnvTypePair(inEnv, superClass.getNamespaceType());
   }
 
@@ -2753,8 +2775,7 @@ final class NewTypeInference implements CompilerPass {
             ? arrayType : beforeType.removeType(arrayType);
       }
       case "isArrayLike":
-        return TOP_OBJECT.withProperty(
-            new QualifiedName("length"), NUMBER);
+        return TOP_OBJECT.withProperty(new QualifiedName("length"), NUMBER);
       case "boolean":
       case "isBoolean":
         return booleanContext.isTrueOrTruthy()
@@ -2936,9 +2957,8 @@ final class NewTypeInference implements CompilerPass {
     //   function f(obj) { obj.prop = 123; }
     // f should accept objects without prop, so we don't require that obj
     // already have prop.
-    if (recvType.mayBeStruct() && !recvType.hasProp(pname)) {
-      warnings.add(JSError.make(
-          getProp, ILLEGAL_PROPERTY_CREATION, pname.toString()));
+    if (recvType.isStructWithoutProp(pname)) {
+      warnings.add(JSError.make(getProp, ILLEGAL_PROPERTY_CREATION, pname.toString()));
       return true;
     }
     return false;
@@ -2958,7 +2978,7 @@ final class NewTypeInference implements CompilerPass {
     }
 
     if (recvType.isUnknown() || recvType.isTrueOrTruthy() || recvType.isLoose()
-        || allowPropertyOnSubtypes && recvType.isInstanceofObject()) {
+        || allowPropertyOnSubtypes && recvType.mayContainUnknownObject()) {
       if (symbolTable.isPropertyDefined(pname)) {
         return false;
       }
@@ -2968,8 +2988,7 @@ final class NewTypeInference implements CompilerPass {
     }
 
     if (allowPropertyOnSubtypes && !recvType.isStruct()
-        && (recvType.isInstanceofObject()
-            || recvType.isPropDefinedOnSubtype(propQname))) {
+        && recvType.isPropDefinedOnSubtype(propQname)) {
       return false;
     }
 
@@ -3097,13 +3116,18 @@ final class NewTypeInference implements CompilerPass {
       return new EnvTypePair(pair.env, requiredType);
     }
     FunctionType ft = recvType.getFunTypeIfSingletonObj();
-    if (ft != null && pname.equals("call")) {
+    if (ft != null && (pname.equals("call") || pname.equals("apply"))) {
+      if (ft.isAbstract()) {
+        // We don't check if the parent of the property access is a call node.
+        // This catches calls that are a few nodes away, and also warns on .call/.apply
+        // accesses that do not result in calls (these should be very rare).
+        String funName = receiver.isQualifiedName() ? receiver.getQualifiedName() : "";
+        warnings.add(JSError.make(propAccessNode, ABSTRACT_METHOD_NOT_CALLABLE, funName));
+      }
       return new EnvTypePair(pair.env,
-          commonTypes.fromFunctionType(ft.transformByCallProperty()));
-    }
-    if (ft != null && pname.equals("apply")) {
-      return new EnvTypePair(pair.env,
-          commonTypes.fromFunctionType(ft.transformByApplyProperty()));
+          pname.equals("call")
+          ? commonTypes.fromFunctionType(ft.transformByCallProperty())
+          : commonTypes.fromFunctionType(ft.transformByApplyProperty()));
     }
     if (this.convention.isSuperClassReference(pname)) {
       if (ft != null && ft.isUniqueConstructor()) {
@@ -4274,12 +4298,12 @@ final class NewTypeInference implements CompilerPass {
       case OBJECTLIT: {
         JSDocInfo jsdoc = expr.getJSDocInfo();
         if (jsdoc != null && jsdoc.makesStructs()) {
-          return TOP_STRUCT;
+          return this.commonTypes.getTopStruct();
         }
         if (jsdoc != null && jsdoc.makesDicts()) {
-          return TOP_DICT;
+          return this.commonTypes.getTopDict();
         }
-        return TOP_OBJECT;
+        return this.commonTypes.getEmptyObjectLiteral();
       }
       case FOR:
         Preconditions.checkState(NodeUtil.isForIn(expr));

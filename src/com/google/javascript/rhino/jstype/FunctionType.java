@@ -634,8 +634,7 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
     return extendedInterfaces.size();
   }
 
-  public void setExtendedInterfaces(List<ObjectType> extendedInterfaces)
-    throws UnsupportedOperationException {
+  public void setExtendedInterfaces(List<ObjectType> extendedInterfaces) {
     if (isInterface()) {
       this.extendedInterfaces = ImmutableList.copyOf(extendedInterfaces);
       for (ObjectType extendedInterface : this.extendedInterfaces) {
@@ -1160,6 +1159,7 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
   /**
    * Returns whether this function type has an instance type.
    */
+  @Override
   public boolean hasInstanceType() {
     return isConstructor() || isInterface();
   }

@@ -47,10 +47,10 @@ public final class ErrorToFixMapper {
       Pattern.compile("Variable referenced before declaration: (.*)");
   private static final Pattern MISSING_REQUIRE =
       Pattern.compile("missing require: '([^']+)'");
-  private static final Pattern EXTRA_REQUIRE =
-      Pattern.compile("extra require: '([^']+)'");
   private static final Pattern DUPLICATE_REQUIRE =
       Pattern.compile("'([^']+)' required more than once\\.");
+  private static final Pattern FULLY_QUALIFIED_NAME =
+      Pattern.compile("Reference to fully qualified import name '([^']+)'.*");
   private static final Pattern USE_SHORT_NAME =
       Pattern.compile(".*Please use the short name '(.*)' instead.");
 
@@ -100,6 +100,9 @@ public final class ErrorToFixMapper {
       case "JSC_EXTRA_REQUIRE_WARNING":
         return getFixForExtraRequire(error, compiler);
       case "JSC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME":
+      case "JSC_JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME":
+      case "JSC_REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME":
+        // TODO(tbreisacher): Apply this fix for JSC_JSDOC_REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME.
         return getFixForReferenceToShortImportByLongName(error, compiler);
       default:
         return null;
@@ -190,14 +193,24 @@ public final class ErrorToFixMapper {
 
   private static SuggestedFix getFixForReferenceToShortImportByLongName(
       JSError error, AbstractCompiler compiler) {
-    Matcher m = USE_SHORT_NAME.matcher(error.description);
-    if (m.matches()) {
-      return new SuggestedFix.Builder()
-          .attachMatchedNodeInfo(error.node, compiler)
-          .replace(error.node, NodeUtil.newQName(compiler, m.group(1)), compiler)
-          .build();
+    SuggestedFix.Builder fix =
+        new SuggestedFix.Builder().attachMatchedNodeInfo(error.node, compiler);
+    NodeMetadata metadata = new NodeMetadata(compiler);
+    Match match = new Match(error.node, metadata);
+
+    Matcher shortNameMatcher = USE_SHORT_NAME.matcher(error.description);
+    String shortName;
+    if (shortNameMatcher.matches()) {
+      shortName = shortNameMatcher.group(1);
+    } else {
+      Matcher fullNameMatcher = FULLY_QUALIFIED_NAME.matcher(error.description);
+      Preconditions.checkState(fullNameMatcher.matches(), error.description);
+      String namespace = fullNameMatcher.group(1);
+      shortName = namespace.substring(namespace.lastIndexOf('.') + 1);
+      fix.addLhsToGoogRequire(match, namespace);
     }
-    return null;
+
+    return fix.replace(error.node, NodeUtil.newQName(compiler, shortName), compiler).build();
   }
 
   private static List<SuggestedFix> getFixesForImplicitlyNullableJsDoc(
@@ -308,16 +321,20 @@ public final class ErrorToFixMapper {
   }
 
   private static SuggestedFix getFixForExtraRequire(JSError error, AbstractCompiler compiler) {
-    Matcher regexMatcher = EXTRA_REQUIRE.matcher(error.description);
-    Preconditions.checkState(regexMatcher.matches(),
-        "Unexpected error description: %s", error.description);
-    String namespace = regexMatcher.group(1);
-    NodeMetadata metadata = new NodeMetadata(compiler);
-    Match match = new Match(error.node, metadata);
-    return new SuggestedFix.Builder()
-        .attachMatchedNodeInfo(error.node, compiler)
-        .removeGoogRequire(match, namespace)
-        .build();
+    SuggestedFix.Builder fix =
+        new SuggestedFix.Builder().attachMatchedNodeInfo(error.node, compiler);
+    boolean destructuring = NodeUtil.getEnclosingType(error.node, Token.OBJECT_PATTERN) != null;
+    if (destructuring) {
+      if (error.node.isStringKey()) {
+        fix.delete(error.node);
+      } else {
+        Preconditions.checkState(error.node.getParent().isStringKey());
+        fix.delete(error.node.getParent());
+      }
+    } else {
+      fix.deleteWithoutRemovingWhitespaceBefore(NodeUtil.getEnclosingStatement(error.node));
+    }
+    return fix.build();
   }
 
   private static SuggestedFix getFixForUnsortedRequiresOrProvides(

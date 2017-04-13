@@ -268,7 +268,6 @@ public final class JSDocInfoBuilder {
       position.setItem(name);
       position.setPositionInformation(lineno, charno,
           lineno, charno + name.length());
-      currentMarker.setName(position);
 
       JSDocInfo.NamePosition nodePos = new JSDocInfo.NamePosition();
       Node node = Node.newString(Token.NAME, name, lineno, charno);
@@ -958,6 +957,7 @@ public final class JSDocInfoBuilder {
     if (!hasAnySingletonTypeTags()
         && !currentInfo.isInterface()
         && !currentInfo.isAbstract()
+        && !currentInfo.isFinal()
         && currentInfo.getVisibility() != Visibility.PRIVATE) {
       currentInfo.setAbstract();
       populated = true;

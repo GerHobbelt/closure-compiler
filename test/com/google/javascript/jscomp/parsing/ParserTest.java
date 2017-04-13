@@ -1400,13 +1400,6 @@ public final class ParserTest extends BaseJSTypeTestCase {
         "Only an identifier or destructuring pattern is allowed here.");
   }
 
-  public void testArrayDestructuringTrailingComma() {
-    mode = LanguageMode.ECMASCRIPT6;
-    strictMode = SLOPPY;
-    expectFeatures(Feature.DESTRUCTURING, Feature.TRAILING_COMMA);
-    parseError("var [x,] = ['x',];", "Array pattern may not end with a comma");
-  }
-
   public void testArrayDestructuringDeclarationRest() {
     mode = LanguageMode.ECMASCRIPT6;
     strictMode = SLOPPY;
@@ -1867,6 +1860,16 @@ public final class ParserTest extends BaseJSTypeTestCase {
     assertThat(n.getFirstChild().getJSDocInfo().isConstructor()).isTrue();
   }
 
+  public void testImportantComment() {
+    isIdeMode = true;
+
+    Node n = parse("/*! Hi mom! */ function Foo() {}");
+    assertNode(n.getFirstChild()).hasType(Token.FUNCTION);
+    assertThat(n.getJSDocInfo()).isNotNull();
+    assertThat(n.getFirstChild().getJSDocInfo()).isNull();
+    assertThat(n.getJSDocInfo().getLicense()).isEqualTo(" Hi mom! ");
+  }
+
   public void testObjectLiteralDoc1() {
     Node n = parse("var x = {/** @type {number} */ 1: 2};");
 
@@ -2297,6 +2300,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
 
     expectFeatures();
     parseError("class = 1;", "'identifier' expected");
+    parseError("var import = 0;", "'identifier' expected");
     // TODO(johnlenz): reenable
     //parse("public = 2;");
 
@@ -2311,6 +2315,11 @@ public final class ParserTest extends BaseJSTypeTestCase {
     expectFeatures();
     parseError("public = 2;", "primary expression expected");
     parseError("class = 1;", "'identifier' expected");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    strictMode = SLOPPY;
+    expectFeatures(Feature.CONST_DECLARATIONS);
+    parseError("const else = 1;", "'identifier' expected");
   }
 
   public void testTypeScriptKeywords() {
@@ -2828,6 +2837,25 @@ public final class ParserTest extends BaseJSTypeTestCase {
         "  throw() {}",
         "  else() {}",
         "}"));
+  }
+
+  public void testClassReservedWordsAsMethodNames() {
+    expectFeatures(Feature.CLASSES, Feature.KEYWORDS_AS_PROPERTIES);
+    mode = LanguageMode.ECMASCRIPT6;
+    strictMode = SLOPPY;
+    parse(
+        "class C {\n"
+            + "  import() {};\n"
+            + "  get break() {};\n"
+            + "  set break(a) {};\n"
+            + "}\n");
+
+    parse(
+        "class C {\n"
+            + "  static import() {};\n"
+            + "  static get break() {};\n"
+            + "  static set break(a) {};\n"
+            + "}\n");
   }
 
   public void testSuper1() {

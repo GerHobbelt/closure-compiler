@@ -30,6 +30,7 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
@@ -213,6 +214,46 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     }
   }
 
+  private static final class ExportDefinition {
+    // Null if the export is of a @typedef
+    @Nullable Node rhs;
+    // Null if the export is of anything other than a name
+    @Nullable Var nameDecl;
+
+    private static final Set<Token> INLINABLE_NAME_PARENTS =
+        ImmutableSet.of(Token.VAR, Token.CONST, Token.LET, Token.FUNCTION, Token.CLASS);
+
+    static ExportDefinition fromRhs(NodeTraversal t, Node rhs) {
+      ExportDefinition newExport = new ExportDefinition();
+      newExport.rhs = rhs;
+      if (rhs != null && (rhs.isName() || rhs.isStringKey())) {
+        newExport.nameDecl = t.getScope().getVar(rhs.getString());
+      }
+      return newExport;
+    }
+
+    boolean hasInlinableName() {
+      if (nameDecl == null
+          || !INLINABLE_NAME_PARENTS.contains(nameDecl.getParentNode().getToken())) {
+        return false;
+      }
+      Node initialValue = nameDecl.getInitialValue();
+      if (initialValue == null) {
+        return true;
+      }
+      return !NodeUtil.isCallTo(initialValue, "goog.require")
+          && !NodeUtil.isCallTo(initialValue, "goog.forwardDeclare")
+          && !NodeUtil.isCallTo(initialValue, "goog.getMsg");
+    }
+
+    String getLocalName() {
+      if (hasInlinableName()) {
+        return nameDecl.getName();
+      }
+      return null;
+    }
+  }
+
   private static final class ScriptDescription {
     boolean isModule;
     boolean declareLegacyNamespace;
@@ -246,10 +287,18 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
     // "module$exports$a$b$c" for non-legacy modules
     @Nullable String getBinaryNamespace() {
-      if (this.declareLegacyNamespace) {
+      if (!this.isModule || this.declareLegacyNamespace) {
         return null;
       }
       return MODULE_EXPORTS_PREFIX + this.legacyNamespace.replace('.', '$');
+    }
+
+    @Nullable
+    String getExportedNamespace() {
+      if (this.declareLegacyNamespace) {
+        return this.legacyNamespace;
+      }
+      return this.getBinaryNamespace();
     }
   }
 
@@ -265,25 +314,25 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
       switch (n.getToken()) {
         case CALL:
-          if (isCallTo(n, "goog.loadModule") && n.getLastChild().isFunction()) {
+          if (NodeUtil.isCallTo(n, "goog.loadModule") && n.getLastChild().isFunction()) {
             recordGoogLoadModule(n);
           }
-          if (isCallTo(n, "goog.module")) {
+          if (NodeUtil.isCallTo(n, "goog.module")) {
             recordGoogModule(t, n);
           }
-          if (isCallTo(n, "goog.module.declareLegacyNamespace")) {
+          if (NodeUtil.isCallTo(n, "goog.module.declareLegacyNamespace")) {
             recordGoogDeclareLegacyNamespace();
           }
-          if (isCallTo(n, "goog.provide")) {
+          if (NodeUtil.isCallTo(n, "goog.provide")) {
             recordGoogProvide(t, n);
           }
-          if (isCallTo(n, "goog.require")) {
+          if (NodeUtil.isCallTo(n, "goog.require")) {
             recordGoogRequire(t, n, true /** mustBeOrdered */);
           }
-          if (isCallTo(n, "goog.forwardDeclare") && !parent.isExprResult()) {
+          if (NodeUtil.isCallTo(n, "goog.forwardDeclare") && !parent.isExprResult()) {
             recordGoogForwardDeclare(t, n);
           }
-          if (isCallTo(n, "goog.module.get")) {
+          if (NodeUtil.isCallTo(n, "goog.module.get")) {
             recordGoogModuleGet(t, n);
           }
           break;
@@ -305,7 +354,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
         case GETPROP:
           if (isExportPropertyAssignment(n)) {
-            recordExportsPropertyAssignment(n);
+            recordExportsPropertyAssignment(t, n);
           }
           break;
 
@@ -337,23 +386,26 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     @Override
     public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
-        case CALL:
-          if (isCallTo(n, "goog.loadModule") && n.getLastChild().isFunction()) {
-            updateGoogLoadModule(n);
+        case EXPR_RESULT:
+          if (isGoogLoadModuleStatement(n)) {
+            updateGoogLoadModuleEarly(n);
           }
-          if (isCallTo(n, "goog.module")) {
+          break;
+
+        case CALL:
+          if (NodeUtil.isCallTo(n, "goog.module")) {
             updateGoogModule(n);
           }
-          if (isCallTo(n, "goog.module.declareLegacyNamespace")) {
+          if (NodeUtil.isCallTo(n, "goog.module.declareLegacyNamespace")) {
             updateGoogDeclareLegacyNamespace(n);
           }
-          if (isCallTo(n, "goog.require")) {
+          if (NodeUtil.isCallTo(n, "goog.require")) {
             updateGoogRequire(t, n);
           }
-          if (isCallTo(n, "goog.forwardDeclare") && !parent.isExprResult()) {
+          if (NodeUtil.isCallTo(n, "goog.forwardDeclare") && !parent.isExprResult()) {
             updateGoogForwardDeclare(t, n);
           }
-          if (isCallTo(n, "goog.module.get")) {
+          if (NodeUtil.isCallTo(n, "goog.module.get")) {
             updateGoogModuleGetCall(n);
           }
           break;
@@ -385,6 +437,12 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
+        case EXPR_RESULT:
+          if (isGoogLoadModuleStatement(n)) {
+            updateGoogLoadModuleLate(n);
+          }
+          break;
+
         case SCRIPT:
           updateEndScript();
           break;
@@ -398,6 +456,13 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
           break;
       }
     }
+  }
+
+  private static boolean isGoogLoadModuleStatement(Node exprResult) {
+    Preconditions.checkArgument(exprResult.isExprResult());
+    Node call = exprResult.getFirstChild();
+    return call != null
+        && NodeUtil.isCallTo(call, "goog.loadModule") && call.getLastChild().isFunction();
   }
 
   /**
@@ -491,7 +556,6 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
   // Per script state needed for rewriting including nested goog.loadModule() calls.
   private Deque<ScriptDescription> scriptStack = new LinkedList<>();
   private ScriptDescription currentScript = null;
-  private List<Node> loadModuleStatements = new ArrayList<>(); // Statements to be inlined.
 
   // Global state tracking an association between the dotted names of goog.module()s and whether
   // the goog.module declares itself as a legacy namespace.
@@ -517,15 +581,13 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       return script == null ? null : script.getBinaryNamespace();
     }
 
-    @Nullable String getExportedNamespace(String legacyNamespace) {
+    @Nullable
+    private String getExportedNamespaceOrScript(String legacyNamespace) {
       if (legacyScriptNamespaces.contains(legacyNamespace)) {
         return legacyNamespace;
       }
       ScriptDescription script = scriptDescriptionsByGoogModuleNamespace.get(legacyNamespace);
-      if (script != null) {
-        return script.declareLegacyNamespace ? legacyNamespace : script.getBinaryNamespace();
-      }
-      return null;
+      return script == null ? null : script.getExportedNamespace();
     }
 
     void removeRoot(Node toRemove) {
@@ -553,11 +615,20 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
   @Override
   public void process(Node externs, Node root) {
     Deque<ScriptDescription> scriptDescriptions = new LinkedList<>();
+    processAllFiles(scriptDescriptions, externs);
+    processAllFiles(scriptDescriptions, root);
+  }
+
+  private void processAllFiles(Deque<ScriptDescription> scriptDescriptions, Node scriptParent) {
+    if (scriptParent == null) {
+      return;
+    }
 
     // Record all the scripts first so that the googModuleNamespaces global state can be complete
     // before doing any updating also queue up scriptDescriptions for later use in ScriptUpdater
     // runs.
-    for (Node c = root.getFirstChild(); c != null; c = c.getNext()) {
+    for (Node c = scriptParent.getFirstChild(); c != null; c = c.getNext()) {
+      Preconditions.checkState(c.isScript());
       pushScript(new ScriptDescription());
       currentScript.rootNode = c;
       scriptDescriptions.addLast(currentScript);
@@ -572,12 +643,10 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
     // Update scripts using the now complete googModuleNamespaces global state and unspool the
     // scriptDescriptions that were queued up by all the recording.
-    for (Node c = root.getFirstChild(); c != null; c = c.getNext()) {
+    for (Node c = scriptParent.getFirstChild(); c != null; c = c.getNext()) {
       pushScript(scriptDescriptions.removeFirst());
       NodeTraversal.traverseEs6(compiler, c, new ScriptUpdater());
       popScript();
-
-      inlineGoogLoadModuleCalls();
     }
   }
 
@@ -597,8 +666,6 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
     NodeTraversal.traverseEs6(compiler, scriptRoot, new ScriptUpdater());
     popScript();
-
-    inlineGoogLoadModuleCalls();
 
     reportUnrecognizedRequires();
   }
@@ -735,7 +802,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       // Even if it was to a var in our scope it should still only rewrite if the var looked like:
       //   let x = goog.forwardDeclare('a.namespace');
       Node aliasVarNodeRhs = NodeUtil.getRValueOfLValue(aliasVar.getNode());
-      if (aliasVarNodeRhs == null || !isCallTo(aliasVarNodeRhs, "goog.forwardDeclare")) {
+      if (aliasVarNodeRhs == null || !NodeUtil.isCallTo(aliasVarNodeRhs, "goog.forwardDeclare")) {
         t.report(call, INVALID_GET_ALIAS);
         return;
       }
@@ -776,30 +843,41 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       return;
     }
 
-    Preconditions.checkState(currentScript.defaultExportLocalName == null);
+    Preconditions.checkState(currentScript.defaultExportRhs == null);
+    currentScript.willCreateExportsObject = true;
     Node exportRhs = n.getNext();
-    if (exportRhs.isName() && !currentScript.declareLegacyNamespace) {
-      String exportedName = exportRhs.getString();
-      Var var = t.getScope().getVar(exportedName);
-      // If rhs is the short name from an import, then we can't do the uninlining.
-      if (var != null
-          && var.getInitialValue() != null
-          && !isCallTo(var.getInitialValue(), "goog.require")) {
-        currentScript.defaultExportLocalName = exportedName;
-        recordNameToInline(exportedName, currentScript.getBinaryNamespace());
-      }
-    } else if (exportRhs.isObjectLit()) {
+    if (isNamedExportsLiteral(exportRhs)) {
       for (Node key = exportRhs.getFirstChild(); key != null; key = key.getNext()) {
-        if (key.isStringKey()) {
-          String exportName = key.getString();
-          currentScript.namedExports.add(exportName);
-        }
+        String exportName = key.getString();
+        currentScript.namedExports.add(exportName);
       }
+      return;
     }
 
     currentScript.defaultExportRhs = exportRhs;
-    currentScript.willCreateExportsObject = true;
+    ExportDefinition defaultExport = ExportDefinition.fromRhs(t, exportRhs);
+    if (!currentScript.declareLegacyNamespace && defaultExport.hasInlinableName()) {
+      String localName = defaultExport.getLocalName();
+      currentScript.defaultExportLocalName = localName;
+      recordNameToInline(localName, currentScript.getBinaryNamespace());
+    }
+
     return;
+  }
+
+  private static boolean isNamedExportsLiteral(Node objLit) {
+    if (!objLit.isObjectLit() || !objLit.hasChildren()) {
+      return false;
+    }
+    for (Node key = objLit.getFirstChild(); key != null; key = key.getNext()) {
+      if (!key.isStringKey() || key.isQuotedString()) {
+        return false;
+      }
+      if (key.hasChildren() && !key.getFirstChild().isName()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private void recordModuleReturn() {
@@ -813,13 +891,23 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     scriptNode.addChildrenToBack(moduleNode.removeChildren());
   }
 
-  private void updateGoogLoadModule(Node call) {
+  private void updateGoogLoadModuleEarly(Node exprResultNode) {
     pushScript(currentScript.removeFirstChildScript());
+    Node moduleScopeRoot = exprResultNode.getFirstChild().getLastChild().getLastChild();
+    Preconditions.checkState(NodeUtil.isModuleScopeRoot(moduleScopeRoot),
+        "goog.loadModule called with non-module contents: %s", moduleScopeRoot);
+    currentScript.rootNode = moduleScopeRoot;
+  }
 
-    currentScript.rootNode = call.getLastChild().getLastChild();
-    // These should be removed and replaced with the block in the function being passed as a
-    // parameter, but it's not safe to do this in the middle of AST traversal.
-    loadModuleStatements.add(NodeUtil.getEnclosingStatement(call));
+  private void updateGoogLoadModuleLate(Node exprResultNode) {
+    Node call = exprResultNode.removeFirstChild();
+    Node moduleBlockNode = call.getLastChild().getLastChild();
+
+    exprResultNode.setToken(Token.BLOCK);
+    exprResultNode.addChildrenToBack(moduleBlockNode.removeChildren());
+    currentScript.rootNode = exprResultNode;
+    NodeUtil.tryMergeBlock(exprResultNode);
+    compiler.reportCodeChange();
   }
 
   private void updateGoogModule(Node call) {
@@ -876,7 +964,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
         && isTopLevel(t, statementNode, ScopeType.EXEC_CONTEXT)) {
       // Record alias -> exportedNamespace associations for later inlining.
       Node lhs = call.getParent();
-      String exportedNamespace = rewriteState.getExportedNamespace(legacyNamespace);
+      String exportedNamespace = rewriteState.getExportedNamespaceOrScript(legacyNamespace);
       if (exportedNamespace == null) {
         // There's nothing to inline. The missing provide/module will be reported elsewhere.
       } else if (lhs.isName()) {
@@ -909,7 +997,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
           //   "function() {var Foo = module$exports$bar$Foo;}"
           Node binaryNamespaceName = IR.name(rewriteState.getBinaryNamespace(legacyNamespace));
           binaryNamespaceName.putProp(Node.ORIGINALNAME_PROP, legacyNamespace);
-          call.getParent().replaceChild(call, binaryNamespaceName);
+          call.replaceWith(binaryNamespaceName);
         } else if (importHasAlias || !rewriteState.isLegacyModule(legacyNamespace)) {
           // Delete the goog.require() because we're going to inline its alias later.
           statementNode.detach();
@@ -921,7 +1009,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
         // because even though we're going to inline the B alias,
         // ProcessClosurePrimitives is going to want to see this legacy require.
         call.detach();
-        statementNode.getParent().replaceChild(statementNode, IR.exprResult(call));
+        statementNode.replaceWith(IR.exprResult(call));
       }
       if (targetIsNonLegacyGoogModule) {
         // Add goog.require() and namespace name to preprocessor table because they're removed
@@ -947,7 +1035,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       // Don't know enough to give a good warning here.
       return;
     }
-    if (importedModule.defaultExportRhs != null && !importedModule.defaultExportRhs.isObjectLit()) {
+    if (importedModule.defaultExportRhs != null) {
       t.report(importNode, ILLEGAL_DESTRUCTURING_DEFAULT_EXPORT);
       return;
     }
@@ -979,15 +1067,15 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       // In a non-module script goog.module.get() is used inside of a goog.scope() and it's
       // imported alias need only be made available within that scope.
       // Replace "goog.module.get('pkg.Foo');" with "module$exports$pkg$Foo;".
-      String exportedNamespace = rewriteState.getExportedNamespace(legacyNamespace);
+      String exportedNamespace = rewriteState.getExportedNamespaceOrScript(legacyNamespace);
       Node exportedNamespaceName = NodeUtil.newQName(compiler, exportedNamespace).srcrefTree(call);
       exportedNamespaceName.putProp(Node.ORIGINALNAME_PROP, legacyNamespace);
-      call.getParent().replaceChild(call, exportedNamespaceName);
+      call.replaceWith(exportedNamespaceName);
     }
     compiler.reportCodeChange();
   }
 
-  private void recordExportsPropertyAssignment(Node getpropNode) {
+  private void recordExportsPropertyAssignment(NodeTraversal t, Node getpropNode) {
     if (!currentScript.isModule) {
       return;
     }
@@ -998,8 +1086,12 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     Node exportsNameNode = getpropNode.getFirstChild();
     Preconditions.checkState(exportsNameNode.getString().equals("exports"));
 
-    String exportName = getpropNode.getLastChild().getString();
-    currentScript.namedExports.add(exportName);
+    // Would be just t.inModuleScope() if this ran before the inlineModuleIntoGlobal() call
+    // that happens at the beginning of module rewriting.
+    if (t.inModuleScope() || t.inGlobalScope()) {
+      String exportName = getpropNode.getLastChild().getString();
+      currentScript.namedExports.add(exportName);
+    }
   }
 
   private void updateExportsPropertyAssignment(Node getpropNode) {
@@ -1013,10 +1105,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     // Update "exports.foo = Foo" to "module$exports$pkg$Foo.foo = Foo";
     Node exportsNameNode = getpropNode.getFirstChild();
     Preconditions.checkState(exportsNameNode.getString().equals("exports"));
-    String exportedNamespace =
-        currentScript.declareLegacyNamespace
-            ? currentScript.legacyNamespace
-            : currentScript.getBinaryNamespace();
+    String exportedNamespace = currentScript.getExportedNamespace();
     safeSetMaybeQualifiedString(exportsNameNode, exportedNamespace);
 
     Node jsdocNode = parent.isAssign() ? parent : getpropNode;
@@ -1051,7 +1140,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
         && nameNode.getParent().isStringKey()
         && nameNode.getGrandparent().isObjectPattern()) {
       Node destructuringLhsNode = nameNode.getGrandparent().getParent();
-      if (isCallTo(destructuringLhsNode.getLastChild(), "goog.require")) {
+      if (NodeUtil.isCallTo(destructuringLhsNode.getLastChild(), "goog.require")) {
         return;
       }
     }
@@ -1158,7 +1247,8 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     }
 
     Node assignNode = n.getParent();
-    if (currentScript.defaultExportLocalName != null) {
+    if (!currentScript.declareLegacyNamespace
+        && currentScript.defaultExportLocalName != null) {
       assignNode.getParent().detach();
       return;
     }
@@ -1178,7 +1268,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       Node exportsObjectCreationNode = IR.var(binaryNamespaceName, rhs);
       exportsObjectCreationNode.useSourceInfoIfMissingFromForTree(exprResultNode);
       exportsObjectCreationNode.putBooleanProp(Node.IS_NAMESPACE, true);
-      exprResultNode.getParent().replaceChild(exprResultNode, exportsObjectCreationNode);
+      exprResultNode.replaceWith(exportsObjectCreationNode);
       jsdocNode = exportsObjectCreationNode;
       currentScript.hasCreatedExportObject = true;
     }
@@ -1199,7 +1289,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
     if (currentScript.declareLegacyNamespace) {
       Node legacyQname = NodeUtil.newQName(compiler, currentScript.legacyNamespace).srcrefTree(n);
-      n.getParent().replaceChild(n, legacyQname);
+      n.replaceWith(legacyQname);
       return;
     }
 
@@ -1285,24 +1375,6 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     currentScript.hasCreatedExportObject = true;
   }
 
-  /**
-   * Rewrite "goog.loadModule(function(exports) { asdf; });" to "{ asdf; }"
-   *
-   * Can't be done in updateGoogLoadModule() because it runs in the middle of AST traversal and
-   * performing a block merge in the middle of AST traversal will either hide the block contents
-   * from the traversal or will screw up the NodeTraversal.getScope() creation.
-   */
-  private void inlineGoogLoadModuleCalls() {
-    for (Node loadModuleStatement : loadModuleStatements) {
-      Node moduleBlockNode = loadModuleStatement.getFirstChild().getLastChild().getLastChild();
-      moduleBlockNode.detach();
-      loadModuleStatement.getParent().replaceChild(loadModuleStatement, moduleBlockNode);
-      NodeUtil.tryMergeBlock(moduleBlockNode);
-      compiler.reportCodeChange();
-    }
-    loadModuleStatements.clear();
-  }
-
   static void checkAndSetStrictModeDirective(NodeTraversal t, Node n) {
     Preconditions.checkState(n.isScript(), n);
 
@@ -1339,24 +1411,15 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     statementNode.getParent().addChildBefore(IR.var(nameNode, rhsNode), statementNode);
   }
 
-  /**
-   * Will skip const if the target is a class definition as that has a different meaning.
-   */
   private void markConstAndCopyJsDoc(Node from, Node target, Node value) {
     JSDocInfo info = from.getJSDocInfo();
     JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(info);
-
-    // Don't add @const on class declarations because in that context it means "not subclassable".
-    if (!isCallTo(value, "goog.defineClass")
-        && !(info != null && info.isConstructorOrInterface())) {
-      builder.recordConstancy();
-      compiler.reportCodeChange();
-    }
-
+    builder.recordConstancy();
     target.setJSDocInfo(builder.build());
   }
 
   private void recordNameToInline(String aliasName, String legacyNamespace) {
+    Preconditions.checkNotNull(aliasName);
     Preconditions.checkNotNull(legacyNamespace);
     Preconditions.checkState(
         null == currentScript.namesToInlineByAlias.put(aliasName, legacyNamespace),
@@ -1416,19 +1479,50 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     if (newString.contains(".")) {
       // When replacing with a dotted fully qualified name it's already better than an original
       // name.
+      Node nameParent = nameNode.getParent();
+      JSDocInfo jsdoc = nameParent.getJSDocInfo();
+      switch (nameParent.getToken()) {
+        case FUNCTION:
+        case CLASS:
+          if (NodeUtil.isStatement(nameParent) && nameParent.getFirstChild() == nameNode) {
+            Node statementParent = nameParent.getParent();
+            Node placeholder = IR.empty();
+            statementParent.replaceChild(nameParent, placeholder);
+            Node newStatement =
+                NodeUtil.newQNameDeclaration(compiler, newString, nameParent, jsdoc);
+            nameParent.setJSDocInfo(null);
+            newStatement.useSourceInfoIfMissingFromForTree(nameParent);
+            statementParent.replaceChild(placeholder, newStatement);
+            NodeUtil.removeName(nameParent);
+            return;
+          }
+          break;
+        case VAR:
+        case LET:
+        case CONST:
+          {
+            Node rhs = nameNode.hasChildren() ? nameNode.getLastChild().detach() : null;
+            Node newStatement = NodeUtil.newQNameDeclaration(compiler, newString, rhs, jsdoc);
+            newStatement.useSourceInfoIfMissingFromForTree(nameParent);
+            NodeUtil.replaceDeclarationChild(nameNode, newStatement);
+            return;
+          }
+        case OBJECT_PATTERN:
+        case ARRAY_PATTERN:
+        case PARAM_LIST:
+          throw new RuntimeException("Not supported");
+        default:
+          break;
+      }
       Node newQualifiedNameNode = NodeUtil.newQName(compiler, newString);
       newQualifiedNameNode.srcrefTree(nameNode);
-      nameNode.getParent().replaceChild(nameNode, newQualifiedNameNode);
+      nameParent.replaceChild(nameNode, newQualifiedNameNode);
     } else {
       String originalName = nameNode.getString();
       nameNode.setString(newString);
       nameNode.putProp(Node.ORIGINALNAME_PROP, originalName);
     }
     compiler.reportCodeChange();
-  }
-
-  private static boolean isCallTo(Node n, String qualifiedName) {
-    return n.isCall() && n.getFirstChild().matchesQualifiedName(qualifiedName);
   }
 
   private boolean isTopLevel(NodeTraversal t, Node n, ScopeType scopeType) {

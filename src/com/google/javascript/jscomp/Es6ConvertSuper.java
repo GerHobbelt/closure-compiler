@@ -19,7 +19,9 @@ import static com.google.javascript.jscomp.Es6ToEs3Converter.CANNOT_CONVERT_YET;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.javascript.rhino.IR;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
@@ -31,7 +33,8 @@ import com.google.javascript.rhino.Token;
  * <p>This has to run before the main {@link Es6ToEs3Converter} pass. The super() constructor calls
  * are not converted here, but rather in {@link Es6ConvertSuperConstructorCalls}, which runs later.
  */
-public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCompilerPass {
+public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallback
+    implements HotSwapCompilerPass {
   private final AbstractCompiler compiler;
 
   public Es6ConvertSuper(AbstractCompiler compiler) {
@@ -39,7 +42,7 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
   }
 
   @Override
-  public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
+  public void visit(NodeTraversal t, Node n, Node parent) {
     if (n.isClass()) {
       boolean hasConstructor = false;
       for (Node member = n.getLastChild().getFirstChild();
@@ -53,13 +56,7 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
       if (!hasConstructor) {
         addSyntheticConstructor(n);
       }
-    }
-    return true;
-  }
-
-  @Override
-  public void visit(NodeTraversal t, Node n, Node parent) {
-    if (n.isSuper()) {
+    } else if (n.isSuper()) {
       visitSuper(n, parent);
     }
   }
@@ -77,9 +74,14 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
         return;
       }
       Node body = IR.block();
-      if (!classNode.isFromExterns()) {
+
+      // If a class is defined in an externs file or as an interface, it's only a stub, not an
+      // implementation that should be instantiated.
+      // A call to super() shouldn't actually exist for these cases and is problematic to
+      // transpile, so don't generate it.
+      if (!classNode.isFromExterns()  && !isInterface(classNode)) {
         Node exprResult = IR.exprResult(IR.call(
-            IR.getprop(superClass.cloneTree(), IR.string("apply")),
+            IR.getprop(IR.superNode(), IR.string("apply")),
             IR.thisNode(),
             IR.name("arguments")));
         body.addChildToFront(exprResult);
@@ -98,6 +100,11 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
     }
     memberDef.useSourceInfoIfMissingFromForTree(classNode);
     classMembers.addChildToFront(memberDef);
+  }
+
+  private boolean isInterface(Node classNode) {
+    JSDocInfo classJsDocInfo = NodeUtil.getBestJSDocInfo(classNode);
+    return classJsDocInfo != null && classJsDocInfo.isInterface();
   }
 
   private void visitSuper(Node node, Node parent) {
@@ -121,11 +128,35 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
       return;
     }
 
-    Node enclosingMemberDef = NodeUtil.getEnclosingClassMemberFunction(node);
+    Node enclosingMemberDef = NodeUtil.getEnclosingNode(
+        node,
+        new Predicate<Node>() {
+          @Override
+          public boolean apply(Node n) {
+            switch (n.getToken()) {
+              case MEMBER_FUNCTION_DEF:
+              case GETTER_DEF:
+              case SETTER_DEF:
+                return true;
+              default:
+                return false;
+            }
+          }
+        });
     if (enclosingMemberDef.getString().equals("constructor")
         && parent.isCall()
         && parent.getFirstChild() == node) {
       // Calls to super() constructors will be transpiled by Es6ConvertSuperConstructorCalls later.
+      if (node.isFromExterns() || isInterface(clazz)) {
+        // If a class is defined in an externs file or as an interface, it's only a stub, not an
+        // implementation that should be instantiated.
+        // A call to super() shouldn't actually exist for these cases and is problematic to
+        // transpile, so just drop it.
+        NodeUtil.getEnclosingStatement(node).detach();
+        compiler.reportCodeChange();
+      }
+      // Calls to super() constructors will be transpiled by Es6ConvertSuperConstructorCalls
+      // later.
       return;
     }
     if (enclosingMemberDef.isStaticMember()) {
@@ -162,7 +193,7 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
     Node baseCall = baseCall(
         superName.getQualifiedName(), methodName, enclosingCall.removeChildren());
     baseCall.useSourceInfoIfMissingFromForTree(enclosingCall);
-    enclosingCall.getParent().replaceChild(enclosingCall, baseCall);
+    enclosingCall.replaceWith(baseCall);
     compiler.reportCodeChange();
   }
 

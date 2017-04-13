@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp.parsing;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Ascii;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -282,6 +283,31 @@ public final class JsDocInfoParser {
     return parseHelperLoop(token, new ArrayList<ExtendedTypeInfo>());
   }
 
+  /**
+   * Important comments begin with /*! They are treated as license blocks, but no further JSDoc
+   * parsing is performed
+   */
+  void parseImportantComment() {
+    state = State.SEARCHING_ANNOTATION;
+    skipEOLs();
+
+    JsDocToken token = next();
+
+    ExtractionInfo info = extractMultilineComment(token, WhitespaceOption.PRESERVE, false, true);
+
+    // An extra space is added by the @license annotation
+    // so we need to add one here so they will be identical
+    String license = " " + info.string;
+
+    if (fileLevelJsDocBuilder != null) {
+      fileLevelJsDocBuilder.addLicense(license);
+    } else if (jsdocBuilder.shouldParseDocumentation()) {
+      jsdocBuilder.recordBlockDescription(license);
+    } else {
+      jsdocBuilder.recordBlockDescription("");
+    }
+  }
+
   private boolean parseHelperLoop(JsDocToken token,
                                   List<ExtendedTypeInfo> extendedTypes) {
     while (true) {
@@ -309,7 +335,7 @@ public final class JsDocInfoParser {
                 // PRIVATE and PROTECTED are not allowed in @fileoverview JsDoc.
                 addParserWarning(
                     "msg.bad.fileoverview.visibility.annotation",
-                    visibility.toString().toLowerCase());
+                    Ascii.toLowerCase(visibility.toString()));
                 success = false;
                 break;
               default:

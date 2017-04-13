@@ -29,13 +29,12 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.JSType;
-
 import java.util.Collection;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import javax.annotation.Nullable;
 
 
@@ -336,8 +335,8 @@ public final class SuggestedFix {
       // EXPR_RESULT nodes will contain the trailing semicolons, but the child node
       // will not. Replace the EXPR_RESULT node to ensure that the semicolons are
       // correct in the final output.
-      if (original.getParent().isExprResult()) {
-        original = original.getParent();
+      if (parent != null && parent.isExprResult()) {
+        original = parent;
       }
       // TODO(mknichel): Move this logic to CodePrinter.
       String newCode = generateCode(compiler, newNode);
@@ -347,7 +346,8 @@ public final class SuggestedFix {
       }
       // Most replacements don't need the semicolon in the new generated code - however, some
       // statements that are blocks or expressions will need the semicolon.
-      boolean needsSemicolon = parent.isExprResult() || parent.isBlock() || parent.isScript();
+      boolean needsSemicolon =
+          parent != null && (parent.isExprResult() || parent.isBlock() || parent.isScript());
       if (newCode.endsWith(";") && !needsSemicolon) {
         newCode = newCode.substring(0, newCode.length() - 1);
       }
@@ -545,6 +545,13 @@ public final class SuggestedFix {
       return this;
     }
 
+    public Builder addLhsToGoogRequire(Match m, String namespace) {
+      Node existingNode = findGoogRequireNode(m.getNode(), m.getMetadata(), namespace);
+      String shortName = namespace.substring(namespace.lastIndexOf('.') + 1);
+      insertBefore(existingNode, "const " + shortName + " = ");
+      return this;
+    }
+
     /**
      * Adds a goog.require for the given namespace to the file if it does not
      * already exist.
@@ -574,8 +581,7 @@ public final class SuggestedFix {
       String shortName = namespace.substring(namespace.lastIndexOf('.') + 1);
 
       if (script.isModuleBody()) {
-        // TODO(tbreisacher): Switch to IR.const() once ES6+ is on by default everywhere.
-        googRequireNode = IR.var(IR.name(shortName), googRequireNode);
+        googRequireNode = IR.constNode(IR.name(shortName), googRequireNode);
       } else {
         googRequireNode = IR.exprResult(googRequireNode);
       }
@@ -600,6 +606,7 @@ public final class SuggestedFix {
             }
           }
         } else if (NodeUtil.isNameDeclaration(child)
+            && child.getFirstFirstChild() != null
             && Matchers.googRequire().matches(child.getFirstFirstChild(), metadata)) {
           if (shortName.compareTo(child.getFirstChild().getString()) < 0) {
             nodeToInsertBefore = child;
@@ -674,6 +681,10 @@ public final class SuggestedFix {
     public String generateCode(AbstractCompiler compiler, Node node) {
       // TODO(mknichel): Fix all the formatting problems with this code.
       // How does this play with goog.scope?
+      if (node.isBlock()) {
+        // Avoid printing the {}'s
+        node.setToken(Token.SCRIPT);
+      }
       CompilerOptions compilerOptions = new CompilerOptions();
       compilerOptions.setPreferSingleQuotes(true);
       compilerOptions.setLineLengthThreshold(80);

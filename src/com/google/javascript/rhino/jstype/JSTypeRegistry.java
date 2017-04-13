@@ -772,12 +772,13 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
    */
   public JSType getGreatestSubtypeWithProperty(
       JSType type, String propertyName) {
-    if (greatestSubtypeByProperty.containsKey(propertyName)) {
-      return greatestSubtypeByProperty.get(propertyName)
-          .getGreatestSubtype(type);
+    JSType withProperty = greatestSubtypeByProperty.get(propertyName);
+    if (withProperty != null) {
+      return withProperty.getGreatestSubtype(type);
     }
-    if (typesIndexedByProperty.containsKey(propertyName)) {
-      JSType built = typesIndexedByProperty.get(propertyName).build();
+    UnionTypeBuilder typesWithProp = typesIndexedByProperty.get(propertyName);
+    if (typesWithProp != null) {
+      JSType built = typesWithProp.build();
       greatestSubtypeByProperty.put(propertyName, built);
       return built.getGreatestSubtype(type);
     }
@@ -958,10 +959,21 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     }
 
     // The best type name is the actual type name.
-    if (type.isFunctionPrototypeType()
-        || (type.toObjectType() != null
-            && type.toObjectType().getConstructor() != null)) {
+    if (type.isFunctionPrototypeType()) {
       return type.toString();
+    }
+
+    if (type.toObjectType() != null && type.toObjectType().getConstructor() != null) {
+      Node source = type.toObjectType().getConstructor().getSource();
+      if (source == null) {
+        return type.toString();
+      }
+      Preconditions.checkState(source.isFunction(), source);
+      String readable = source.getFirstChild().getOriginalName();
+      if (readable == null) {
+        return type.toString();
+      }
+      return readable;
     }
 
     // If we're analyzing a GETPROP, the property may be inherited by the

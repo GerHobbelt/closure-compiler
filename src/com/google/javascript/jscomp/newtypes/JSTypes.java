@@ -44,6 +44,20 @@ import java.util.Set;
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public final class JSTypes {
+  // The builtin Object type represents instances of Object, but also objects
+  // whose class we don't know, such as when a function @param is annotated as !Object.
+  // However, it is very useful to know that some objects, such as object literals,
+  // are *certainly* instances of Object and not some other class.
+  // Knowing this allows things such as:
+  // 1) Distinguishing between the top-object type and the type of an empty object literal.
+  // 2) Calculating the meet of an object-literal type and an array to be bottom instead
+  //    of an array type.
+  // We use a special Object$ nominal type to represent explicit instances of Object.
+  // For now, we only tag object literals as belonging to this class. Prototypes of classes
+  // that inherit from Object, and objects created by "new Object" still have the general
+  // "Object" as their nominal type.
+  public static final String OBJLIT_CLASS_NAME = "Object{}";
+
   // The types that are final don't depend on the externs. The types that
   // are non-final, such as numberInstance, are filled in when we traverse
   // the externs during GlobalTypeInfo.
@@ -61,18 +75,13 @@ public final class JSTypes {
   public final JSType UNDEFINED;
   public final JSType UNKNOWN;
 
-  // Currently, TOP_OBJECTTYPE has two conflicting roles: the supertype of all
-  // object types, and the type of an empty object literal.
-  // In particular, its kind is UNRESTRICTED, which is confusing, because this
-  // kind is a subkind of STRUCT and DICT.
-  // We take that into account in ObjectType#specialize, but not yet in meet and join.
-  // TODO(dimvar): Find a clean way to split the two types & avoid the confusion
-  final ObjectType TOP_OBJECTTYPE;
+  private ObjectType topObjectType;
   final PersistentMap<String, Property> BOTTOM_PROPERTY_MAP;
-  final ObjectType BOTTOM_OBJECT;
-  public final JSType TOP_OBJECT;
-  public final JSType TOP_STRUCT;
-  public final JSType TOP_DICT;
+  private JSType topObject;
+  private ObjectType looseTopObject;
+  private JSType topStruct;
+  private JSType topDict;
+  private ObjectType bottomObject;
 
   // Corresponds to Function, which is a subtype and supertype of all functions.
   final FunctionType QMARK_FUNCTION;
@@ -117,6 +126,7 @@ public final class JSTypes {
   private JSType regexpInstance;
   private RawNominalType arrayType;
   private RawNominalType builtinObject;
+  private RawNominalType literalObject;
   private RawNominalType builtinFunction;
   private RawNominalType arguments;
   private RawNominalType iObject;
@@ -155,16 +165,7 @@ public final class JSTypes {
     this.BOTTOM_FUNCTION = Preconditions.checkNotNull(functions.get("BOTTOM_FUNCTION"));
     this.TOP_FUNCTION = Preconditions.checkNotNull(functions.get("TOP_FUNCTION"));
     this.LOOSE_TOP_FUNCTION = Preconditions.checkNotNull(functions.get("LOOSE_TOP_FUNCTION"));
-
     this.BOTTOM_PROPERTY_MAP = PersistentMap.of("_", Property.make(this.BOTTOM, this.BOTTOM));
-    Map<String, ObjectType> objects = ObjectType.createInitialObjectTypes(this);
-    this.TOP_OBJECTTYPE = Preconditions.checkNotNull(objects.get("TOP_OBJECTTYPE"));
-    this.TOP_OBJECT = JSType.fromObjectType(this.TOP_OBJECTTYPE);
-    this.TOP_STRUCT = JSType.fromObjectType(
-        Preconditions.checkNotNull(objects.get("TOP_STRUCT")));
-    this.TOP_DICT = JSType.fromObjectType(
-        Preconditions.checkNotNull(objects.get("TOP_DICT")));
-    this.BOTTOM_OBJECT = Preconditions.checkNotNull(objects.get("BOTTOM_OBJECT"));
 
     this.allowMethodsAsFunctions = inCompatibilityMode;
     this.looseSubtypingForLooseObjects = inCompatibilityMode;
@@ -279,8 +280,36 @@ public final class JSTypes {
     return this.builtinObject == null ? null : this.builtinObject.getAsNominalType();
   }
 
-  public JSType getObjectInstance() {
-    return this.builtinObject == null ? null : this.builtinObject.getInstanceAsJSType();
+  ObjectType getTopObjectType() {
+    return this.topObjectType;
+  }
+
+  ObjectType getLooseTopObjectType() {
+    return this.looseTopObject;
+  }
+
+  public NominalType getLiteralObjNominalType() {
+    return this.literalObject == null ? null : this.literalObject.getAsNominalType();
+  }
+
+  public JSType getEmptyObjectLiteral() {
+    return this.literalObject == null ? null : this.literalObject.getInstanceAsJSType();
+  }
+
+  public JSType getTopObject() {
+    return topObject;
+  }
+
+  public JSType getTopStruct() {
+    return this.topStruct;
+  }
+
+  public JSType getTopDict() {
+    return this.topDict;
+  }
+
+  ObjectType getBottomObject() {
+    return this.bottomObject;
   }
 
   public NominalType getIObjectType() {
@@ -332,18 +361,15 @@ public final class JSTypes {
   }
 
   ObjectType getNumberInstanceObjType() {
-    return numberInstanceObjtype != null
-        ? numberInstanceObjtype : this.TOP_OBJECTTYPE;
+    return numberInstanceObjtype != null ? numberInstanceObjtype : this.topObjectType;
   }
 
   ObjectType getBooleanInstanceObjType() {
-    return booleanInstanceObjtype != null
-        ? booleanInstanceObjtype : this.TOP_OBJECTTYPE;
+    return booleanInstanceObjtype != null ? booleanInstanceObjtype : this.topObjectType;
   }
 
   ObjectType getStringInstanceObjType() {
-    return stringInstanceObjtype != null
-        ? stringInstanceObjtype : this.TOP_OBJECTTYPE;
+    return stringInstanceObjtype != null ? stringInstanceObjtype : this.topObjectType;
   }
 
   public JSType getArgumentsArrayType() {
@@ -376,7 +402,7 @@ public final class JSTypes {
       case ARRAY_TYPE:
         return getArrayInstance();
       case OBJECT_TYPE:
-        return TOP_OBJECT;
+        return getTopObject();
       case TRUTHY:
         return TRUTHY;
       default:
@@ -393,7 +419,24 @@ public final class JSTypes {
   }
 
   public void setObjectType(RawNominalType builtinObject) {
+    NominalType builtinObjectNT = builtinObject.getAsNominalType();
     this.builtinObject = builtinObject;
+    this.topObjectType = builtinObject.getInstanceAsJSType().getObjTypeIfSingletonObj();
+    this.looseTopObject = ObjectType.makeObjectType(
+        this, builtinObjectNT, PersistentMap.<String, Property>create(),
+        null, null, true, ObjectKind.UNRESTRICTED);
+    this.topObject = JSType.fromObjectType(this.topObjectType);
+    this.topStruct = JSType.fromObjectType(ObjectType.makeObjectType(
+        this, builtinObjectNT, PersistentMap.<String, Property>create(),
+        null, null, false, ObjectKind.STRUCT));
+    this.topDict = JSType.fromObjectType(ObjectType.makeObjectType(
+        this, builtinObjectNT, PersistentMap.<String, Property>create(),
+        null, null, false, ObjectKind.DICT));
+    this.bottomObject = ObjectType.createBottomObject(this);
+  }
+
+  public void setLiteralObjNominalType(RawNominalType literalObject) {
+    this.literalObject = literalObject;
   }
 
   public void setArrayType(RawNominalType arrayType) {

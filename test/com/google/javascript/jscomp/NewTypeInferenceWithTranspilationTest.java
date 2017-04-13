@@ -299,4 +299,41 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
         "}"),
         NewTypeInference.INVALID_ARGUMENT_TYPE);
   }
+
+  public void testDefaultValuesForArguments() {
+    typeCheck(LINE_JOINER.join(
+        "/** @param {{ focus: (undefined|string) }=} x */",
+        "function f(x = {}) {",
+        "  return { a: x.focus };",
+        "}"));
+  }
+
+  public void testDestructuring() {
+    typeCheck(LINE_JOINER.join(
+        "function f({ myprop1: { myprop2: prop } }) {",
+        "  return prop;",
+        "}"));
+  }
+
+  public void testAbstractMethodCalls() {
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "}",
+        "class B extends A {",
+        "  foo() { super.foo(); }",
+        "}"),
+        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  foo() {}",
+        "}",
+        "class B extends A {",
+        "  foo() { super.foo(); }",
+        "}"));
+  }
 }

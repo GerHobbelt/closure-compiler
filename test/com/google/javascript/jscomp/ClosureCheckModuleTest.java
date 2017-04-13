@@ -18,8 +18,10 @@ package com.google.javascript.jscomp;
 import static com.google.javascript.jscomp.ClosureCheckModule.EXPORT_NOT_A_MODULE_LEVEL_STATEMENT;
 import static com.google.javascript.jscomp.ClosureCheckModule.EXPORT_REPEATED_ERROR;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_REFERENCES_THIS;
+import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_USES_GOOG_MODULE_GET;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_USES_THROW;
 import static com.google.javascript.jscomp.ClosureCheckModule.INVALID_DESTRUCTURING_REQUIRE;
+import static com.google.javascript.jscomp.ClosureCheckModule.JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.LET_GOOG_REQUIRE;
 import static com.google.javascript.jscomp.ClosureCheckModule.MODULE_AND_PROVIDES;
 import static com.google.javascript.jscomp.ClosureCheckModule.MULTIPLE_MODULES_IN_FILE;
@@ -82,6 +84,31 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "  throw 5;",
             "}"),
         GOOG_MODULE_USES_THROW);
+  }
+
+  public void testGoogModuleGetAtTopLevel() {
+    testError("goog.module('xyz');\ngoog.module.get('abc');", GOOG_MODULE_USES_GOOG_MODULE_GET);
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "var x = goog.require('other.x');",
+            "",
+            "if (x) {",
+            "  var y = goog.module.get('abc');",
+            "}"),
+        GOOG_MODULE_USES_GOOG_MODULE_GET);
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "var x = goog.require('other.x');",
+            "",
+            "function f() {",
+            "  var y = goog.module.get('abc');",
+            "}"));
   }
 
   public void testGoogModuleAndProvide() {
@@ -359,6 +386,60 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
         REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME);
   }
 
+  public void testIllegalShortImportReferencedByLongName_extends() {
+    testError(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var A = goog.require('foo.A');",
+            "",
+            "/** @constructor @implements {foo.A} */ function B() {}"),
+        JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME);
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var A = goog.require('foo.A');",
+            "",
+            "/** @type {foo.A} */ var a;"),
+        JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME);
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var A = goog.require('foo.A');",
+            "",
+            "/** @type {A} */ var a;"));
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var Foo = goog.require('Foo');",
+            "",
+            "/** @type {Foo} */ var a;"));
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var ns = goog.require('some.namespace');",
+            "",
+            "/** @type {some.namespace.Foo} */ var foo;"),
+        JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME);
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "var ns = goog.require('some.namespace');",
+            "",
+            "/** @type {Array<some.namespace.Foo>} */ var foos;"),
+        JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME);
+  }
+
   public void testIllegalShortImportDestructuring() {
     testErrorEs6(
         LINE_JOINER.join(
@@ -426,6 +507,12 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testIllegalLetShortRequire() {
+    testSameEs6(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "let a = goog.forwardDeclare('foo.a');"));
+
     testErrorEs6(
         LINE_JOINER.join(
             "goog.module('xyz');",
@@ -473,8 +560,23 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
+            "if (window.exportMe) { exports.me = 5; }"),
+            EXPORT_NOT_A_MODULE_LEVEL_STATEMENT);
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "exports = {};",
+            "if (window.exportMe) { exports.me = 5; }"));
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
             "exports = 5;",
             "exports = 'str';"),
             EXPORT_REPEATED_ERROR);
+
   }
 }

@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.annotations.GwtIncompatible;
+import com.google.common.base.Ascii;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -137,23 +138,50 @@ public class CompilerOptions {
   private boolean preserveDetailedSourceInfo = false;
   private boolean continueAfterErrors = false;
 
-  /**
-   * Whether the compiler should generate an output file that represents the type-only interface
-   * of the code being compiled.  This is useful for incremental type checking.
-   */
-  private boolean generateTypedExterns;
+  public enum IncrementalCheckMode {
+    /** Normal mode */
+    OFF,
 
-  public void setIncrementalTypeChecking(boolean value) {
-    generateTypedExterns = value;
-    allowGoogProvideInExterns = value;
-    if (value) {
-      setPreserveTypeAnnotations(value);
-      setOutputJs(OutputJs.NORMAL);
+    /**
+     * The compiler should generate an output file that represents the type-only interface
+     * of the code being compiled.  This is useful for incremental type checking.
+     */
+    GENERATE_IJS,
+
+    /**
+     * The compiler should check type-only interface definitions generated above.
+     */
+    CHECK_IJS,
+  }
+
+  private IncrementalCheckMode incrementalCheckMode = IncrementalCheckMode.OFF;
+
+  public void setIncrementalChecks(IncrementalCheckMode value) {
+    incrementalCheckMode = value;
+    switch (value) {
+      case OFF:
+        break;
+      case GENERATE_IJS:
+        setPreserveTypeAnnotations(true);
+        setOutputJs(OutputJs.NORMAL);
+        break;
+      case CHECK_IJS:
+        setChecksOnly(true);
+        setOutputJs(OutputJs.SENTINEL);
+        break;
     }
   }
 
   public boolean shouldGenerateTypedExterns() {
-    return generateTypedExterns;
+    return incrementalCheckMode == IncrementalCheckMode.GENERATE_IJS;
+  }
+
+  public boolean allowIjsInputs() {
+    return incrementalCheckMode != IncrementalCheckMode.OFF;
+  }
+
+  public boolean allowUnfulfilledForwardDeclarations() {
+    return incrementalCheckMode == IncrementalCheckMode.OFF;
   }
 
   private Config.JsDocParsing parseJsDocDocumentation = Config.JsDocParsing.TYPES_ONLY;
@@ -200,10 +228,8 @@ public class CompilerOptions {
 
   // TODO(tbreisacher): When this is false, report an error if there's a goog.provide
   // in an externs file.
-  private boolean allowGoogProvideInExterns = false;
-
   boolean allowGoogProvideInExterns() {
-    return allowGoogProvideInExterns;
+    return allowIjsInputs();
   }
 
   /** Returns localized replacement for MSG_* variables */
@@ -712,10 +738,10 @@ public class CompilerOptions {
   /** Processes the output of J2CL */
   J2clPassMode j2clPassMode;
 
-  /** Remove methods that only make a super call without changing the arguments. */
+  /** Remove goog.abstractMethod assignments and @abstract methods. */
   boolean removeAbstractMethods;
 
-  /** Remove goog.abstractMethod assignments. */
+  /** Remove methods that only make a super call without changing the arguments. */
   boolean removeSuperMethods;
 
   /** Remove goog.asserts calls. */
@@ -2860,13 +2886,20 @@ public class CompilerOptions {
 
     /**
      * Shiny new JavaScript
+     * @deprecated Use ECMASCRIPT_2015 with {@code isStrictModeInput == false}.
      */
+    @Deprecated
     ECMASCRIPT6,
 
     /**
      * Nitpicky, shiny new JavaScript
+     * @deprecated Use ECMASCRIPT_2015 with {@code isStrictModeInput == true}.
      */
+    @Deprecated
     ECMASCRIPT6_STRICT,
+
+    /** ECMAScript standard approved in 2015. */
+    ECMASCRIPT_2015,
 
     /**
      * A superset of ES6 which adds Typescript-style type declarations. Always strict.
@@ -2874,14 +2907,25 @@ public class CompilerOptions {
     ECMASCRIPT6_TYPED,
 
     /**
-     * A superset of ES6 which adds the exponent operator (**).
+     * @deprecated Use ECMASCRIPT_2016.
      */
+    @Deprecated
     ECMASCRIPT7,
 
     /**
-     * A superset of ES7 which adds async functions.
+     * ECMAScript standard approved in 2016.
+     * Adds the exponent operator (**).
      */
+    ECMASCRIPT_2016,
+
+    /** @deprecated Use {@code ECMASCRIPT_NEXT} */
+    @Deprecated
     ECMASCRIPT8,
+
+    /**
+     * ECMAScript latest draft standard.
+     */
+    ECMASCRIPT_NEXT,
 
     /**
      * For languageOut only. The same language mode as the input.
@@ -2898,14 +2942,12 @@ public class CompilerOptions {
     public boolean isEs6OrHigher() {
       Preconditions.checkState(this != NO_TRANSPILE);
       switch (this) {
-        case ECMASCRIPT7:
-        case ECMASCRIPT8:
-        case ECMASCRIPT6:
-        case ECMASCRIPT6_STRICT:
-        case ECMASCRIPT6_TYPED:
-          return true;
-        default:
+        case ECMASCRIPT3:
+        case ECMASCRIPT5:
+        case ECMASCRIPT5_STRICT:
           return false;
+        default:
+          return true;
       }
     }
 
@@ -2913,33 +2955,13 @@ public class CompilerOptions {
       if (value == null) {
         return null;
       }
-      switch (value) {
-        case "ECMASCRIPT6_STRICT":
-        case "ES6_STRICT":
-          return LanguageMode.ECMASCRIPT6_STRICT;
-        case "ECMASCRIPT6":
-        case "ES6":
-          return LanguageMode.ECMASCRIPT6;
-        case "ECMASCRIPT5_STRICT":
-        case "ES5_STRICT":
-          return LanguageMode.ECMASCRIPT5_STRICT;
-        case "ECMASCRIPT5":
-        case "ES5":
-          return LanguageMode.ECMASCRIPT5;
-        case "ECMASCRIPT3":
-        case "ES3":
-          return LanguageMode.ECMASCRIPT3;
-        case "ECMASCRIPT6_TYPED":
-        case "ES6_TYPED":
-          return LanguageMode.ECMASCRIPT6_TYPED;
-        case "ECMASCRIPT7":
-        case "ES7":
-          return LanguageMode.ECMASCRIPT7;
-        case "ECMASCRIPT8":
-        case "ES8":
-          return LanguageMode.ECMASCRIPT8;
+      // Trim spaces, disregard case, and allow abbreviation of ECMASCRIPT for convenience.
+      String canonicalizedName = Ascii.toUpperCase(value.trim()).replaceFirst("^ES", "ECMASCRIPT");
+      try {
+        return LanguageMode.valueOf(canonicalizedName);
+      } catch (IllegalArgumentException e) {
+        return null; // unknown name.
       }
-      return null;
     }
   }
 
@@ -2992,6 +3014,12 @@ public class CompilerOptions {
     public boolean shouldStrip() {
       return this == STRIP;
     }
+  }
+
+  /** What kind of isolation is going to be used */
+  public static enum IsolationMode {
+    NONE, // output does not include additional isolation.
+    IIFE; // The output should be wrapped in an IIFE to isolate global variables.
   }
 
   /**
@@ -3119,7 +3147,8 @@ public class CompilerOptions {
     BOTH
   }
 
-  static enum DependencyMode {
+  /** How compiler should prune files based on the provide-require dependency graph */
+  public static enum DependencyMode {
     /**
      * All files will be included in the compilation
      */

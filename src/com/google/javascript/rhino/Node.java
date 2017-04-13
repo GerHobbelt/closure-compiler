@@ -865,6 +865,13 @@ public class Node implements Serializable {
   }
 
   /**
+   * Detaches Node and replaces it with newNode.
+   */
+  public void replaceWith(Node newNode) {
+    this.getParent().replaceChild(this, newNode);
+  }
+
+  /**
    * Detaches child from Node and replaces it with newChild.
    */
   public void replaceChild(Node child, Node newChild) {
@@ -877,7 +884,7 @@ public class Node implements Serializable {
     Preconditions.checkState(child.parent == this);
 
     // Copy over important information.
-    newChild.copyInformationFrom(child);
+    newChild.useSourceInfoIfMissingFrom(child);
     newChild.parent = this;
 
     Node nextSibling = child.next;
@@ -1083,7 +1090,7 @@ public class Node implements Serializable {
   }
 
   /** Can only be called when <tt>getType() == TokenStream.NUMBER</tt> */
-  public double getDouble() throws UnsupportedOperationException {
+  public double getDouble() {
     if (this.token == Token.NUMBER) {
       throw new IllegalStateException(
           "Number node not created with Node.newNumber");
@@ -1094,9 +1101,10 @@ public class Node implements Serializable {
 
   /**
    * Can only be called when <tt>getType() == Token.NUMBER</tt>
+   *
    * @param value value to set.
    */
-  public void setDouble(double value) throws UnsupportedOperationException {
+  public void setDouble(double value) {
     if (this.token == Token.NUMBER) {
       throw new IllegalStateException(
           "Number node not created with Node.newNumber");
@@ -1106,7 +1114,7 @@ public class Node implements Serializable {
   }
 
   /** Can only be called when node has String context. */
-  public String getString() throws UnsupportedOperationException {
+  public String getString() {
     if (this.token == Token.STRING) {
       throw new IllegalStateException(
           "String node not created with Node.newString");
@@ -1117,9 +1125,10 @@ public class Node implements Serializable {
 
   /**
    * Can only be called for a Token.STRING or Token.NAME.
+   *
    * @param value the value to set.
    */
-  public void setString(String value) throws UnsupportedOperationException {
+  public void setString(String value) {
     if (this.token == Token.STRING || this.token == Token.NAME) {
       throw new IllegalStateException(
           "String node not created with Node.newString");
@@ -1357,6 +1366,7 @@ public class Node implements Serializable {
     return extractLineno(sourcePosition);
   }
 
+  // Returns the 0-based column number
   public int getCharno() {
     return extractCharno(sourcePosition);
   }
@@ -1874,11 +1884,8 @@ public class Node implements Serializable {
         String name = getString();
         return name.isEmpty() ? null : name;
       case GETPROP:
-        String left = getFirstChild().getQualifiedName();
-        if (left == null) {
-          return null;
-        }
-        return left + "." + getLastChild().getString();
+        StringBuilder builder = getQualifiedNameForGetProp(0);
+        return builder != null ? builder.toString() : null;
       case THIS:
         return "this";
       case SUPER:
@@ -1886,6 +1893,35 @@ public class Node implements Serializable {
       default:
         return null;
     }
+  }
+
+  /**
+   * Helper method for {@link #getQualifiedName} to handle GETPROP nodes.
+   *
+   * @param reserve The number of characters of space to reserve in the StringBuilder
+   * @return {@code null} if this is not a qualified name or a StringBuilder if it is a complex
+   *     qualified name.
+   */
+  private StringBuilder getQualifiedNameForGetProp(int reserve) {
+    String propName = getLastChild().getString();
+    reserve += 1 + propName.length();  // +1 for the '.'
+    Node firstChild = getFirstChild();
+    StringBuilder builder;
+    if (firstChild.isGetProp()) {
+      builder = firstChild.getQualifiedNameForGetProp(reserve);
+      if (builder == null) {
+        return null;
+      }
+    } else {
+      String left = firstChild.getQualifiedName();
+      if (left == null) {
+        return null;
+      }
+      builder = new StringBuilder(left.length() + reserve);
+      builder.append(left);
+    }
+    builder.append('.').append(propName);
+    return builder;
   }
 
   /**
@@ -1935,6 +1971,7 @@ public class Node implements Serializable {
       case NAME:
         return !getString().isEmpty();
       case THIS:
+      case SUPER:
         return true;
       case GETPROP:
         return getFirstChild().isQualifiedName();
@@ -2182,7 +2219,7 @@ public class Node implements Serializable {
    */
   // TODO(nicksantos): The semantics of this method are ill-defined. Delete it.
   @Deprecated
-  public Node copyInformationFrom(Node other) {
+  public Node useSourceInfoWithoutLengthIfMissingFrom(Node other) {
     if (getProp(ORIGINALNAME_PROP) == null) {
       putProp(ORIGINALNAME_PROP, other.getProp(ORIGINALNAME_PROP));
     }
@@ -2202,10 +2239,10 @@ public class Node implements Serializable {
    */
   // TODO(nicksantos): The semantics of this method are ill-defined. Delete it.
   @Deprecated
-  public Node copyInformationFromForTree(Node other) {
-    copyInformationFrom(other);
+  public Node useSourceInfoWithoutLengthIfMissingFromForTree(Node other) {
+    useSourceInfoWithoutLengthIfMissingFrom(other);
     for (Node child = first; child != null; child = child.next) {
-      child.copyInformationFromForTree(other);
+      child.useSourceInfoWithoutLengthIfMissingFromForTree(other);
     }
 
     return this;
@@ -2791,6 +2828,10 @@ public class Node implements Serializable {
 
   public boolean isAdd() {
     return this.token == Token.ADD;
+  }
+
+  public boolean isSub() {
+    return this.token == Token.SUB;
   }
 
   public boolean isAnd() {

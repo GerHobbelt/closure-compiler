@@ -425,7 +425,8 @@ md.$toast = function() {};
  *   locals: (Object|undefined),
  *   bindToController: (boolean|undefined),
  *   resolve: (Object|undefined),
- *   controllerAs: (string|undefined)
+ *   controllerAs: (string|undefined),
+ *   toastClass: (string|undefined),
  * }}
  */
 md.$toast.options;
@@ -562,6 +563,15 @@ md.$sidenav;
 
 
 /******************************************************************************
+ * $mdAriaProvider service
+ *****************************************************************************/
+
+/** @interface */
+md.$mdAriaProvider = function() {};
+
+md.$mdAriaProvider.prototype.disableWarnings = function() {};
+
+/******************************************************************************
  * $mdThemingProvider
  *****************************************************************************/
 
@@ -608,9 +618,17 @@ md.$mdThemingProvider.prototype.setNonce = function(nonce) {};
 /** @constructor */
 md.$mdTheming = function() {};
 
+/**
+ * @param {string} name
+ * @return {boolean}
+ */
+md.$mdTheming.prototype.registered = function(name) {};
+
+/** @return {string} */
+md.$mdTheming.prototype.defaultTheme = function() {};
 
 /** @param {string} name */
-md.$mdTheming.prototype.generateTheme = function(name) {}
+md.$mdTheming.prototype.generateTheme = function(name) {};
 
 /******************************************************************************/
 
@@ -902,7 +920,8 @@ md.$panel = function() {};
  *   onOpenComplete: (Function|undefined),
  *   onRemoving: (Function|undefined),
  *   onDomRemoved: (Function|undefined),
- *   origin: (!angular.JQLite|!Element|undefined)
+ *   origin: (!angular.JQLite|!Element|undefined),
+ *   onCloseSuccess: (function(!md.$panel.MdPanelRef, string)|undefined),
  * }}
  */
 md.$panel.config;
@@ -950,6 +969,17 @@ md.$panel.prototype.yPosition = {
 };
 
 /**
+ * Possible values of absPosition.
+ * @enum {string}
+ */
+md.$panel.prototype.absPosition = {
+  TOP: 'top',
+  RIGHT: 'right',
+  BOTTOM: 'bottom',
+  LEFT: 'left',
+};
+
+/**
  * Possible default animations.
  * @enum {string}
  */
@@ -967,6 +997,15 @@ md.$panel.prototype.interceptorTypes = {
   CLOSE: 'onClose',
 };
 
+/**
+ * Possible reasons for close.
+ * @enum {string}
+ */
+md.$panel.prototype.closeReasons = {
+  CLICK_OUTSIDE: 'clickOutsideToClose',
+  ESCAPE: 'escapeToClose',
+};
+
 
 /**
  * @param {!md.$panel.config} config
@@ -977,6 +1016,15 @@ md.$panel.MdPanelRef = function(config, $injector) {};
 
 /** @type {string} */
 md.$panel.MdPanelRef.prototype.id;
+
+/** @type {!md.$panel.config} */
+md.$panel.MdPanelRef.prototype.config;
+
+/** @type {!angular.JQLite|undefined} */
+md.$panel.MdPanelRef.prototype.panelContainer;
+
+/** @type {!angular.JQLite|undefined} */
+md.$panel.MdPanelRef.prototype.panelEl;
 
 /** @type {boolean} */
 md.$panel.MdPanelRef.prototype.isAttached;

@@ -172,6 +172,79 @@ public class Es6RewriteArrowFunctionTest extends CompilerTestCase {
             "}"));
   }
 
+  public void testArrowInConstructorWithSuperCall() {
+    test(
+        LINE_JOINER.join(
+            "class B {",
+            "  constructor(x) {",
+            "    this.x = x;",
+            "  }",
+            "}",
+            "class C extends B {",
+            "  constructor(x, y) {",
+            "    console.log('statement before super');",
+            "    super(x);",
+            "    this.wrappedXGetter = () => this.x;",
+            "    this.y = y;",
+            "    this.wrappedYGetter = () => this.y;",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "class B {",
+            "  constructor(x) {",
+            "    this.x = x;",
+            "  }",
+            "}",
+            "class C extends B {",
+            "  constructor(x, y) {",
+            "    console.log('statement before super');",
+            "    super(x);",
+            "    const $jscomp$this = this;", // Must not use `this` before super() call.
+            "    this.wrappedXGetter = function() { return $jscomp$this.x; };",
+            "    this.y = y;",
+            "    this.wrappedYGetter = function() { return $jscomp$this.y; };",
+            "  }",
+            "}"));
+    test(
+        LINE_JOINER.join(
+            "class B {",
+            "  constructor(x) {",
+            "    this.x = x;",
+            "  }",
+            "}",
+            "class C extends B {",
+            "  constructor(x, y) {",
+            "    if (x < 1) {",
+            "      super(x);",
+            "    } else {",
+            "      super(-x);",
+            "    }",
+            "    this.wrappedXGetter = () => this.x;",
+            "    this.y = y;",
+            "    this.wrappedYGetter = () => this.y;",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "class B {",
+            "  constructor(x) {",
+            "    this.x = x;",
+            "  }",
+            "}",
+            "class C extends B {",
+            "  constructor(x, y) {",
+            "    if (x < 1) {",
+            "      super(x);",
+            "    } else {",
+            "      super(-x);",
+            "    }",
+            "    const $jscomp$this = this;", // Must not use `this` before super() call.
+            "    this.wrappedXGetter = function() { return $jscomp$this.x; };",
+            "    this.y = y;",
+            "    this.wrappedYGetter = function() { return $jscomp$this.y; };",
+            "  }",
+            "}"));
+  }
+
   public void testMultipleArrowsInSameScope() {
     test(
         "var a1 = x => x+1; var a2 = x => x-1;",

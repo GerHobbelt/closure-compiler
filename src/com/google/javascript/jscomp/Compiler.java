@@ -42,6 +42,7 @@ import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeIRegistry;
@@ -242,7 +243,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * setting configuration for this logger affects all loggers
    * in other classes within the compiler.
    */
-  private static final Logger logger =
+  public static final Logger logger =
       Logger.getLogger("com.google.javascript.jscomp");
 
   private final PrintStream outStream;
@@ -1220,7 +1221,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     Node oldRoot = oldInput.getAstRoot(this);
     if (oldRoot != null) {
-      oldRoot.getParent().replaceChild(oldRoot, newRoot);
+      oldRoot.replaceWith(newRoot);
     } else {
       getRoot().getLastChild().addChildToBack(newRoot);
     }
@@ -1322,7 +1323,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   void forwardDeclareType(String typeName) {
-    forwardDeclaredTypes.add(typeName);
+    if (options.allowUnfulfilledForwardDeclarations()) {
+      forwardDeclaredTypes.add(typeName);
+    }
   }
 
   @Override
@@ -1418,7 +1421,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   Iterable<TypeMismatch> getImplicitInterfaceUses() {
-    return getTypeValidator().getImplicitStructuralInterfaceUses();
+    return getTypeValidator().getImplicitInterfaceUses();
   }
 
   @Override
@@ -1480,6 +1483,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           || options.processCommonJSModules) {
 
         this.moduleLoader = new ModuleLoader(this, options.moduleRoots, inputs);
+
+        if (options.processCommonJSModules) {
+          this.moduleLoader.setPackageJsonMainEntries(processJsonInputs(inputs));
+        }
 
         if (options.lowerFromEs6()) {
           processEs6Modules();
@@ -1587,8 +1594,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   void orderInputs() {
-    hoistExterns();
-
+    hoistUnorderedExterns();
     // Check if the sources need to be re-ordered.
     boolean staleInputs = false;
     if (options.dependencyOptions.needsManagement()) {
@@ -1601,9 +1607,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
 
       try {
-        inputs =
-            (moduleGraph == null ? new JSModuleGraph(modules) : moduleGraph)
-            .manageDependencies(options.dependencyOptions, inputs);
+        inputs = getDegenerateModuleGraph().manageDependencies(options.dependencyOptions, inputs);
         staleInputs = true;
       } catch (MissingProvideException e) {
         report(JSError.make(
@@ -1614,7 +1618,35 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
     }
 
+    if (options.dependencyOptions.needsManagement() && options.allowGoogProvideInExterns()) {
+      hoistAllExterns();
+    }
+
     hoistNoCompileFiles();
+
+    if (staleInputs) {
+      repartitionInputs();
+    }
+  }
+
+  /**
+   * Hoists inputs with the @externs annotation and no provides or requires into the externs list.
+   */
+  void hoistUnorderedExterns() {
+    boolean staleInputs = false;
+    for (CompilerInput input : inputs) {
+      if (options.dependencyOptions.needsManagement()) {
+        // If we're doing scanning dependency info anyway, use that
+        // information to skip sources that obviously aren't externs.
+        if (!input.getProvides().isEmpty() || !input.getRequires().isEmpty()) {
+          continue;
+        }
+      }
+
+      if (hoistIfExtern(input)) {
+        staleInputs = true;
+      }
+    }
 
     if (staleInputs) {
       repartitionInputs();
@@ -1624,42 +1656,44 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   /**
    * Hoists inputs with the @externs annotation into the externs list.
    */
-  void hoistExterns() {
+  void hoistAllExterns() {
     boolean staleInputs = false;
     for (CompilerInput input : inputs) {
-      if (!options.allowGoogProvideInExterns() && options.dependencyOptions.needsManagement()) {
-        // If we're doing scanning dependency info anyway, use that
-        // information to skip sources that obviously aren't externs.
-        if (!input.getProvides().isEmpty() || !input.getRequires().isEmpty()) {
-          continue;
-        }
-      }
-
-      Node n = input.getAstRoot(this);
-
-      // Inputs can have a null AST on a parse error.
-      if (n == null) {
-        continue;
-      }
-
-      JSDocInfo info = n.getJSDocInfo();
-      if (info != null && info.isExterns()) {
-        // If the input file is explicitly marked as an externs file, then
-        // assume the programmer made a mistake and throw it into
-        // the externs pile anyways.
-        externsRoot.addChildToBack(n);
-        input.setIsExtern(true);
-
-        input.getModule().remove(input);
-
-        externs.add(input);
+      if (hoistIfExtern(input)) {
         staleInputs = true;
       }
     }
-
     if (staleInputs) {
       repartitionInputs();
     }
+  }
+
+  /**
+   * Hoists a compiler input to externs if it contains the @externs annotation.
+   * Return whether or not the given input was hoisted.
+   */
+  private boolean hoistIfExtern(CompilerInput input) {
+    Node n = input.getAstRoot(this);
+
+    // Inputs can have a null AST on a parse error.
+    if (n == null) {
+      return false;
+    }
+
+    JSDocInfo info = n.getJSDocInfo();
+    if (info != null && info.isExterns()) {
+      // If the input file is explicitly marked as an externs file, then
+      // assume the programmer made a mistake and throw it into
+      // the externs pile anyways.
+      externsRoot.addChildToBack(n);
+      input.setIsExtern(true);
+
+      input.getModule().remove(input);
+
+      externs.add(input);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1690,6 +1724,34 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private void repartitionInputs() {
     fillEmptyModules(modules);
     rebuildInputsFromModules();
+  }
+
+  /**
+   * Transforms JSON files to a module export that closure compiler can process and keeps track of
+   * any "main" entries in package.json files.
+   */
+  Map<String, String> processJsonInputs(List<CompilerInput> inputsToProcess) {
+    RewriteJsonToModule rewriteJson = new RewriteJsonToModule(this);
+    for (CompilerInput input : inputsToProcess) {
+      if (!input.getSourceFile().getOriginalPath().endsWith(".json")) {
+        continue;
+      }
+
+      input.setCompiler(this);
+      try {
+        // JSON objects need wrapped in parens to parse properly
+        input.getSourceFile().setCode("(" + input.getSourceFile().getCode() + ")");
+      } catch (IOException e) {
+        continue;
+      }
+
+      Node root = input.getAstRoot(this);
+      if (root == null) {
+        continue;
+      }
+      rewriteJson.process(null, root);
+    }
+    return rewriteJson.getPackageJsonMainEntries();
   }
 
   void processEs6Modules() {
@@ -2242,48 +2304,44 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return convention;
   }
 
+  private Config.LanguageMode getParserConfigLanguageMode(
+      CompilerOptions.LanguageMode languageMode) {
+    switch (languageMode) {
+      case ECMASCRIPT3:
+        return Config.LanguageMode.ECMASCRIPT3;
+      case ECMASCRIPT5:
+      case ECMASCRIPT5_STRICT:
+        return Config.LanguageMode.ECMASCRIPT5;
+      case ECMASCRIPT6:
+      case ECMASCRIPT6_STRICT:
+      case ECMASCRIPT_2015:
+        return Config.LanguageMode.ECMASCRIPT6;
+      case ECMASCRIPT6_TYPED:
+        return Config.LanguageMode.TYPESCRIPT;
+      case ECMASCRIPT7:
+      case ECMASCRIPT_2016:
+        return Config.LanguageMode.ECMASCRIPT7;
+      case ECMASCRIPT8:
+      case ECMASCRIPT_NEXT:
+        return Config.LanguageMode.ECMASCRIPT8;
+      default:
+        throw new IllegalStateException("unexpected language mode: "
+            + options.getLanguageIn());
+    }
+  }
+
   @Override
   Config getParserConfig(ConfigContext context) {
     if (parserConfig == null) {
-      switch (options.getLanguageIn()) {
-        case ECMASCRIPT3:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT3, Config.StrictMode.SLOPPY);
-          externsParserConfig =
-              createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.SLOPPY);
-          break;
-        case ECMASCRIPT5:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.SLOPPY);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT5_STRICT:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.STRICT);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT6:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6, Config.StrictMode.SLOPPY);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT6_STRICT:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6, Config.StrictMode.STRICT);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT6_TYPED:
-          parserConfig =
-              createConfig(Config.LanguageMode.TYPESCRIPT, Config.StrictMode.STRICT);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT7:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT7, Config.StrictMode.STRICT);
-          externsParserConfig = parserConfig;
-          break;
-        case ECMASCRIPT8:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT8, Config.StrictMode.STRICT);
-          externsParserConfig = parserConfig;
-          break;
-        default:
-          throw new IllegalStateException("unexpected language mode: "
-              + options.getLanguageIn());
-      }
+      Config.LanguageMode configLanguageMode = getParserConfigLanguageMode(options.getLanguageIn());
+      Config.StrictMode strictMode =
+          expectStrictModeInput() ? Config.StrictMode.STRICT : Config.StrictMode.SLOPPY;
+      parserConfig = createConfig(configLanguageMode, strictMode);
+      // Externs must always be parsed with at least ES5 language mode.
+      externsParserConfig =
+          configLanguageMode.equals(Config.LanguageMode.ECMASCRIPT3)
+          ? createConfig(Config.LanguageMode.ECMASCRIPT5, strictMode)
+          : parserConfig;
     }
     switch (context) {
       case EXTERNS:
@@ -2776,9 +2834,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           // Note that we could simply add the entire externs library, but that leads to
           // potentially-surprising behavior when the externs that are present depend on
           // whether or not a polyfill is used.
+          Node var = IR.var(IR.name(words.get(1)));
+          JSDocInfoBuilder jsdoc = new JSDocInfoBuilder(false);
+          // Suppress duplicate-var warning in case this name is already defined in the externs.
+          jsdoc.addSuppression("duplicate");
+          var.setJSDocInfo(jsdoc.build());
           getSynthesizedExternsInputAtEnd()
               .getAstRoot(this)
-              .addChildToBack(IR.var(IR.name(words.get(1))));
+              .addChildToBack(var);
           break;
         default:
           throw new RuntimeException("Bad directive: " + directive);

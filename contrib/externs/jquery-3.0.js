@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 The Closure Compiler Authors.
+ * Copyright 2016 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ jQueryAjaxSettings.prototype.complete;
 /** @type {(Object<string, RegExp>|undefined)} */
 jQueryAjaxSettings.prototype.contents;
 
-/** @type {(?string|undefined)} */
+/** @type {(?string|boolean|undefined)} */
 jQueryAjaxSettings.prototype.contentType;
 
 /** @type {(Object<?, ?>|jQueryAjaxSettings|undefined)} */
@@ -141,14 +141,43 @@ jQueryAjaxSettings.prototype.xhr;
 jQueryAjaxSettings.prototype.xhrFields;
 
 /**
+ * @record
+ * @extends {jQueryAjaxSettings}
+ */
+function jQueryAjaxSettingsExtra() {};
+
+/** @type {Object<string, boolean>} */
+jQueryAjaxSettingsExtra.prototype.flatOptions;
+
+/** @type {Object<string, string>} */
+jQueryAjaxSettingsExtra.prototype.responseFields;
+
+
+/**
+ * @record
+ */
+function jQueryAjaxTransport(){};
+
+/** @return {undefined} */
+jQueryAjaxTransport.abort = function() {};
+
+/**
+ * @param {!IObject<string,string>} headers
+ * @param {function(number, string, !IObject<string,string>=, string=):undefined} completeCallback
+ * @return {undefined}
+ */
+jQueryAjaxTransport.send = function(headers, completeCallback) {};
+
+/**
  * @constructor
  * @param {(jQuerySelector|Object|function())=} arg1
  * @param {(Element|jQuery|Document|
  *     Object<string, (string|function(!jQuery.Event))>)=} arg2
  * @throws {Error} on invalid selector
  * @return {!jQuery}
+ * @implements {Iterable}
  */
-function jQuery(arg1, arg2) {}
+function jQuery(arg1, arg2) {};
 
 /**
  * @const
@@ -255,6 +284,13 @@ jQuery.prototype.ajaxStop = function(handler) {};
  * @return {!jQuery}
  */
 jQuery.prototype.ajaxSuccess = function(handler) {};
+
+/**
+ * @param {string} dataType
+ * @param {function(!jQueryAjaxSettingsExtra, !jQueryAjaxSettings, !jQuery.jqXHR):(!jQueryAjaxTransport|undefined)} handler
+ * @return {undefined}
+ */
+jQuery.ajaxTransport = function(dataType, handler) {};
 
 /**
  * @deprecated Please use .addBack(selector) instead.
@@ -503,14 +539,14 @@ jQuery.deferred.prototype.always
 /**
  * @override
  * @param {function()} failCallback
- * @return {!jQuery.deferred}
+ * @return {!jQuery.Promise}
  */
 jQuery.deferred.prototype.catch = function(failCallback) {};
 
 /**
  * @override
  * @param {jQueryCallback} doneCallbacks
- * @param {...jQueryCallback} doneCallbacks2 
+ * @param {...jQueryCallback} doneCallbacks2
  * @return {!jQuery.deferred}
  */
 jQuery.deferred.prototype.done = function(doneCallbacks, doneCallbacks2) {};
@@ -548,6 +584,7 @@ jQuery.deferred.prototype.pipe =
     function(doneFilter, failFilter, progressFilter) {};
 
 /**
+ * @override
  * @param {jQueryCallback} progressCallbacks
  * @param {...jQueryCallback} progressCallbacks2
  * @return {!jQuery.deferred}
@@ -555,6 +592,7 @@ jQuery.deferred.prototype.pipe =
 jQuery.deferred.prototype.progress = function(progressCallbacks,progressCallbacks2) {};
 
 /**
+ * @override
  * @param {Object=} target
  * @return {!jQuery.Promise}
  */
@@ -587,6 +625,7 @@ jQuery.deferred.prototype.resolve = function(var_args) {};
 jQuery.deferred.prototype.resolveWith = function(context, args) {};
 
 /**
+ * @override
  * @return {string}
  * @nosideeffects
  */
@@ -596,10 +635,11 @@ jQuery.deferred.prototype.state = function() {};
  * @override
  * @param {function()} doneCallbacks
  * @param {function()=} failCallbacks
+ * @param {function()=} progressFilter
  * @return {!jQuery.deferred}
  */
 jQuery.deferred.prototype.then
-    = function(doneCallbacks, failCallbacks) {};
+    = function(doneCallbacks, failCallbacks, progressFilter) {};
 
 /**
  * @param {number} duration
@@ -1049,14 +1089,14 @@ jQuery.inArray = function(value, arr, fromIndex) {};
 jQuery.prototype.index = function(arg1) {};
 
 /**
- * @param {(number|string|function(number,number))=} value
+ * @param {(number|string|function(number,number):(number|string))=} value
  * @return {(number|undefined|jQuery)}
  * @nosideeffects
  */
 jQuery.prototype.innerHeight = function(value) {};
 
 /**
- * @param {(number|string|function(number,number))=} value
+ * @param {(number|string|function(number,number):(number|string))=} value
  * @return {(number|undefined|jQuery)}
  * @nosideeffects
  */
@@ -1075,7 +1115,7 @@ jQuery.prototype.insertAfter = function(target) {};
 jQuery.prototype.insertBefore = function(target) {};
 
 /**
- * @param {jQuerySelector|function(number,Element)} arg1
+ * @param {jQuerySelector|function(number,Element):boolean} arg1
  * @return {boolean}
  */
 jQuery.prototype.is = function(arg1) {};
@@ -1159,6 +1199,7 @@ jQuery.jqXHR.prototype.always =
     function(alwaysCallbacks, alwaysCallbacks2) {};
 
 /**
+ * @override
  * @param {function()} failCallback
  * @return {!jQuery.jqXHR}
  */
@@ -1197,6 +1238,7 @@ jQuery.jqXHR.prototype.pipe =
     function(doneFilter, failFilter, progressFilter) {};
 
 /**
+ * @override
  * @param {jQueryCallback} progressCallbacks
  * @param {...jQueryCallback} progressCallbacks2
  * @return {!jQuery.jqXHR}
@@ -1204,12 +1246,14 @@ jQuery.jqXHR.prototype.pipe =
 jQuery.jqXHR.prototype.progress = function(progressCallbacks,progressCallbacks2) {};
 
 /**
+ * @override
  * @param {Object=} target
  * @return {!jQuery.Promise}
  */
 jQuery.jqXHR.prototype.promise = function(target) {};
 
 /**
+ * @override
  * @return {string}
  * @nosideeffects
  */
@@ -1427,15 +1471,15 @@ jQuery.prototype.on = function(events, selector, data, handler) {};
 jQuery.prototype.one = function(events, selector, data, handler) {};
 
 /**
- * @param {boolean=} includeMargin
- * @return {number|undefined}
+ * @param {boolean|number|string|function(number,number):(number|string)=} includeMargin
+ * @return {number|undefined|jQuery}
  * @nosideeffects
  */
 jQuery.prototype.outerHeight = function(includeMargin) {};
 
 /**
- * @param {boolean=} includeMargin
- * @return {number|undefined}
+ * @param {boolean|number|string|function(number,number):(number|string)=} includeMargin
+ * @return {number|undefined|jQuery}
  * @nosideeffects
  */
 jQuery.prototype.outerWidth = function(includeMargin) {};
@@ -1835,7 +1879,9 @@ jQuery.prototype.submit = function(arg1, handler) {};
  */
 jQuery.support;
 
-/** @record */
+/**
+ * @record
+ */
 function jQuerySupport() {};
 
 /**
@@ -1876,6 +1922,12 @@ jQuerySupport.prototype.submitBubbles;
 
 /** @type {boolean} */
 jQuerySupport.prototype.tbody;
+
+/**
+ * @type {!jQuerySupport}
+ * @deprecated Please try to use feature detection instead.
+ */
+jQuery.support;
 
 /**
  * @param {(string|number|boolean|function(number,string))=} arg1

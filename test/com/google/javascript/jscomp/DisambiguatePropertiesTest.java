@@ -19,11 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.collect.Multimap;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.jstype.JSTypeNative;
-import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
-import com.google.javascript.rhino.testing.TestErrorReporter;
-
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -1208,6 +1204,50 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
     testSets(js, "{a=[[Foo.prototype, I.prototype]]}");
   }
 
+  public void testInterface_noDirectImplementors() {
+    String js = ""
+        + "/** @interface */\n"
+        + "function I() {}\n"
+        + "I.prototype.a;\n"
+        + "I.prototype.b;\n"
+        + "/** @interface @extends {I} */\n"
+        + "function J() {}\n"
+        + "/** @constructor @implements {J} */\n"
+        + "function Foo() {}\n"
+        + "Foo.prototype.a;\n"
+        + "Foo.prototype.b;\n"
+        + "function f(/** !I */ x) {\n"
+        + "  return x.a;\n"
+        + "}\n"
+        + "/** @interface */\n"
+        + "function Z() {}\n"
+        + "Z.prototype.a;\n"
+        + "Z.prototype.b;";
+    String output = ""
+        + "/** @interface */\n"
+        + "function I() {}\n"
+        + "I.prototype.Foo_prototype$a;\n"
+        + "I.prototype.Foo_prototype$b;\n"
+        + "/** @interface @extends {I} */\n"
+        + "function J() {}\n"
+        + "/** @constructor @implements {J} */\n"
+        + "function Foo() {}\n"
+        + "Foo.prototype.Foo_prototype$a;\n"
+        + "Foo.prototype.Foo_prototype$b;\n"
+        + "function f(/** !I */ x){\n"
+        + "  return x.Foo_prototype$a;\n"
+        + "}\n"
+        + "/** @interface */\n"
+        + "function Z() {}\n"
+        + "Z.prototype.Z_prototype$a;\n"
+        + "Z.prototype.Z_prototype$b";
+    testSets(
+        js,
+        output,
+        "{a=[[Foo.prototype, I.prototype], [Z.prototype]],"
+            + " b=[[Foo.prototype, I.prototype], [Z.prototype]]}");
+  }
+
   public void testInterfaceOfSuperclass() {
     String js = ""
         + "/** @interface */ function I() {};\n"
@@ -1306,6 +1346,88 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
         + "Foo.prototype.a = 0;\n"
         + "(new Foo).a = 0";
     testSets(js, "{a=[[Foo.prototype, I.prototype]]}");
+  }
+
+  public void testSuperInterface2() {
+    String js = LINE_JOINER.join(
+        "/** @interface */",
+        "function High(){}",
+        "High.prototype.prop = function() {};",
+        "/**",
+        " * @interface",
+        " * @extends {High}",
+        " */",
+        "function Low() {}",
+        "Low.prototype.prop = function() {};",
+        "/**",
+        " * @constructor",
+        " * @implements {Low}",
+        " */",
+        "function A() {}",
+        "A.prototype.prop = function() {};");
+
+    testSets(js, js, "{prop=[[A.prototype, High.prototype, Low.prototype]]}");
+  }
+
+  public void testSuperInterface3() {
+    testSets(
+        LINE_JOINER.join(
+            "/** @interface */",
+            "function I0() {}",
+            "I0.prototype.prop = function() {};",
+            "/** @interface */",
+            "function I1() {}",
+            "I1.prototype.prop = function() {};",
+            "/** @interface */",
+            "function I2() {}",
+            "I2.prototype.prop = function() {};",
+            "/**",
+            " * @interface",
+            " * @extends {I1}",
+            " * @extends {I2}",
+            " */",
+            "function Mixin() {}",
+            "/**",
+            " * @constructor",
+            " * @implements {Mixin}",
+            " */",
+            "function C() {}",
+            "C.prototype.prop = function() {};",
+            "/**",
+            " * @constructor",
+            " * @implements {I1}",
+            " */",
+            "function D() {}",
+            "D.prototype.prop = function() {};"),
+        LINE_JOINER.join(
+            "/** @interface */",
+            "function I0() {}",
+            "I0.prototype.I0_prototype$prop = function() {};",
+            "/** @interface */",
+            "function I1() {}",
+            "I1.prototype.C_prototype$prop = function() {};",
+            "/** @interface */",
+            "function I2() {}",
+            "I2.prototype.C_prototype$prop = function() {};",
+            "/**",
+            " * @interface",
+            " * @extends {I1}",
+            " * @extends {I2}",
+            " */",
+            "function Mixin() {}",
+            "/**",
+            " * @constructor",
+            " * @implements {Mixin}",
+            " */",
+            "function C() {}",
+            "C.prototype.C_prototype$prop = function() {};",
+            "/**",
+            " * @constructor",
+            " * @implements {I1}",
+            " */",
+            "function D() {}",
+            "D.prototype.C_prototype$prop = function() {};"),
+        "{prop=[[C.prototype, D.prototype, I1.prototype, I2.prototype], [I0.prototype]]}");
   }
 
   public void testInterfaceUnionWithCtor() {
@@ -1495,7 +1617,7 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
         "/** @type {number} */",
         "Bar.prototype.x;",
         "",
-        "function f(/** I */ i) { return i.x; }",
+        "function f(/** !I */ i) { return i.x; }",
         "function g(/** {x:number} */ i) { return f(i); }",
         "g(new Bar());");
     testSets(js, js, "{}");
@@ -1556,6 +1678,62 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
         "x = new C()");
 
     testSets(js, js, "{}");
+  }
+
+  public void testDisambiguatePropertiesClassCastedToUnrelatedInterface() {
+    String js = LINE_JOINER.join(
+        "/** @interface */",
+        "function Foo() {}",
+        "Foo.prototype.prop1;",
+        "Foo.prototype.prop2;",
+        "/** @constructor */",
+        "function Bar() {",
+        "  this.prop1 = 123;",
+        "}",
+        "var x = /** @type {!Foo} */ (new Bar);",
+        "/** @constructor */",
+        "function Baz() {",
+        "  this.prop1 = 123;",
+        "}");
+
+    testSets(js,  js, "{}");
+  }
+
+  public void testDontInvalidateForGenericsMismatch() {
+    testSets(
+        LINE_JOINER.join(
+            "/**",
+            " * @constructor",
+            " * @template T",
+            " */",
+            "function Foo() {",
+            "  this.prop = 123;",
+            "}",
+            "/** @param {!Foo<number>} x */",
+            "function f(x) {",
+            "  return (/** @type {!Foo<string>} */ (x)).prop;",
+            "}",
+            "/** @constructor */",
+            "function Bar() {",
+            "  this.prop = 123;",
+            "}"),
+        LINE_JOINER.join(
+            "/**",
+            " * @constructor",
+            " * @template T",
+            " */",
+            "function Foo() {",
+            "  this.Foo$prop = 123;",
+            "}",
+            "/** @param {!Foo<number>} x */",
+            "function f(x) {",
+            "  return (/** @type {!Foo<string>} */ (x)).Foo$prop;",
+            "}",
+            "/** @constructor */",
+            "function Bar() {",
+            "  this.Bar$prop = 123;",
+            "}"),
+        "{prop=[[Bar], [Foo]]}");
   }
 
   public void testStructuralTypingWithDisambiguatePropertyRenaming2() {
@@ -1931,14 +2109,6 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
         externs, js, (String) null,
         DisambiguateProperties.Warnings.INVALIDATION_ON_TYPE, null);
     assertThat(getLastCompiler().getErrors()[0].toString()).contains("foobar");
-  }
-
-  public void runFindHighestTypeInChain() {
-    // Check that this doesn't go into an infinite loop.
-    new DisambiguateProperties(new Compiler(), new HashMap<String, CheckLevel>())
-        .getTypeWithProperty("no",
-            new JSTypeRegistry(new TestErrorReporter(null, null))
-            .getNativeType(JSTypeNative.OBJECT_PROTOTYPE));
   }
 
   private void testSets(String js, String expected, String fieldTypes) {

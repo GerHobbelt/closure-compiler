@@ -21,7 +21,6 @@
  *     $cookieStore
  *     $httpBackend
  *     $rootElement
- *     $rootScope
  *
  * @see http://angularjs.org/
  * @externs
@@ -432,7 +431,7 @@ angular.LinkingFunctions.post = function(scope, iElement, iAttrs, controller) {
  *   scope: (boolean|Object.<string, string>|undefined),
  *   template: (string|!angular.Injectable|undefined),
  *   templateNamespace: (string|undefined),
- *   templateUrl: (string|!angular.Injectable|undefined),
+ *   templateUrl: (string|!angular.Injectable|!Object|undefined),
  *   terminal: (boolean|undefined),
  *   transclude: (boolean|string|!Object.<string, string>|undefined)
  *   }}
@@ -490,7 +489,7 @@ angular.Component.prototype.controllerAs;
 angular.Component.prototype.template;
 
 /**
- * @type {string|!angular.Injectable|undefined}
+ * @type {string|!angular.Injectable|!Object|undefined}
  */
 angular.Component.prototype.templateUrl;
 
@@ -925,7 +924,10 @@ angular.Module.prototype.name;
  */
 angular.Module.prototype.requires;
 
-/** @constructor */
+/**
+ * NOTE: $rootScope is the same as angular.Scope.
+ * @constructor
+ */
 angular.Scope = function() {};
 
 /** @type {?string} */

@@ -33,12 +33,12 @@ var DynamicDispSup = class {
   f(str) {
     return str + 'super';
   }
-}
+};
 var DynamicDispSub = class extends DynamicDispSup {
   f(str) {
     return str + 'sub';
   }
-}
+};
 
 function testDynamicDispatch() {
   var dds = new DynamicDispSub();
@@ -49,12 +49,12 @@ var SuperCallSup = class {
   foo(b) {
     return b + 'sup';
   }
-}
+};
 var SuperCallSub = class extends SuperCallSup {
   foo(bar) {
     return super.foo(bar);
   }
-}
+};
 
 function testSuperCall() {
   var scs = new SuperCallSub();
@@ -65,7 +65,7 @@ var ConstructorNoArgs = class {
   constructor() {
     this.a = 1729;
   }
-}
+};
 
 function testConstructorEmpty() {
   assertEquals(1729, (new ConstructorNoArgs()).a);
@@ -76,7 +76,7 @@ var ConstructorArgs = class {
   constructor(b) {
     this.a = b;
   }
-}
+};
 
 function testConstructorArgs() {
   assertEquals(1729, (new ConstructorArgs(1729)).a);
@@ -98,7 +98,7 @@ var SuperConstructorSup = class {
     var d = new SuperConstructorSub();
     return d.getM();
   }
-}
+};
 
 function testSuperConstructor() {
   var scsup = new SuperConstructorSup();
@@ -116,13 +116,13 @@ baz.Foo = class {
     return this.i;
   }
 
-}
+};
 
 baz.Bar = class extends baz.Foo {
   constructor() {
     super(1729);
   }
-}
+};
 
 function testQualifiedNames() {
   assertEquals(1729, (new baz.Bar()).f());
@@ -143,15 +143,78 @@ var A = class {
     newThis.init.apply(newThis, arguments);
     return newThis;
   }
-}
+};
 
 var B = class extends A {
   init() {
     super.init();
   }
-}
+};
 
 function testImplicitSuperConstructorCall() {
   assertEquals(1234, B.create().x);
 }
 
+/**
+ * Does the current environment set `stack` on Error objects either when
+ * they are created or when they are thrown?
+ * @returns {boolean}
+ */
+function thrownErrorHasStack() {
+  const e = new Error();
+  try {
+    throw e;
+  } finally {
+    return 'stack' in e;
+  }
+}
+
+function testExtendsError() {
+  class MyError extends Error {
+    constructor() {
+      super('my message');
+    }
+  }
+  try {
+    throw new MyError();
+  } catch (e) {
+    // IE11 and earlier don't set the stack field until the error is actually
+    // thrown. IE8 doesn't set it at all.
+    assertTrue(e instanceof MyError);
+    assertEquals('my message', e.message);
+    if (thrownErrorHasStack()) {
+      assertNonEmptyString(e.stack);
+    }
+  }
+}
+
+function testExtendsErrorSuperReturnsThis() {
+  class MyError extends Error {
+    constructor() {
+      const superResult = super('my message');
+      this.superResult = superResult;
+    }
+  }
+  const e = new MyError();
+  assertEquals(e, e.superResult);
+}
+
+function testExtendsObject() {
+  // When super() returns an object, it is supposed to replace `this`,
+  // but Object() always returns a new object, so it must be handled specially.
+  // Make sure that the compiler does NOT do that replacement.
+  class NoConstructor extends Object {}
+  assertTrue(new NoConstructor('junk') instanceof NoConstructor);
+
+  // super() should have `this` as its return value, not a new object created
+  // by calling Object().
+  class WithConstructor extends Object {
+    constructor(message) {
+      const superResult = super();
+      this.superResult = superResult;
+      this.message = message;
+    }
+  }
+  const withConstructor = new WithConstructor('message');
+  assertEquals(withConstructor, withConstructor.superResult);
+}

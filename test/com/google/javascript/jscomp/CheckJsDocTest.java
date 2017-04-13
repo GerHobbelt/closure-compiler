@@ -119,9 +119,35 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
   }
 
   public void testAbstract_class() {
-    testSameEs6("/** @abstract */class Foo { constructor() {}}");
+    testSameEs6("/** @abstract */ class Foo { constructor() {}}");
+    testSameEs6("/** @abstract */ exports.Foo = class {}");
+    testSameEs6("/** @abstract */ const Foo = class {}");
+    testSame("/** @abstract @constructor */ exports.Foo = function() {}");
     testSame("/** @abstract @constructor */ var Foo = function() {};");
     testSame("/** @abstract @constructor */ var Foo = function() { var x = 1; };");
+  }
+
+  public void testAbstract_defineClass() {
+    testSame("/** @abstract */ goog.defineClass(null, { constructor: function() {} });");
+    testSame("/** @abstract */ var Foo = goog.defineClass(null, { constructor: function() {} });");
+    testSame("/** @abstract */ ns.Foo = goog.defineClass(null, { constructor: function() {} });");
+    testSame(LINE_JOINER.join(
+        "/** @abstract */ ns.Foo = goog.defineClass(null, {",
+        "  /** @abstract */ foo: function() {}",
+        "});"));
+    testSameEs6(LINE_JOINER.join(
+        "/** @abstract */ ns.Foo = goog.defineClass(null, {",
+        "  /** @abstract */ foo() {}",
+        "});"));
+    testWarning("/** @abstract */ var Foo;", MISPLACED_ANNOTATION);
+    testWarning(LINE_JOINER.join(
+        "/** @abstract */ goog.defineClass(null, {",
+        "  /** @abstract */ constructor: function() {}",
+        "});"), MISPLACED_ANNOTATION);
+    testWarningEs6(LINE_JOINER.join(
+        "/** @abstract */ goog.defineClass(null, {",
+        "  /** @abstract */ constructor() {}",
+        "});"), MISPLACED_ANNOTATION);
   }
 
   public void testAbstract_constructor() {
