@@ -777,7 +777,7 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   public void testIssue2308() {
     setFilename("test");
     testModules(
-        "exports.y = null; var x; x = exports.y;",
+        LINE_JOINER.join("exports.y = null;", "var x;", "x = exports.y;"),
         LINE_JOINER.join(
             "goog.provide('module$test');",
             "/** @const */ var module$test = {};",
