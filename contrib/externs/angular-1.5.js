@@ -442,13 +442,16 @@ angular.Directive;
 
 
 
-/** @interface */
+/**
+ * @interface
+ * @template T
+ */
 angular.Change;
 
-/** @type {*} */
+/** @type {T} */
 angular.Change.prototype.currentValue;
 
-/** @type {*} */
+/** @type {T} */
 angular.Change.prototype.previousValue;
 
 /** @return {boolean} */
@@ -970,9 +973,10 @@ angular.Scope.prototype.$emit = function(name, args) {};
 angular.Scope.prototype.$eval = function(opt_exp, opt_locals) {};
 
 /**
- * @param {(string|function())=} opt_exp
+ * @param {(string|function(angular.Scope, ?))=} opt_exp
+ * @param {!Object=} opt_locals
  */
-angular.Scope.prototype.$evalAsync = function(opt_exp) {};
+angular.Scope.prototype.$evalAsync = function(opt_exp, opt_locals) {};
 
 /** @type {string} */
 angular.Scope.prototype.$id;

@@ -70,15 +70,15 @@ Notification.permission;
  */
 Notification.requestPermission = function(opt_callback) {};
 
-/** @inheritDoc */
-Notification.prototype.addEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+Notification.prototype.addEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
-Notification.prototype.removeEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+Notification.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 Notification.prototype.dispatchEvent = function(evt) {};
 
 /**

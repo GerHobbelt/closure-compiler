@@ -65,14 +65,8 @@ public final class NodeUtil {
   static final char LARGEST_BASIC_LATIN = 0x7f;
 
   /** the set of builtin constructors that don't have side effects. */
-  private static final Set<String> CONSTRUCTORS_WITHOUT_SIDE_EFFECTS =
-      ImmutableSet.of(
-        "Array",
-        "Date",
-        "Error",
-        "Object",
-        "RegExp",
-        "XMLHttpRequest");
+  private static final ImmutableSet<String> CONSTRUCTORS_WITHOUT_SIDE_EFFECTS =
+      ImmutableSet.of("Array", "Date", "Error", "Object", "RegExp", "XMLHttpRequest");
 
   // Utility class; do not instantiate.
   private NodeUtil() {}
@@ -1173,10 +1167,8 @@ public final class NodeUtil {
           // a) The RHS has side effects, or
           // b) The LHS has side effects, or
           // c) A name on the LHS will exist beyond the life of this statement.
-          if (checkForStateChangeHelper(
-                  n.getFirstChild(), checkForNewObjects, compiler) ||
-              checkForStateChangeHelper(
-                  n.getLastChild(), checkForNewObjects, compiler)) {
+          if (checkForStateChangeHelper(n.getFirstChild(), checkForNewObjects, compiler)
+              || checkForStateChangeHelper(n.getLastChild(), checkForNewObjects, compiler)) {
             return true;
           }
 
@@ -1232,8 +1224,7 @@ public final class NodeUtil {
       return false;
     }
 
-    if (callNode.isOnlyModifiesArgumentsCall() &&
-        allArgsUnescapedLocal(callNode)) {
+    if (callNode.isOnlyModifiesArgumentsCall() && allArgsUnescapedLocal(callNode)) {
       return false;
     }
 
@@ -1244,14 +1235,12 @@ public final class NodeUtil {
   // A list of built-in object creation or primitive type cast functions that
   // can also be called as constructors but lack side-effects.
   // TODO(johnlenz): consider adding an extern annotation for this.
-  private static final Set<String> BUILTIN_FUNCTIONS_WITHOUT_SIDEEFFECTS =
-      ImmutableSet.of(
-          "Object", "Array", "String", "Number", "Boolean", "RegExp", "Error");
-  private static final Set<String> OBJECT_METHODS_WITHOUT_SIDEEFFECTS =
+  private static final ImmutableSet<String> BUILTIN_FUNCTIONS_WITHOUT_SIDEEFFECTS =
+      ImmutableSet.of("Object", "Array", "String", "Number", "Boolean", "RegExp", "Error");
+  private static final ImmutableSet<String> OBJECT_METHODS_WITHOUT_SIDEEFFECTS =
       ImmutableSet.of("toString", "valueOf");
-  private static final Set<String> REGEXP_METHODS =
-      ImmutableSet.of("test", "exec");
-  private static final Set<String> STRING_REGEXP_METHODS =
+  private static final ImmutableSet<String> REGEXP_METHODS = ImmutableSet.of("test", "exec");
+  private static final ImmutableSet<String> STRING_REGEXP_METHODS =
       ImmutableSet.of("match", "replace", "search", "split");
 
   /**
@@ -1343,6 +1332,8 @@ public final class NodeUtil {
             return false;
           case "random":
             return !callNode.hasOneChild(); // no parameters
+          default:
+            // Unknown Math.* function, so fall out of this switch statement.
         }
       }
 
@@ -2182,6 +2173,14 @@ public final class NodeUtil {
     return getEnclosingType(n, Token.BLOCK);
   }
 
+  public static Node getEnclosingBlockScopeRoot(Node n) {
+    return getEnclosingNode(n, createsBlockScope);
+  }
+
+  public static Node getEnclosingScopeRoot(Node n) {
+    return getEnclosingNode(n, createsScope);
+  }
+
   public static boolean isInFunction(Node n) {
     return getEnclosingFunction(n) != null;
   }
@@ -2537,6 +2536,24 @@ public final class NodeUtil {
     }
   }
 
+  static final Predicate<Node> createsBlockScope = new Predicate<Node>() {
+    @Override
+    public boolean apply(Node n) {
+      return createsBlockScope(n);
+    }
+  };
+
+  static final Predicate<Node> createsScope = new Predicate<Node>() {
+    @Override
+    public boolean apply(Node n) {
+      return createsBlockScope(n) || n.isFunction() || n.isModuleBody()
+          // The ROOT nodes that are the root of the externs tree or main JS tree do not
+          // create scopes. The parent of those two, which is the root of the entire AST and
+          // therefore has no parent, is the only ROOT node that creates a scope.
+          || (n.isRoot() && n.getParent() == null);
+    }
+  };
+
   private static final Set<Token> DEFINITE_CFG_ROOTS =
       EnumSet.of(Token.FUNCTION, Token.SCRIPT, Token.MODULE_BODY, Token.ROOT);
 
@@ -2564,7 +2581,8 @@ public final class NodeUtil {
           Token.MODULE_BODY,
           Token.BLOCK,
           Token.LABEL,
-          Token.NAMESPACE_ELEMENTS);
+          Token.NAMESPACE_ELEMENTS,
+          Token.INTERFACE_MEMBERS);
 
   static boolean isStatementParent(Node parent) {
     // It is not possible to determine definitely if a node is a statement
@@ -2646,7 +2664,7 @@ public final class NodeUtil {
         || isSwitchCase(node)) {
       // A statement in a block can simply be removed.
       parent.removeChild(node);
-    } else if (parent.isVar() || parent.isExprResult()) {
+    } else if (isNameDeclaration(parent) || parent.isExprResult()) {
       if (parent.hasMoreThanOneChild()) {
         parent.removeChild(node);
       } else {
@@ -2951,8 +2969,7 @@ public final class NodeUtil {
    * @return True if n is the left hand of an assign
    */
   static boolean isVarOrSimpleAssignLhs(Node n, Node parent) {
-    return (parent.isAssign() && parent.getFirstChild() == n) ||
-           parent.isVar();
+    return (parent.isAssign() && parent.getFirstChild() == n) || parent.isVar();
   }
 
   /**
@@ -3277,8 +3294,8 @@ public final class NodeUtil {
     // make sure that the adding root looks ok
     Preconditions.checkState(
         addingRoot.isNormalBlock() || addingRoot.isModuleBody() || addingRoot.isScript());
-    Preconditions.checkState(addingRoot.getFirstChild() == null ||
-        !addingRoot.getFirstChild().isScript());
+    Preconditions.checkState(
+        addingRoot.getFirstChild() == null || !addingRoot.getFirstChild().isScript());
     return addingRoot;
   }
 
@@ -3477,15 +3494,15 @@ public final class NodeUtil {
    * Determines whether the given name is a valid variable name.
    */
   static boolean isValidSimpleName(String name) {
-    return TokenStream.isJSIdentifier(name) &&
-        !TokenStream.isKeyword(name) &&
+    return TokenStream.isJSIdentifier(name)
+        && !TokenStream.isKeyword(name)
         // no Unicode escaped characters - some browsers are less tolerant
         // of Unicode characters that might be valid according to the
         // language spec.
         // Note that by this point, Unicode escapes have been converted
         // to UTF-16 characters, so we're only searching for character
         // values, not escapes.
-        isLatin(name);
+        && isLatin(name);
   }
 
   /**
@@ -3652,8 +3669,7 @@ public final class NodeUtil {
    *     some constructor.
    */
   public static boolean isPrototypePropertyDeclaration(Node n) {
-    return isExprAssign(n) &&
-        isPrototypeProperty(n.getFirstFirstChild());
+    return isExprAssign(n) && isPrototypeProperty(n.getFirstFirstChild());
   }
 
   /**
@@ -4320,8 +4336,7 @@ public final class NodeUtil {
         }
 
         throw new IllegalStateException(
-            "Unexpected expression node" + value +
-            "\n parent:" + value.getParent());
+            "Unexpected expression node" + value + "\n parent:" + value.getParent());
     }
   }
 
@@ -4454,11 +4469,10 @@ public final class NodeUtil {
       return parent.getFirstChild();
     } else if (isObjectLitKey(parent)) {
       return parent;
-    } else if (
-        (parent.isHook() && parent.getFirstChild() != n) ||
-        parent.isOr() ||
-        parent.isAnd() ||
-        (parent.isComma() && parent.getFirstChild() != n)) {
+    } else if ((parent.isHook() && parent.getFirstChild() != n)
+        || parent.isOr()
+        || parent.isAnd()
+        || (parent.isComma() && parent.getFirstChild() != n)) {
       return getBestLValue(parent);
     } else if (parent.isCast()) {
       return getBestLValue(parent);
@@ -4907,7 +4921,23 @@ public final class NodeUtil {
     return keyName.equals("get") || keyName.equals("set");
   }
 
-  static boolean isCallTo(Node n, String qualifiedName) {
+  public static boolean isCallTo(Node n, String qualifiedName) {
     return n.isCall() && n.getFirstChild().matchesQualifiedName(qualifiedName);
+  }
+
+  static Set<String> collectExternVariableNames(AbstractCompiler compiler, Node externs) {
+    ReferenceCollectingCallback externsRefs =
+        new ReferenceCollectingCallback(
+            compiler,
+            ReferenceCollectingCallback.DO_NOTHING_BEHAVIOR,
+            new Es6SyntacticScopeCreator(compiler));
+    externsRefs.process(externs);
+    ImmutableSet.Builder<String> externsNames = ImmutableSet.builder();
+    for (Var v : externsRefs.getAllSymbols()) {
+      if (!v.isParam()) {
+        externsNames.add(v.getName());
+      }
+    }
+    return externsNames.build();
   }
 }

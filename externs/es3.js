@@ -89,7 +89,8 @@ IIterableResult.prototype.value;
  */
 function Iterable() {}
 
-// TODO(johnlenz): remove this when the compiler understands "symbol" natively
+// TODO(johnlenz): remove the suppression when the compiler understands
+// "symbol" natively
 /**
  * @return {Iterator<VALUE>}
  * @suppress {externsValidation}
@@ -999,31 +1000,31 @@ Number.prototype.toString = function(opt_radix) {};
 
 // Properties.
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_VALUE
  */
 Number.MAX_VALUE;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MIN_VALUE
  */
 Number.MIN_VALUE;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/NaN
  */
 Number.NaN;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/NEGATIVE_INFINITY
  */
 Number.NEGATIVE_INFINITY;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/POSITIVE_INFINITY
  */
 Number.POSITIVE_INFINITY;
@@ -1190,49 +1191,49 @@ Math.toSource = function() {};
 // Properties:
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/E
  */
 Math.E;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/LN2
  */
 Math.LN2;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/LN10
  */
 Math.LN10;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/LOG2E
  */
 Math.LOG2E;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/LOG10E
  */
 Math.LOG10E;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/PI
  */
 Math.PI;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/SQRT1_2
  */
 Math.SQRT1_2;
 
 /**
- * @type {number}
+ * @const {number}
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/SQRT2
  */
 Math.SQRT2;

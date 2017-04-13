@@ -17,7 +17,7 @@
 /**
  * @fileoverview Definitions for the API related to audio.
  * Definitions for the Web Audio API.
- * This file is based on the W3C Working Draft 08 December 2015.
+ * This file is based on the W3C Working Draft 15 March 2012.
  * @see http://www.w3.org/TR/webaudio/
  *
  * @externs
@@ -26,56 +26,25 @@
 /**
  * @constructor
  */
-function BaseAudioContext() {};
+function BaseAudioContext() {}
 
-/** 
- * @type {!AudioDestinationNode}
- * @readonly
- */
+/** @type {!AudioDestinationNode} */
 BaseAudioContext.prototype.destination;
 
-/** 
- * @type {number}
- * @readonly
- */
+/** @type {number} */
 BaseAudioContext.prototype.sampleRate;
 
-/**
- * @type {number}
- * @readonly
- */
+/** @type {number} */
 BaseAudioContext.prototype.currentTime;
 
-/**
- * @type {!AudioListener}
- * @readonly
- */
+/** @type {!AudioListener} */
 BaseAudioContext.prototype.listener;
 
 /**
- * @readonly
  * @type {string}
- * See https://www.w3.org/TR/webaudio/#BaseAudioContext for valid values
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/state
  */
 BaseAudioContext.prototype.state;
-
-/**
- * @return {!Promise<void>}
- */
-BaseAudioContext.prototype.suspend = function() {};
-
-/**
- * @return {!Promise<void>}
- */
-BaseAudioContext.prototype.resume = function() {};
-
-/**
- * @return {!Promise<void>}
- */
-BaseAudioContext.prototype.close = function() {};
-
-/** @type {EventTarget} */
-BaseAudioContext.prototype.onstatechange;
 
 /**
  * @param {number} numberOfChannels
@@ -101,10 +70,31 @@ BaseAudioContext.prototype.decodeAudioData =
 BaseAudioContext.prototype.createBufferSource = function() {};
 
 /**
- * @param  {string} scriptURL
- * @return {!Promise<AudioWorker>}
+ * @param {HTMLMediaElement} mediaElement
+ * @return {!MediaElementAudioSourceNode}
  */
-BaseAudioContext.prototype.createAudioWorker = function(scriptURL) {};
+BaseAudioContext.prototype.createMediaElementSource = function(mediaElement) {};
+
+/**
+ * @param {MediaStream} mediaStream
+ * @return {!MediaStreamAudioSourceNode}
+ */
+BaseAudioContext.prototype.createMediaStreamSource = function(mediaStream) {};
+
+/**
+ * @return {!MediaStreamAudioDestinationNode}
+ */
+BaseAudioContext.prototype.createMediaStreamDestination = function() {};
+
+/**
+ * To be deprecated. Use createScriptProcessor instead.
+ * @param {number} bufferSize
+ * @param {number} numberOfInputs
+ * @param {number} numberOfOuputs
+ * @return {!ScriptProcessorNode}
+ */
+BaseAudioContext.prototype.createJavaScriptNode = function(bufferSize,
+    numberOfInputs, numberOfOuputs) {};
 
 /**
  * @param {number} bufferSize
@@ -116,14 +106,27 @@ BaseAudioContext.prototype.createScriptProcessor = function(bufferSize,
     numberOfInputChannels_opt, numberOfOutputChannels_opt) {};
 
 /**
- * @return {!RealtimeAnalyserNode}
+ * @return {!AnalyserNode}
  */
 BaseAudioContext.prototype.createAnalyser = function() {};
+
+/**
+ * @deprecated Use createGain instead.
+ * @return {!GainNode}
+ */
+BaseAudioContext.prototype.createGainNode = function() {};
 
 /**
  * @return {!GainNode}
  */
 BaseAudioContext.prototype.createGain = function() {};
+
+/**
+ * To be deprecated. Use createDelay instead.
+ * @param {number=} maxDelayTime
+ * @return {!DelayNode}
+ */
+BaseAudioContext.prototype.createDelayNode = function(maxDelayTime) {};
 
 /**
  * @param {number=} maxDelayTime
@@ -137,8 +140,8 @@ BaseAudioContext.prototype.createDelay = function(maxDelayTime) {};
 BaseAudioContext.prototype.createBiquadFilter = function() {};
 
 /**
- * @param  {number} feedforward
- * @param  {number} feedback
+ * @param {!IArrayLike<number>} feedforward
+ * @param {!IArrayLike<number>} feedback
  * @return {!IIRFilterNode}
  */
 BaseAudioContext.prototype.createIIRFilter = function(feedforward, feedback) {};
@@ -149,14 +152,10 @@ BaseAudioContext.prototype.createIIRFilter = function(feedforward, feedback) {};
 BaseAudioContext.prototype.createWaveShaper = function() {};
 
 /**
- * @return {!PannerNode}
+ * @return {!AudioPannerNode}
  */
 BaseAudioContext.prototype.createPanner = function() {};
 
-/**
- * @return {!SpatialPannerNode}
- */
-BaseAudioContext.prototype.createSpatialPanner = function() {};
 /**
  * @return {!StereoPannerNode}
  */
@@ -172,6 +171,12 @@ BaseAudioContext.prototype.createConvolver = function() {};
  * @return {!AudioChannelSplitter}
  */
 BaseAudioContext.prototype.createChannelSplitter = function(numberOfOutputs) {};
+
+/**
+ * @param {number=} numberOfInputs
+ * @return {!AudioChannelMerger}
+ */
+BaseAudioContext.prototype.createChannelMerger = function(numberOfInputs) {};
 
 /**
  * @return {!DynamicsCompressorNode}
@@ -191,38 +196,28 @@ BaseAudioContext.prototype.createOscillator = function() {};
 BaseAudioContext.prototype.createPeriodicWave = function(real, imag) {};
 
 /**
- * @constructor
- * @extends {BaseAudioContext}
+ * @return {!Promise<void>}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/resume
  */
-function AudioContext() {};
+BaseAudioContext.prototype.resume = function() {};
 
 /**
- * @param {HTMLMediaElement} mediaElement
- * @return {!MediaElementAudioSourceNode}
+ * @return {!Promise<void>}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/suspend
  */
-AudioContext.prototype.createMediaElementSource = function(mediaElement) {};
-
-/**
- * @return {!MediaStreamAudioDestinationNode}
- */
-AudioContext.prototype.createMediaStreamDestination = function() {};
-
-/**
- * @param {MediaStream} mediaStream
- * @return {!MediaStreamAudioSourceNode}
- */
-AudioContext.prototype.createMediaStreamSource = function(mediaStream) {};
-
-/**
- * @deprecated Use AudioContext#createGain
- */
-AudioContext.prototype.createGainNode = function() {};
+BaseAudioContext.prototype.suspend = function() {};
 
 /**
  * @return {!Promise<void>}
  * @see https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/close
  */
-AudioContext.prototype.close = function() {};
+BaseAudioContext.prototype.close = function() {};
+
+/**
+ * @constructor
+ * @extends {BaseAudioContext}
+ */
+function AudioContext() {}
 
 /**
  * @param {number} numberOfChannels
@@ -239,16 +234,6 @@ OfflineAudioContext.prototype.startRendering = function() {};
 OfflineAudioContext.prototype.oncomplete;
 
 /**
- * @return {!Promise<void>}
- */
-OfflineAudioContext.prototype.suspend = function() {};
-
-/**
- * @return {!Promise<void>}
- */
-OfflineAudioContext.prototype.resume = function() {};
-
-/**
  * @constructor
  * @extends {Event}
  */
@@ -263,52 +248,42 @@ OfflineAudioCompletionEvent.prototype.renderedBuffer;
 function AudioNode() {}
 
 /**
- * @param {AudioNode|AudioParam} destination
+ * @param {!AudioNode|!AudioParam} destination
  * @param {number=} output
  * @param {number=} input
- * @return {AudioNode|void}
+ * @return {undefined}
  */
 AudioNode.prototype.connect = function(destination, output, input) {};
 
 /**
- * @param {AudioNode|AudioParam|number=} destination
  * @param {number=} output
- * @param {number=} input
+ * @return {undefined}
  */
-AudioNode.prototype.disconnect = function(destination, output, input) {};
+AudioNode.prototype.disconnect = function(output) {};
 
-/** 
- * @type {!AudioContext}
- * @readonly
- */
+/** @type {!AudioContext} */
 AudioNode.prototype.context;
 
-/** 
- * @type {number}
- * @readonly
- */
+/** @type {number} */
 AudioNode.prototype.numberOfInputs;
 
-/**
- * @type {number}
- * @readonly
- */
+/** @type {number} */
 AudioNode.prototype.numberOfOutputs;
 
 /** @type {number} */
 AudioNode.prototype.channelCount;
 
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-audionode-interface for valid values
- */
+/** @type {string} */
 AudioNode.prototype.channelCountMode;
 
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-audionode-interface for valid values
- */
+/** @type {string} */
 AudioNode.prototype.channelInterpretation;
+
+/**
+ * @constructor
+ * @extends {AudioNode}
+ */
+function AudioSourceNode() {}
 
 /**
  * @constructor
@@ -333,27 +308,45 @@ function AudioParam() {}
 /** @type {number} */
 AudioParam.prototype.value;
 
-/** 
+/**
+ * To be deprecated.
  * @type {number}
- * @readonly
  */
+AudioParam.prototype.maxValue;
+
+/**
+ * To be deprecated.
+ * @type {number}
+ */
+AudioParam.prototype.minValue;
+
+/** @type {number} */
 AudioParam.prototype.defaultValue;
+
+/**
+ * To be deprecated.
+ * @type {number}
+ */
+AudioParam.prototype.units;
 
 /**
  * @param {number} value
  * @param {number} startTime
+ * @return {AudioParam}
  */
 AudioParam.prototype.setValueAtTime = function(value, startTime) {};
 
 /**
  * @param {number} value
  * @param {number} endTime
+ * @return {AudioParam}
  */
 AudioParam.prototype.linearRampToValueAtTime = function(value, endTime) {};
 
 /**
  * @param {number} value
  * @param {number} endTime
+ * @return {AudioParam}
  */
 AudioParam.prototype.exponentialRampToValueAtTime = function(value, endTime) {};
 
@@ -361,6 +354,7 @@ AudioParam.prototype.exponentialRampToValueAtTime = function(value, endTime) {};
  * @param {number} target
  * @param {number} startTime
  * @param {number} timeConstant
+ * @return {AudioParam}
  */
 AudioParam.prototype.setTargetAtTime = function(target, startTime,
     timeConstant) {};
@@ -370,6 +364,7 @@ AudioParam.prototype.setTargetAtTime = function(target, startTime,
  * @param {number} target
  * @param {number} startTime
  * @param {number} timeConstant
+ * @return {AudioParam}
  */
 AudioParam.prototype.setTargetValueAtTime = function(target, startTime,
     timeConstant) {};
@@ -378,14 +373,22 @@ AudioParam.prototype.setTargetValueAtTime = function(target, startTime,
  * @param {Float32Array} values
  * @param {number} startTime
  * @param {number} duration
+ * @return {AudioParam}
  */
 AudioParam.prototype.setValueCurveAtTime = function(values, startTime,
     duration) {};
 
 /**
  * @param {number} startTime
+ * @return {AudioParam}
  */
 AudioParam.prototype.cancelScheduledValues = function(startTime) {};
+
+/**
+ * @constructor
+ * @extends {AudioParam}
+ */
+function AudioGain() {}
 
 /**
  * @constructor
@@ -393,10 +396,7 @@ AudioParam.prototype.cancelScheduledValues = function(startTime) {};
  */
 function GainNode() {}
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {AudioGain} */
 GainNode.prototype.gain;
 
 /**
@@ -405,10 +405,7 @@ GainNode.prototype.gain;
  */
 function DelayNode() {}
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {AudioParam} */
 DelayNode.prototype.delayTime;
 
 /**
@@ -416,28 +413,22 @@ DelayNode.prototype.delayTime;
  */
 function AudioBuffer() {}
 
-/** 
- * @readonly
- * @type {number}
+/**
+ * To be deprecated.
+ * @type {AudioGain}
  */
+AudioBuffer.prototype.gain;
+
+/** @type {number} */
 AudioBuffer.prototype.sampleRate;
 
-/**
- * @readonly
- * @type {number}
- */
+/** @type {number} */
 AudioBuffer.prototype.length;
 
-/**
- * @readonly
- * @type {number}
- */
+/** @type {number} */
 AudioBuffer.prototype.duration;
 
-/**
- * @readonly
- * @type {number}
- */
+/** @type {number} */
 AudioBuffer.prototype.numberOfChannels;
 
 /**
@@ -447,41 +438,56 @@ AudioBuffer.prototype.numberOfChannels;
 AudioBuffer.prototype.getChannelData = function(channel) {};
 
 /**
- * @param  {Float32Array} destination
- * @param  {number} channelNumber
- * @param  {number=} startInChannel
- */
-AudioBuffer.prototype.copyFromChannel = function(destination,
-    channelNumber, startInChannel) {};
-
-/**
- * @param  {Float32Array} source
- * @param  {number} channelNumber
- * @param  {number=} startInChannel
- */
-AudioBuffer.prototype.copyToChannel = function(source, channelNumber,
-    startInChannel) {};
-
-/**
  * @constructor
- * @extends {AudioNode}
+ * @extends {AudioSourceNode}
  */
 function AudioBufferSourceNode() {}
+
+/**
+ * To be deprecated.
+ * @const
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.UNSCHEDULED_STATE; /* = 0 */
+
+/**
+ * To be deprecated.
+ * @const
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.SCHEDULED_STATE; /* = 1 */
+
+/**
+ * To be deprecated.
+ * @const
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.PLAYING_STATE; /* = 2 */
+
+/**
+ * To be deprecated.
+ * @const
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.FINISHED_STATE; /* = 3 */
+
+/**
+ * To be deprecated.
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.playbackState;
 
 /** @type {AudioBuffer} */
 AudioBufferSourceNode.prototype.buffer;
 
 /**
- * @type {!AudioParam}
- * @readonly
+ * To be deprecated.
+ * @type {number}
  */
-AudioBufferSourceNode.prototype.playbackRate;
+AudioBufferSourceNode.prototype.gain;
 
-/**
- * @type {!AudioParam}
- * @readonly
- */
-AudioBufferSourceNode.prototype.detune;
+/** @type {!AudioParam} */
+AudioBufferSourceNode.prototype.playbackRate;
 
 /** @type {boolean} */
 AudioBufferSourceNode.prototype.loop;
@@ -493,186 +499,92 @@ AudioBufferSourceNode.prototype.loopStart;
 AudioBufferSourceNode.prototype.loopEnd;
 
 /**
- * @param {number=} when
+ * @type {Object}
+ */
+AudioBufferSourceNode.prototype.detune;
+
+/**
+ * @type {number}
+ */
+AudioBufferSourceNode.prototype.detune.value;
+
+/**
+ * @param {number} when
  * @param {number=} opt_offset
  * @param {number=} opt_duration
+ * @return {undefined}
  */
 AudioBufferSourceNode.prototype.start = function(when, opt_offset,
     opt_duration) {};
 
-/** 
- * @param {number=} when
- * @param {number=} opt_offset
- * @param {number=} opt_duration
- * @deprecated Use AudioBufferSourceNode#start
- */
-AudioBufferSourceNode.prototype.noteGrainOn = function(when, opt_offset,
-    opt_duration) {};
-
 /**
  * @param {number} when
+ * @return {undefined}
  */
 AudioBufferSourceNode.prototype.stop = function(when) {};
 
-/** 
+/**
+ * To be deprecated.
  * @param {number} when
- * @deprecated Use AudioBufferSourceNode#stop
+ * @return {undefined}
+ */
+AudioBufferSourceNode.prototype.noteOn = function(when) {};
+
+/**
+ * To be deprecated.
+ * @param {number} when
+ * @param {number} grainOffset
+ * @param {number} grainDuration
+ * @return {undefined}
+ */
+AudioBufferSourceNode.prototype.noteGrainOn = function(when, grainOffset,
+    grainDuration) {};
+
+/**
+ * To be deprecated.
+ * @param {number} when
+ * @return {undefined}
  */
 AudioBufferSourceNode.prototype.noteOff = function(when) {};
 
-/** @type {EventTarget} */
-AudioBufferSourceNode.prototype.onended;
+/**
+ * @constructor
+ * @extends {AudioSourceNode}
+ */
+function MediaElementAudioSourceNode() {}
 
 /**
+ * To be deprecated. Use ScriptProcessorNode instead.
  * @constructor
  * @extends {AudioNode}
  */
-function MediaElementAudioSourceNode() {};
+function JavaScriptAudioNode() {}
 
 /**
- * @constructor
+ * @type {EventListener|(function(!AudioProcessingEvent):(boolean|undefined))}
  */
-function AudioWorker() {};
+JavaScriptAudioNode.prototype.onaudioprocess;
 
 /**
- */
-AudioWorker.prototype.terminate = function() {};
-
-/**
- * @param  {*} message
- * @param  {Array<Transferable>=} transfer
- */
-AudioWorker.prototype.postMessage = function(message, transfer) {};
-
-/**
- * @type {Array<AudioWorkerParamDescriptor>}
- * @readonly
- */
-AudioWorker.prototype.parameters;
-
-/** @type {EventTarget} */
-AudioWorker.prototype.onmessage;
-
-/** @type {EventTarget} */
-AudioWorker.prototype.onloaded;
-
-/**
- * @param  {number} numberOfInputs
- * @param  {number} numberOfOutputs
- * @return {AudioWorkerNode}
- */
-AudioWorker.prototype.createNode = function(numberOfInputs, numberOfOutputs) {};
-
-/**
- * @param  {string} name
- * @param  {number} defaultValue
- * @return {AudioParam}
- */
-AudioWorker.prototype.addParameter = function(name, defaultValue) {};
-
-/**
- * @param  {string} name
- */
-AudioWorker.prototype.removeParameter = function(name) {};
-
-/**
- * @constructor
- * @extends {AudioNode}
- */
-function AudioWorkerNode() {};
-
-/**
- * @param  {*} message
- * @param  {Array<Transferable>=} transfer
- */
-AudioWorkerNode.prototype.postMessage = function(message, transfer) {};
-
-/** @type {EventTarget} */
-AudioWorkerNode.prototype.onmessage;
-
-/**
- * @constructor
- */
-function AudioWorkerParamDescriptor() {};
-
-/**
- * @type {string}
- * @readonly
- */
-AudioWorkerParamDescriptor.prototype.name;
-
-/**
+ * @const
  * @type {number}
- * @readonly
  */
-AudioWorkerParamDescriptor.prototype.defaultValue;
-
-/**
- * @constructor
- */
-function AudioWorkerGlobalScope() {};
-
-/** 
- * @type {number}
- * @readonly
- */
-AudioWorkerGlobalScope.prototype.sampleRate;
-
-/**
- * @param  {string} name
- * @param  {number} defaultValue
- * @return {AudioParam}
- */
-AudioWorkerGlobalScope.prototype.addParameter = function(name, defaultValue) {};
-
-/**
- * @param  {string} name
- */
-AudioWorkerGlobalScope.prototype.removeParameter = function(name) {};
-
-/** @type {EventTarget} */
-AudioWorkerGlobalScope.prototype.onaudioprocess;
-
-/** @type {EventTarget} */
-AudioWorkerGlobalScope.prototype.onnodecreate;
-
-/**
- * @type {Array<AudioWorkerParamDescriptor>}
- * @readonly
- */
-AudioWorkerGlobalScope.prototype.parameters;
-
-/**
- * @constructor
- */
-function AudioWorkerNodeProcessor() {};
-
-/**
- * @param  {*} message
- * @param  {Array<Transferable>=} transfer
- */
-AudioWorkerNodeProcessor.prototype.postMessage = function(message, transfer) {};
-
-/** @type {EventTarget} */
-AudioWorkerNodeProcessor.prototype.onmessage;
+JavaScriptAudioNode.prototype.bufferSize;
 
 /**
  * @constructor
  * @extends {AudioNode}
- * @deprecated Use AudioWorkerNode
  */
 function ScriptProcessorNode() {}
 
 /**
  * @type {EventListener|(function(!AudioProcessingEvent):(boolean|undefined))}
- * @deprecated Use AudioWorkerNode
  */
 ScriptProcessorNode.prototype.onaudioprocess;
 
 /**
  * @const
  * @type {number}
- * @deprecated Use AudioWorkerNode
  */
 ScriptProcessorNode.prototype.bufferSize;
 
@@ -680,190 +592,160 @@ ScriptProcessorNode.prototype.bufferSize;
  * @constructor
  * @extends {Event}
  */
-function AudioWorkerNodeCreationEvent() {};
-
-/**
- * @type {AudioWorkerNodeProcessor}
- * @readonly
- */
-AudioWorkerNodeCreationEvent.prototype.node;
-
-/**
- * @type {Array}
- * @readonly
- */
-AudioWorkerNodeCreationEvent.prototype.inputs;
-
-/**
- * @type {Array}
- * @readonly
- */
-AudioWorkerNodeCreationEvent.prototype.outputs;
-
-/**
- * @constructor
- * @extends {Event}
- */
-function AudioProcessEvent() {};
-
-/**
- * @type {number}
- * @readonly
- */
-AudioProcessEvent.prototype.playbackTime;
-
-/**
- * @type {AudioWorkerNodeProcessor}
- * @readonly
- */
-AudioProcessEvent.prototype.node;
-
-/**
- * @type {Float32Array}
- * @readonly
- */
-AudioProcessEvent.prototype.inputs;
-
-/**
- * @type {Float32Array}
- * @readonly
- */
-AudioProcessEvent.prototype.outputs;
-
-/**
- * @type {Object}
- * @readonly
- */
-AudioProcessEvent.prototype.parameters;
-
-/**
- * @constructor
- * @extends {Event}
- * @deprecated Use AudioProcessEvent
- */
 function AudioProcessingEvent() {}
 
-/** 
- * @type {ScriptProcessorNode}
- * @deprecated Use AudioProcessEvent
- */
+/** @type {ScriptProcessorNode} */
 AudioProcessingEvent.prototype.node;
 
-/** 
- * @type {number}
- * @deprecated Use AudioProcessEvent
- */
+/** @type {number} */
 AudioProcessingEvent.prototype.playbackTime;
 
-/** 
- * @type {AudioBuffer}
- * @deprecated Use AudioProcessEvent
- */
+/** @type {AudioBuffer} */
 AudioProcessingEvent.prototype.inputBuffer;
 
-/**
- * @type {AudioBuffer}
- * @deprecated Use AudioProcessEvent
- */
+/** @type {AudioBuffer} */
 AudioProcessingEvent.prototype.outputBuffer;
 
 /**
  * @constructor
  * @extends {AudioNode}
  */
-function PannerNode() {}
+function AudioPannerNode() {}
 
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-pannernode-interface for valid values
+/**
+ * To be deprecated. Use 'equalpower' instead.
+ * @const
+ * @type {number}
  */
-PannerNode.prototype.panningModel;
+AudioPannerNode.prototype.EQUALPOWER = 0;
 
-/** @type {!AudioParam} */
-PannerNode.prototype.positionX;
-
-/** @type {!AudioParam} */
-PannerNode.prototype.positionY;
-
-/** @type {!AudioParam} */
-PannerNode.prototype.positionZ;
-
-/** @type {!AudioParam} */
-PannerNode.prototype.orientationX;
-
-/** @type {!AudioParam} */
-PannerNode.prototype.orientationY;
-
-/** @type {!AudioParam} */
-PannerNode.prototype.orientationZ;
-
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-pannernode-interface for valid values
+/**
+ * To be deprecated. Use 'HRTF' instead.
+ * @const
+ * @type {number}
  */
-PannerNode.prototype.distanceModel;
+AudioPannerNode.prototype.HRTF = 1;
 
-/** @type {number} */
-PannerNode.prototype.refDistance;
+/**
+ * To be deprecated.
+ * @const
+ * @type {number}
+ */
+AudioPannerNode.prototype.SOUNDFIELD = 2;
 
-/** @type {number} */
-PannerNode.prototype.maxDistance;
+/**
+ * To be deprecated. Use 'linear' instead.
+ * @const
+ * @type {number}
+ */
+AudioPannerNode.prototype.LINEAR_DISTANCE = 0;
 
-/** @type {number} */
-PannerNode.prototype.rolloffFactor;
+/**
+ * To be deprecated. Use 'inverse' instead.
+ * @const
+ * @type {number}
+ */
+AudioPannerNode.prototype.INVERSE_DISTANCE = 1;
 
-/** @type {number} */
-PannerNode.prototype.coneInnerAngle;
+/**
+ * To be deprecated. Use 'exponential' instead.
+ * @const
+ * @type {number}
+ */
+AudioPannerNode.prototype.EXPONENTIAL_DISTANCE = 2;
 
-/** @type {number} */
-PannerNode.prototype.coneOuterAngle;
-
-/** @type {number} */
-PannerNode.prototype.coneOuterGain;
+/** @type {number|string} */
+AudioPannerNode.prototype.panningModel;
 
 /**
  * @param {number} x
  * @param {number} y
  * @param {number} z
+ * @return {undefined}
  */
-PannerNode.prototype.setPosition = function(x, y, z) {};
+AudioPannerNode.prototype.setPosition = function(x, y, z) {};
 
 /**
  * @param {number} x
  * @param {number} y
  * @param {number} z
+ * @return {undefined}
  */
-PannerNode.prototype.setOrientation = function(x, y, z) {};
+AudioPannerNode.prototype.setOrientation = function(x, y, z) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} z
+ * @return {undefined}
+ */
+AudioPannerNode.prototype.setVelocity = function(x, y, z) {};
+
+/** @type {number|string} */
+AudioPannerNode.prototype.distanceModel;
+
+/** @type {number} */
+AudioPannerNode.prototype.refDistance;
+
+/** @type {number} */
+AudioPannerNode.prototype.maxDistance;
+
+/** @type {number} */
+AudioPannerNode.prototype.rolloffFactor;
+
+/** @type {number} */
+AudioPannerNode.prototype.coneInnerAngle;
+
+/** @type {number} */
+AudioPannerNode.prototype.coneOuterAngle;
+
+/** @type {number} */
+AudioPannerNode.prototype.coneOuterGain;
+
+/**
+ * To be deprecated.
+ * @type {AudioGain}
+ */
+AudioPannerNode.prototype.coneGain;
+
+/**
+ * To be deprecated.
+ * @type {AudioGain}
+ */
+AudioPannerNode.prototype.distanceGain;
 
 /**
  * @constructor
- * @deprecated Use SpatialListener
+ * @extends {AudioNode}
+ * @see http://webaudio.github.io/web-audio-api/#the-stereopannernode-interface
+ */
+function StereoPannerNode() {}
+
+/** @type {!AudioParam} */
+StereoPannerNode.prototype.pan;
+
+/**
+ * @constructor
  */
 function AudioListener() {}
 
 /**
+ * To be deprecated.
  * @type {number}
- * @deprecated Use SpatialListener
  */
 AudioListener.prototype.gain;
 
-/** 
- * @type {number}
- * @deprecated Use SpatialListener
- */
+/** @type {number} */
 AudioListener.prototype.dopplerFactor;
 
-/**
- * @type {number}
- * @deprecated Use SpatialListener
- */
+/** @type {number} */
 AudioListener.prototype.speedOfSound;
 
 /**
  * @param {number} x
  * @param {number} y
  * @param {number} z
- * @deprecated Use SpatialListener
+ * @return {undefined}
  */
 AudioListener.prototype.setPosition = function(x, y, z) {};
 
@@ -874,7 +756,7 @@ AudioListener.prototype.setPosition = function(x, y, z) {};
  * @param {number} xUp
  * @param {number} yUp
  * @param {number} zUp
- * @deprecated Use SpatialListener
+ * @return {undefined}
  */
 AudioListener.prototype.setOrientation = function(x, y, z, xUp, yUp, zUp) {};
 
@@ -882,7 +764,7 @@ AudioListener.prototype.setOrientation = function(x, y, z, xUp, yUp, zUp) {};
  * @param {number} x
  * @param {number} y
  * @param {number} z
- * @deprecated Use SpatialListener
+ * @return {undefined}
  */
 AudioListener.prototype.setVelocity = function(x, y, z) {};
 
@@ -890,153 +772,9 @@ AudioListener.prototype.setVelocity = function(x, y, z) {};
  * @constructor
  * @extends {AudioNode}
  */
-function SpatialPannerNode() {};
-
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-pannernode-interface for valid values
- */
-SpatialPannerNode.prototype.panningModel; 
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.positionX;
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.positionY;
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.positionZ;
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.orientationX;
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.orientationY;
-
-/** 
- * @type {!AudioParam} 
- * @readonly
- */
-SpatialPannerNode.prototype.orientationZ;
-
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-pannernode-interface for valid values
- */
-SpatialPannerNode.prototype.distanceModel;
- 
-/** @type {number} */
-SpatialPannerNode.prototype.refDistance;
-
-/** @type {number} */
-SpatialPannerNode.prototype.maxDistance;
-
-/** @type {number} */
-SpatialPannerNode.prototype.rolloffFactor;
-
-/** @type {number} */
-SpatialPannerNode.prototype.coneInnerAngle;
-
-/** @type {number} */
-SpatialPannerNode.prototype.coneOuterAngle;
-
-/** @type {number} */
-SpatialPannerNode.prototype.coneOuterGain;
-
-/**
- * @constructor
- */
-function SpatialListener() {};
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.positionX;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.positionY;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.positionZ;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.forwardX;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.forwardY;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.forwardZ;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.upX;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.upY;
-
-/**
- * @type {!AudioParam}
- * @readonly
- */
-SpatialListener.prototype.upZ;
-
-/**
- * @constructor
- * @extends {AudioNode}
- * @see http://webaudio.github.io/web-audio-api/#the-stereopannernode-interface
- */
-function StereoPannerNode() {}
-
-/** 
- * @type {!AudioParam}
- * @readonly
- */
-StereoPannerNode.prototype.pan;
-
-/**
- * @constructor
- * @extends {AudioNode}
- */
 function ConvolverNode() {}
 
-/** @type {?AudioBuffer} */
+/** @type {AudioBuffer} */
 ConvolverNode.prototype.buffer;
 
 /** @type {boolean} */
@@ -1050,21 +788,19 @@ var AnalyserNode = function() {};
 
 /**
  * @param {Float32Array} array
+ * @return {undefined}
  */
 AnalyserNode.prototype.getFloatFrequencyData = function(array) {};
 
 /**
  * @param {Uint8Array} array
+ * @return {undefined}
  */
 AnalyserNode.prototype.getByteFrequencyData = function(array) {};
 
 /**
- * @param  {Float32Array} array
- */
-AnalyserNode.prototype.getFloatTimeDomainData = function(array) {};
-
-/**
  * @param {Uint8Array} array
+ * @return {undefined}
  */
 AnalyserNode.prototype.getByteTimeDomainData = function(array) {};
 
@@ -1096,29 +832,11 @@ var RealtimeAnalyserNode = function() {};
  * @constructor
  * @extends {AudioNode}
  */
-function ChannelSplitterNode() {};
-
-/**
- * @constructor
- * @extends {ChannelSplitterNode}
- * @deprecated Use ChannelSplitterNode
- *
- * This constructor has been added for backwards compatibility.
- */
 function AudioChannelSplitter() {}
 
 /**
  * @constructor
  * @extends {AudioNode}
- */
-function ChannelMergerNode() {};
-
-/**
- * @constructor
- * @extends {ChannelMergerNode}
- * @deprecated Use ChannelMergerNode
- *
- * This constructor has been added for backwards compatibility.
  */
 function AudioChannelMerger() {}
 
@@ -1128,40 +846,22 @@ function AudioChannelMerger() {}
  */
 function DynamicsCompressorNode() {}
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.threshold;
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.knee;
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.ratio;
 
-/** 
- * @type {!number}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.reduction;
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.attack;
 
-/** 
- * @type {!AudioParam}
- * @readonly
- */
+/** @type {!AudioParam} */
 DynamicsCompressorNode.prototype.release;
 
 /**
@@ -1172,8 +872,9 @@ function BiquadFilterNode() {}
 
 /**
  * A read-able and write-able string that specifies the type of the filter.
+ * See http://webaudio.github.io/web-audio-api/#the-biquadfilternode-interface
+ * for valid values.
  * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-biquadfilternode-interface for valid values
  */
 BiquadFilterNode.prototype.type;
 
@@ -1193,23 +894,25 @@ BiquadFilterNode.prototype.gain;
  * @param {Float32Array} frequencyHz
  * @param {Float32Array} magResponse
  * @param {Float32Array} phaseResponse
+ * @return {undefined}
  */
-BiquadFilterNode.prototype.getFrequencyResponse = function(frequencyHz,
-    magResponse, phaseResponse) {};
+BiquadFilterNode.prototype.getFrequencyResponse = function(
+    frequencyHz, magResponse, phaseResponse) {};
 
 /**
  * @constructor
  * @extends {AudioNode}
  */
-function IIRFilterNode() {};
+function IIRFilterNode() {}
 
 /**
- * @param {Float32Array} frequencyHz
- * @param {Float32Array} magResponse
- * @param {Float32Array} phaseResponse
+ * @param {!Float32Array} frequencyHz
+ * @param {!Float32Array} magResponse
+ * @param {!Float32Array} phaseResponse
+ * @return {undefined}
  */
-IIRFilterNode.prototype.getFrequencyResponse = function(frequencyHz,
-    magResponse, phaseResponse) {};
+IIRFilterNode.prototype.getFrequencyResponse = function(
+    frequencyHz, magResponse, phaseResponse) {};
 
 /**
  * @constructor
@@ -1225,15 +928,28 @@ WaveShaperNode.prototype.oversample;
 
 /**
  * @constructor
+ */
+function WaveTable() {}
+
+/**
+ * @constructor
+ */
+function PeriodicWave() {}
+
+/**
+ * @constructor
  * @extends {AudioNode}
  */
 function OscillatorNode() {}
 
-/** 
- * @type {string}
- * See https://www.w3.org/TR/webaudio/#the-oscillatornode-interface for valid values
- */
+/** @type {string} */
 OscillatorNode.prototype.type;
+
+/**
+ * To be deprecated.
+ * @type {number}
+ */
+OscillatorNode.prototype.playbackState;
 
 /** @type {!AudioParam} */
 OscillatorNode.prototype.frequency;
@@ -1241,44 +957,39 @@ OscillatorNode.prototype.frequency;
 /** @type {!AudioParam} */
 OscillatorNode.prototype.detune;
 
-/**
- * @param {number=} when
- */
-OscillatorNode.prototype.start = function(when) {};
+/** @type {function(number)} */
+OscillatorNode.prototype.start;
+
+/** @type {function(number)} */
+OscillatorNode.prototype.stop;
 
 /**
- * @param {number=} when
+ * To be deprecated.
+ * @type {function(WaveTable)}
  */
-OscillatorNode.prototype.stop = function(when) {};
+OscillatorNode.prototype.setWaveTable;
 
-/**
- * @param {PeriodicWave} periodicWave
- */
-OscillatorNode.prototype.setPeriodicWave = function(periodicWave) {};
+/** @type {function(PeriodicWave)} */
+OscillatorNode.prototype.setPeriodicWave;
 
-/** @type {EventTarget} */
+/** @type {EventListener} */
 OscillatorNode.prototype.onended;
 
 /**
  * @constructor
+ * @extends {AudioSourceNode}
  */
-function PeriodicWave() {};
+function MediaStreamAudioSourceNode() {}
 
 /**
  * @constructor
- * @extends {AudioNode}
+ * @extends {AudioDestinationNode}
  */
-function MediaStreamAudioSourceNode() {};
-
-/**
- * @constructor
- * @extends {AudioNode}
- */
-function MediaStreamAudioDestinationNode() {};
+function MediaStreamAudioDestinationNode() {}
 
 /**
  * @type {!MediaStream}
- * @readonly
+ * @const
  */
 MediaStreamAudioDestinationNode.prototype.stream;
 
@@ -1290,7 +1001,7 @@ MediaStreamAudioDestinationNode.prototype.stream;
  * @constructor
  * @extends {AudioContext}
  */
-function webkitAudioContext() {};
+function webkitAudioContext() {}
 
 /**
  * @param {number} numberOfChannels
@@ -1299,13 +1010,13 @@ function webkitAudioContext() {};
  * @constructor
  * @extends {OfflineAudioContext}
  */
-function webkitOfflineAudioContext(numberOfChannels, length, sampleRate) {};
+function webkitOfflineAudioContext(numberOfChannels, length, sampleRate) {}
 
 /**
  * @constructor
- * @extends {PannerNode}
+ * @extends {AudioPannerNode}
  */
-function webkitPannerNode() {};
+function webkitAudioPannerNode() {}
 
 /**
  * Definitions for the Audio API as implemented in Firefox.
@@ -1319,16 +1030,18 @@ function webkitPannerNode() {};
  * @constructor
  * @extends {HTMLAudioElement}
  */
-function Audio(src) {};
+function Audio(src) {}
 
 /**
  * @param {number} channels
  * @param {number} rate
+ * @return {undefined}
  */
 Audio.prototype.mozSetup = function(channels, rate) {};
 
 /**
  * @param {Array|Float32Array} buffer
+ * @return {undefined}
  */
 Audio.prototype.mozWriteAudio = function(buffer) {};
 

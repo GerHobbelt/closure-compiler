@@ -282,6 +282,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
   private final List<NTIScope> scopes = new ArrayList<>();
   private NTIScope globalScope;
   private WarningReporter warnings;
+  private final List<TypeMismatch> mismatches;
+  private final List<TypeMismatch> implicitInterfaceUses;
   private final JSTypeCreatorFromJSDoc typeParser;
   private final AbstractCompiler compiler;
   private final CodingConvention convention;
@@ -325,6 +327,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         compiler.getOptions().disables(DiagnosticGroups.NEW_CHECK_TYPES_EXTRA_CHECKS);
 
     this.warnings = new WarningReporter(compiler);
+    this.mismatches = new ArrayList<>();
+    this.implicitInterfaceUses = new ArrayList<>();
     this.compiler = compiler;
     this.unknownTypeNames = unknownTypeNames;
     this.convention = compiler.getCodingConvention();
@@ -354,6 +358,14 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
   JSTypes getCommonTypes() {
     return this.commonTypes;
+  }
+
+  List<TypeMismatch> getMismatches() {
+    return this.mismatches;
+  }
+
+  List<TypeMismatch> getImplicitInterfaceUses() {
+    return this.implicitInterfaceUses;
   }
 
   JSType getCastType(Node n) {
@@ -466,16 +478,17 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         continue;
       }
       checkAndFinalizeNominalType(rawType);
-      if (rawType.isBuiltinObject()) {
-        this.commonTypes.getLiteralObjNominalType().getRawNominalType().finalize();
-      }
     }
     JSType globalThisType;
     if (win != null) {
-      // Copy properties from window to Window.prototype, because in rare cases
+      // Copy properties from window to Window.prototype, because sometimes
       // people pass window around rather than using it directly.
+      // Copying the properties is correct only when there is a single object
+      // of type Window in the program. But in very rare cases, people subclass Window.
+      // Then, win is finalized here and we don't copy the properties.
+      // Window has been subclassed iff it is already finalized here.
       Namespace winNs = this.globalScope.getNamespace(WINDOW_INSTANCE);
-      if (winNs != null) {
+      if (winNs != null && !win.isFinalized()) {
         winNs.copyWindowProperties(this.commonTypes, win);
       }
       checkAndFinalizeNominalType(win);
@@ -494,6 +507,21 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
     for (NTIScope s : scopes) {
       s.finalizeScope();
     }
+
+    // Traverse the externs and annotate them with types.
+    // Only works for the top level, not inside function bodies.
+    NodeTraversal.traverseEs6(
+        this.compiler, externs, new NodeTraversal.AbstractShallowCallback(){
+          @Override
+          public void visit(NodeTraversal t, Node n, Node parent) {
+            if (n.isQualifiedName()) {
+              Declaration d = globalScope.getDeclaration(QualifiedName.fromNode(n), false);
+              JSType type = simpleInferDeclaration(d);
+              n.setTypeI(type);
+            }
+          }
+        });
+
     Map<Node, String> unknownTypes = typeParser.getUnknownTypesMap();
     for (Map.Entry<Node, String> unknownTypeEntry : unknownTypes.entrySet()) {
       this.warnings.add(JSError.make(unknownTypeEntry.getKey(),
@@ -516,15 +544,47 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
     this.compiler.setExternProperties(ImmutableSet.copyOf(this.externPropertyNames));
   }
 
-  private Collection<PropertyDef> getPropDefsFromInterface(
-      NominalType nominalType, String pname) {
+  private JSType simpleInferDeclaration(Declaration decl) {
+    if (decl == null) {
+      return null;
+    }
+    // Namespaces (literals, enums, constructors) get populated during ProcessScope,
+    // so it's generally NOT safe to convert them to jstypes until after ProcessScope is done.
+    // However, we've seen examples where it is useful to use the constructor type
+    // during inference, e.g., to get the type of the instance from it.
+    // We allow this use case but add a marker property to make sure that the constructor type
+    // itself doesn't leak into the result.
+    if (decl.getNominal() != null) {
+      FunctionType ctorFn = decl.getNominal().getConstructorFunction();
+      if (ctorFn == null) {
+        return null;
+      }
+      return commonTypes.fromFunctionType(ctorFn)
+          .withProperty(CONST_INFERENCE_MARKER, commonTypes.UNKNOWN);
+    }
+    if (decl.getTypeOfSimpleDecl() != null) {
+      return decl.getTypeOfSimpleDecl();
+    }
+    NTIScope funScope = (NTIScope) decl.getFunctionScope();
+    if (funScope != null) {
+      DeclaredFunctionType dft = funScope.getDeclaredFunctionType();
+      if (dft == null) {
+        return null;
+      }
+      return commonTypes.fromFunctionType(dft.toFunctionType());
+    }
+    return null;
+  }
+
+  private Collection<PropertyDef> getPropDefsFromInterface(NominalType nominalType, String pname) {
     Preconditions.checkArgument(nominalType.isFinalized());
-    Preconditions.checkArgument(
-        nominalType.isInterface() || nominalType.isBuiltinObject());
+    Preconditions.checkArgument(nominalType.isInterface() || nominalType.isBuiltinObject());
     if (nominalType.getPropDeclaredType(pname) == null) {
       return ImmutableSet.of();
     } else if (propertyDefs.get(nominalType.getId(), pname) != null) {
-      return ImmutableSet.of(propertyDefs.get(nominalType.getId(), pname));
+      PropertyDef propDef = propertyDefs.get(nominalType.getId(), pname);
+      return ImmutableSet.of(
+          nominalType.isGeneric() ? propDef.substituteNominalGenerics(nominalType) : propDef);
     }
     ImmutableSet.Builder<PropertyDef> result = ImmutableSet.builder();
     for (NominalType interf : nominalType.getInstantiatedInterfaces()) {
@@ -539,7 +599,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       Preconditions.checkArgument(nominalType.isClass());
 
       if (propertyDefs.get(nominalType.getId(), pname) != null) {
-        return propertyDefs.get(nominalType.getId(), pname);
+        PropertyDef propDef = propertyDefs.get(nominalType.getId(), pname);
+        return nominalType.isGeneric() ? propDef.substituteNominalGenerics(nominalType) : propDef;
       }
       nominalType = nominalType.getInstantiatedSuperclass();
     }
@@ -618,8 +679,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
             superMethodType.toFunctionType().toString(),
             localMethodType.toFunctionType().toString()));
       }
-      DeclaredFunctionType updatedMethodType = localMethodType
-          .withTypeInfoFromSuper(superMethodType, getsTypeFromParent);
+      DeclaredFunctionType updatedMethodType =
+          localMethodType.withTypeInfoFromSuper(superMethodType, getsTypeFromParent);
       localPropDef.updateMethodType(updatedMethodType);
       propTypesToProcess.put(pname,
           commonTypes.fromFunctionType(updatedMethodType.toFunctionType()));
@@ -676,14 +737,19 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         Node propDefsite = propDef.defSite;
         JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(propDefsite);
         if (jsdoc != null && jsdoc.isOverride()) {
-          warnings.add(JSError.make(propDefsite, UNKNOWN_OVERRIDE,
-                  pname, rawType.getName()));
+          warnings.add(JSError.make(propDefsite, UNKNOWN_OVERRIDE, pname, rawType.getName()));
         }
       }
     }
 
     // Finalize nominal type once all properties are added.
     rawType.finalize();
+    if (rawType.isBuiltinObject()) {
+      NominalType literalObj = this.commonTypes.getLiteralObjNominalType();
+      if (!literalObj.isFinalized()) {
+        literalObj.getRawNominalType().finalize();
+      }
+    }
   }
 
   // TODO(dimvar): the finalization method and this one should be cleaned up;
@@ -749,16 +815,15 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       // If we are looking at a method definition, munging may be needed
       for (PropertyDef inheritedPropDef : inheritedPropDefs) {
         if (inheritedPropDef.methodType != null) {
-          propMethodTypesToProcess.put(pname,
-              inheritedPropDef.methodType.substituteNominalGenerics(superType));
+          propMethodTypesToProcess.put(pname, inheritedPropDef.methodType);
         }
       }
     }
   }
 
   private boolean isValidOverride(JSType localPropType, JSType inheritedPropType) {
-    FunctionType localFunType = localPropType.getFunTypeIfSingletonObj();
-    FunctionType inheritedFunType = inheritedPropType.getFunTypeIfSingletonObj();
+    FunctionType localFunType = localPropType.getFunType();
+    FunctionType inheritedFunType = inheritedPropType.getFunType();
     if (localFunType == null) {
       return localPropType.isSubtypeOf(inheritedPropType);
     } else if (inheritedFunType == null) {
@@ -773,7 +838,10 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       return false;
     }
     JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(pd.defSite);
-    return jsdoc == null || (jsdoc.isOverride() && !jsdoc.containsFunctionDeclaration());
+    if (jsdoc == null) {
+      return true;
+    }
+    return (jsdoc.isOverride() || jsdoc.isExport()) && !jsdoc.containsFunctionDeclaration();
   }
 
   /**
@@ -806,8 +874,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
             visitEnum(nameNode);
           } else if (isAliasedNamespaceDefinition(nameNode)) {
             visitAliasedNamespace(nameNode);
-          } else if (varName.equals(WINDOW_INSTANCE)
-              && nameNode.isFromExterns()) {
+          } else if (varName.equals(WINDOW_INSTANCE) && nameNode.isFromExterns()) {
             visitWindowVar(nameNode);
           } else if (isCtorDefinedByCall(nameNode)) {
             visitNewCtorDefinedByCall(nameNode);
@@ -899,8 +966,23 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         visitEnum(qnameNode);
       } else if (isAliasedNamespaceDefinition(qnameNode)) {
         visitAliasedNamespace(qnameNode);
+      } else if (isAliasingGlobalThis(qnameNode)) {
+        visitGlobalThisAlias(qnameNode);
       } else if (isQualifiedFunctionDefinition(qnameNode)) {
         maybeAddFunctionToNamespace(qnameNode);
+      }
+    }
+
+    private boolean isAliasingGlobalThis(Node qnameNode) {
+      return convention.isAliasingGlobalThis(qnameNode.getParent())
+          && this.currentScope.isTopLevel();
+    }
+
+    private void visitGlobalThisAlias(Node qnameNode) {
+      Namespace ns = globalScope.getNamespace(WINDOW_INSTANCE);
+      if (ns != null) {
+        qnameNode.getParent().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+        this.currentScope.addNamespace(qnameNode, ns);
       }
     }
 
@@ -912,10 +994,11 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(qnameNode);
       if (jsdoc == null) {
         return (qnameNode.isFromExterns()
-            // When assigning to a namespace prop and the rhs is also a namespace, consider
-            // it an alias, even if there is no @const. An ES6-module default export is
-            // transpiled to this form.
-            || qnameNode.isGetProp() && this.currentScope.isNamespace(qnameNode.getFirstChild()))
+            // An ES6-module default export is transpiled to an assignment without @const,
+            // but we still consider it an alias.
+            || (qnameNode.isGetProp()
+                && qnameNode.getLastChild().getString().equals("default")
+                && this.currentScope.isNamespace(qnameNode.getFirstChild())))
             // If the aliased namespace is a variable, do the aliasing at
             // declaration, not at a random assignment later.
             && (qnameNode.getParent().isVar() || !qnameNode.isName())
@@ -1191,7 +1274,11 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
             || mayCreateFunctionNamespace(firstChild)
             || mayCreateWindowNamespace(firstChild)) {
           if (nameNode.isGetProp()) {
-            defSite.getParent().getFirstChild().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+            if (defSite.isFunction()) {
+              defSite.getParent().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+            } else {
+              defSite.getParent().getFirstChild().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
+            }
           } else if (currentScope.isTopLevel()) {
             maybeRecordBuiltinType(qname, rawType);
           }
@@ -1205,8 +1292,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       }
     }
 
-    private void maybeRecordBuiltinType(
-        String name, RawNominalType rawType) {
+    private void maybeRecordBuiltinType(String name, RawNominalType rawType) {
       switch (name) {
         case "Arguments":
           commonTypes.setArgumentsType(rawType);
@@ -1254,9 +1340,9 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       Node rhs = NodeUtil.getRValueOfLValue(lhs);
       QualifiedName rhsQname = QualifiedName.fromNode(rhs);
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(lhs);
-
+      Namespace ns = this.currentScope.getNamespace(rhsQname);
       if (jsdoc != null && jsdoc.isConstructorOrInterface()) {
-        RawNominalType rawType = this.currentScope.getNominalType(rhsQname);
+        RawNominalType rawType = ns instanceof RawNominalType ? (RawNominalType) ns : null;
         if (jsdoc.isConstructor()
             && (rawType == null || rawType.isInterface())) {
           warnings.add(JSError.make(rhs, EXPECTED_CONSTRUCTOR, rhsQname.toString()));
@@ -1268,7 +1354,6 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           return;
         }
       }
-      Namespace ns = this.currentScope.getNamespace(rhsQname);
       if (ns != null) {
         lhs.getParent().putBooleanProp(Node.ANALYZED_DURING_GTI, true);
         this.currentScope.addNamespace(lhs, ns);
@@ -1330,8 +1415,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       if (currentScope.isNamespace(lendsQname)) {
         processLendsToNamespace(lendsQname, lendsName, objlit);
       } else {
-        RawNominalType rawType = checkValidLendsToPrototypeAndGetClass(
-            lendsQname, lendsName, objlit);
+        RawNominalType rawType =
+            checkValidLendsToPrototypeAndGetClass(lendsQname, lendsName, objlit);
         if (rawType != null) {
           for (Node prop : objlit.children()) {
             String pname =  NodeUtil.getObjectLitKeyName(prop);
@@ -1608,8 +1693,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(fn);
       DeclaredFunctionType declFunType = fnScope.getDeclaredFunctionType();
       if (declFunType == null) {
-        declFunType = computeFnDeclaredType(
-            jsdoc, internalName, fn, ownerType, currentScope);
+        declFunType = computeFnDeclaredType(jsdoc, internalName, fn, ownerType, currentScope);
         fnScope.setDeclaredType(declFunType);
       }
       return fnScope;
@@ -1919,7 +2003,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       if (recvType == null) {
         return;
       }
-      recvType = recvType.removeType(commonTypes.NULL);
+      recvType = recvType.removeType(commonTypes.NULL_OR_UNDEFINED);
       NominalType nt = recvType.getNominalTypeIfSingletonObj();
       // Don't add stray properties to Object.
       if (nt == null || nt.equals(commonTypes.getObjectType())) {
@@ -2050,17 +2134,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         return null;
       }
       if (funType.isGeneric()) {
-        ImmutableList.Builder<JSType> argTypes = ImmutableList.builder();
-        for (Node argNode = n.getSecondChild();
-             argNode != null;
-             argNode = argNode.getNext()) {
-          JSType t = simpleInferExprTypeRecur(argNode);
-          if (t == null) {
-            return null;
-          }
-          argTypes.add(t);
-        }
-        funType = funType.instantiateGenericsFromArgumentTypes(argTypes.build());
+        funType = getInstantiatedCalleeType(n, funType, true);
         if (funType == null) {
           return null;
         }
@@ -2143,6 +2217,11 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           JSType rhs = simpleInferExprTypeRecur(n.getLastChild());
           return lhs == null || rhs == null ? null : JSType.join(lhs, rhs);
         }
+        case FUNCTION: {
+          NTIScope s = this.currentScope.getScope(getFunInternalName(n));
+          DeclaredFunctionType dft = s.getDeclaredFunctionType();
+          return dft == null ? null : commonTypes.fromFunctionType(dft.toFunctionType());
+        }
         default:
           switch (NodeUtil.getKnownValueType(n)) {
             case NULL:
@@ -2178,6 +2257,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         return simpleInferPrototypeProperty(recv.getFirstChild(), pname);
       }
       QualifiedName propQname = new QualifiedName(pname);
+      JSType recvType = null;
       if (recv.isQualifiedName()) {
         QualifiedName recvQname = QualifiedName.fromNode(recv);
         Declaration decl = this.currentScope.getDeclaration(recvQname, false);
@@ -2190,13 +2270,25 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           if (ns != null) {
             return simpleInferDeclaration(ns.getDeclaration(propQname));
           }
+          recvType = decl.getTypeOfSimpleDecl();
         }
       }
-      JSType recvType = simpleInferExprTypeRecur(recv);
-      if (recvType != null && recvType.isScalar()) {
+      if (recvType == null) {
+        recvType = simpleInferExprTypeRecur(recv);
+      }
+      if (recvType == null) {
+        return null;
+      }
+      if (recvType.isScalar()) {
         recvType = recvType.autobox();
       }
-      if (recvType != null && recvType.mayHaveProp(propQname)) {
+      FunctionType ft = recvType.getFunTypeIfSingletonObj();
+      if (ft != null && pname.equals("call")) {
+        return commonTypes.fromFunctionType(ft.transformByCallProperty());
+      } else if (ft != null && pname.equals("apply")) {
+        return commonTypes.fromFunctionType(ft.transformByApplyProperty());
+      }
+      if (recvType.mayHaveProp(propQname)) {
         return recvType.getProp(propQname);
       }
       return null;
@@ -2223,38 +2315,6 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
             return recvType.getIndexedType();
           }
         }
-      }
-      return null;
-    }
-
-    private JSType simpleInferDeclaration(Declaration decl) {
-      if (decl == null) {
-        return null;
-      }
-      // Namespaces (literals, enums, constructors) get populated during ProcessScope,
-      // so it's generally NOT safe to convert them to jstypes until after ProcessScope is done.
-      // However, we've seen examples where it is useful to use the constructor type
-      // during inference, e.g., to get the type of the instance from it.
-      // We allow this use case but add a marker property to make sure that the constructor type
-      // itself doesn't leak into the result.
-      if (decl.getNominal() != null) {
-        FunctionType ctorFn = decl.getNominal().getConstructorFunction();
-        if (ctorFn == null) {
-          return null;
-        }
-        return commonTypes.fromFunctionType(ctorFn)
-            .withProperty(CONST_INFERENCE_MARKER, commonTypes.UNKNOWN);
-      }
-      if (decl.getTypeOfSimpleDecl() != null) {
-        return decl.getTypeOfSimpleDecl();
-      }
-      NTIScope funScope = (NTIScope) decl.getFunctionScope();
-      if (funScope != null) {
-        DeclaredFunctionType dft = funScope.getDeclaredFunctionType();
-        if (dft == null) {
-          return null;
-        }
-        return commonTypes.fromFunctionType(dft.toFunctionType());
       }
       return null;
     }
@@ -2388,8 +2448,10 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         Node declNode, JSType declaredTypeAsJSType) {
       Preconditions.checkArgument(declNode.isFunction());
       Preconditions.checkArgument(declNode.getParent().isCall());
-      Preconditions.checkNotNull(declaredTypeAsJSType);
 
+      if (declaredTypeAsJSType == null) {
+        return null;
+      }
       FunctionType funType = declaredTypeAsJSType.getFunType();
       if (funType == null
           || funType.isUniqueConstructor()
@@ -2401,14 +2463,10 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         return null;
       }
       int numFormals = declNode.getSecondChild().getChildCount();
-      int reqArity = declType.getRequiredArity();
       int optArity = declType.getOptionalArity();
       boolean hasRestFormals = declType.hasRestFormals();
-      if (reqArity == optArity && !hasRestFormals) {
-        return numFormals == reqArity ? declType : null;
-      }
-      if ((numFormals == optArity && !hasRestFormals)
-          || (numFormals == (optArity + 1) && hasRestFormals)) {
+      if ((hasRestFormals && numFormals <= optArity + 1)
+          || (!hasRestFormals && numFormals <= optArity)) {
         return declType;
       }
       return null;
@@ -2437,16 +2495,21 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
       // The function literal is an argument at a call
       if (parent.isCall() && declNode != parent.getFirstChild()) {
-        DeclaredFunctionType calleeDeclType =
-            getDeclaredFunctionTypeOfCalleeIfAny(parent.getFirstChild(), parentScope);
-        if (calleeDeclType != null && !calleeDeclType.isGeneric()) {
-          int index = parent.getIndexOfChild(declNode) - 1;
-          JSType declTypeFromCallee = calleeDeclType.getFormalType(index);
-          if (declTypeFromCallee != null) {
-            DeclaredFunctionType t = computeFnDeclaredTypeFromCallee(declNode, declTypeFromCallee);
-            if (t != null) {
-              return t;
+        Node callee = parent.getFirstChild();
+        JSType calleeType = simpleInferExprType(callee);
+        FunctionType calleeFunType = calleeType == null ? null : calleeType.getFunType();
+        if (calleeFunType != null) {
+          if (calleeFunType.isGeneric()) {
+            calleeFunType = getInstantiatedCalleeType(parent, calleeFunType, false);
+            if (calleeFunType == null) {
+              return null;
             }
+          }
+          int index = parent.getIndexOfChild(declNode) - 1;
+          JSType callbackType = calleeFunType.getFormalType(index);
+          DeclaredFunctionType t = computeFnDeclaredTypeFromCallee(declNode, callbackType);
+          if (t != null) {
+            return t;
           }
         }
       }
@@ -2454,19 +2517,38 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       return null;
     }
 
-    private DeclaredFunctionType getDeclaredFunctionTypeOfCalleeIfAny(
-        Node fn, NTIScope currentScope) {
-      Preconditions.checkArgument(fn.getParent().isCall());
-      if (fn.isThis() || (!fn.isFunction() && !fn.isQualifiedName())) {
-        return null;
+    private FunctionType getInstantiatedCalleeType(
+        Node call, FunctionType calleeType, boolean bailForUntypedArguments) {
+      Node callee = call.getFirstChild();
+      Preconditions.checkArgument(calleeType.isGeneric(),
+          "Expected generic type for %s but found %s", callee, calleeType);
+      // The receiver type is useful for inference when calleeType has a @this annotation
+      // that includes a type variable.
+      JSType recvType = null;
+      if (callee.isGetProp() && callee.getFirstChild().isQualifiedName()) {
+        Node recv = callee.getFirstChild();
+        QualifiedName recvQname = QualifiedName.fromNode(recv);
+        Declaration decl = this.currentScope.getDeclaration(recvQname, false);
+        if (decl != null) {
+          recvType = decl.getTypeOfSimpleDecl();
+        }
       }
-      if (fn.isFunction()) {
-        return currentScope.getScope(getFunInternalName(fn)).getDeclaredFunctionType();
+      ImmutableList.Builder<JSType> argTypes = ImmutableList.builder();
+      for (Node argNode = call.getSecondChild(); argNode != null; argNode = argNode.getNext()) {
+        JSType t = simpleInferExprTypeRecur(argNode);
+        if (t == null) {
+          if (bailForUntypedArguments && !argNode.isFunction()) {
+            // Used for @const inference, where we want to be strict.
+            return null;
+          } else {
+            // Used when inferring a signature for unannotated callbacks passed to generic
+            // functions. Whatever type variable we can't infer will become unknown.
+            t = commonTypes.BOTTOM;
+          }
+        }
+        argTypes.add(t);
       }
-      Preconditions.checkState(fn.isQualifiedName(), fn);
-      JSType t = simpleInferExprType(fn);
-      FunctionType funType = t == null ? null : t.getFunType();
-      return funType == null ? null : funType.toDeclaredFunctionType();
+      return calleeType.instantiateGenericsFromArgumentTypes(recvType, argTypes.build());
     }
 
     /**
@@ -2535,7 +2617,14 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           }
         }
       } else {
-        rawType.addUndeclaredProtoProperty(pname, defSite);
+        JSType inferredType = null;
+        if (initializer != null) {
+          inferredType = simpleInferExprType(initializer);
+        }
+        if (inferredType == null) {
+          inferredType = commonTypes.UNKNOWN;
+        }
+        rawType.addUndeclaredProtoProperty(pname, defSite, inferredType);
       }
     }
 
@@ -2710,11 +2799,25 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       this.methodScope = methodScope;
     }
 
+    PropertyDef substituteNominalGenerics(NominalType nt) {
+      Preconditions.checkArgument(nt.isGeneric(), nt);
+      if (this.methodType == null) {
+        return this;
+      }
+      return new PropertyDef(
+          this.defSite, this.methodType.substituteNominalGenerics(nt), this.methodScope);
+    }
+
     void updateMethodType(DeclaredFunctionType updatedType) {
       this.methodType = updatedType;
       if (this.methodScope != null) {
         this.methodScope.setDeclaredType(updatedType);
       }
+    }
+
+    @Override
+    public String toString() {
+      return "PropertyDef(" + defSite + ", " + methodType + ")";
     }
   }
 

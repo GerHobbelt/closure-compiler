@@ -21,6 +21,7 @@ import static com.google.javascript.jscomp.ClosureCheckModule.EXPORT_REPEATED_ER
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_REFERENCES_THIS;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_USES_GOOG_MODULE_GET;
 import static com.google.javascript.jscomp.ClosureCheckModule.GOOG_MODULE_USES_THROW;
+import static com.google.javascript.jscomp.ClosureCheckModule.INCORRECT_SHORTNAME_CAPITALIZATION;
 import static com.google.javascript.jscomp.ClosureCheckModule.INVALID_DESTRUCTURING_REQUIRE;
 import static com.google.javascript.jscomp.ClosureCheckModule.JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.LET_GOOG_REQUIRE;
@@ -32,10 +33,17 @@ import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_MODUL
 import static com.google.javascript.jscomp.ClosureCheckModule.REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME;
 import static com.google.javascript.jscomp.ClosureCheckModule.REQUIRE_NOT_AT_TOP_LEVEL;
 
-public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+
+public final class ClosureCheckModuleTest extends CompilerTestCase {
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
     return new ClosureCheckModule(compiler);
+  }
+
+  @Override
+  public void setUp() {
+    setLanguage(LanguageMode.ECMASCRIPT_NEXT, LanguageMode.ECMASCRIPT_NEXT);
   }
 
   @Override
@@ -59,7 +67,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "}"),
         GOOG_MODULE_REFERENCES_THIS);
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
@@ -148,17 +156,17 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "});"),
         ClosureCheckModule.AT_EXPORT_IN_GOOG_MODULE);
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.loadModule(function(exports){",
             "  'use strict';",
-            "  goog.module('xyz');",
+            "  goog.module('Xyz');",
             "  exports = class {}",
             "  return exports;",
             "});",
             "goog.loadModule(function(exports){",
             "  goog.module('abc');",
-            "  var Foo = goog.require('xyz');",
+            "  var Foo = goog.require('Xyz');",
             "  var x = new Foo;",
             "  return exports;",
             "});"));
@@ -189,7 +197,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "exports = ClassName;"),
         ClosureCheckModule.AT_EXPORT_IN_GOOG_MODULE);
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('foo.example.ClassName');",
             "",
@@ -230,7 +238,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testLegalAtExport() {
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('foo.example.ClassName');",
             "",
@@ -245,7 +253,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "",
             "exports = ClassName;"));
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('foo.example.ClassName');",
             "",
@@ -354,21 +362,21 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "var a = goog.require('foo.a'), b = goog.require('foo.b');"),
         ONE_REQUIRE_PER_DECLARATION);
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "var [foo, bar] = goog.require('other.x');"),
         INVALID_DESTRUCTURING_REQUIRE);
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "var {foo, bar = 'str'} = goog.require('other.x');"),
         INVALID_DESTRUCTURING_REQUIRE);
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
@@ -383,7 +391,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
             "var foo = goog.require('def.foo');"),
         DUPLICATE_NAME_SHORT_REQUIRE);
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
@@ -458,7 +466,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testIllegalShortImportDestructuring() {
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('x.y.z');",
             "",
@@ -469,7 +477,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testIllegalImportNoAlias() {
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('x.y.z');",
             "",
@@ -481,7 +489,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
 
   // TODO(johnlenz): Re-enable these tests (they are a bit tricky).
   public void disable_testSingleNameImportNoAlias1() {
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('x.y.z');",
             "",
@@ -492,7 +500,7 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void disable_testSingleNameImportWithAlias() {
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('x.y.z');",
             "",
@@ -524,13 +532,13 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testIllegalLetShortRequire() {
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "let a = goog.forwardDeclare('foo.a');"));
 
-    testErrorEs6(
+    testError(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
@@ -539,23 +547,53 @@ public final class ClosureCheckModuleTest extends Es6CompilerTestCase {
   }
 
   public void testLegalGoogRequires() {
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "var {assert} = goog.require('goog.asserts');"));
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "const {assert} = goog.require('goog.asserts');"));
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "goog.module('xyz');",
             "",
             "const {assert, fail} = goog.require('goog.asserts');"));
+  }
+
+  public void testShorthandNameConvention() {
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "const googAsserts = goog.require('goog.asserts');"));
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "const GoogAsserts = goog.require('goog.asserts');"),
+        INCORRECT_SHORTNAME_CAPITALIZATION,
+        "The capitalization of short name GoogAsserts is incorrect; it should be googAsserts.");
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "const Event = goog.require('goog.events.Event');"));
+
+    testError(
+        LINE_JOINER.join(
+            "goog.module('xyz');",
+            "",
+            "const event = goog.require('goog.events.Event');"),
+        INCORRECT_SHORTNAME_CAPITALIZATION,
+        "The capitalization of short name event is incorrect; it should be Event.");
   }
 
   public void testIllegalExports() {

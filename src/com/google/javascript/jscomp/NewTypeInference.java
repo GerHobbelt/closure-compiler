@@ -24,6 +24,7 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.javascript.jscomp.CodingConvention.AssertionFunctionSpec;
 import com.google.javascript.jscomp.CodingConvention.Bind;
+import com.google.javascript.jscomp.CodingConvention.ObjectLiteralCast;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.jscomp.newtypes.DeclaredFunctionType;
@@ -297,6 +298,11 @@ final class NewTypeInference implements CompilerPass {
           "JSC_NTI_ABSTRACT_SUPER_METHOD_NOT_CALLABLE",
           "Abstract super method {0} cannot be called");
 
+  static final DiagnosticType REFLECT_CONSTRUCTOR_EXPECTED =
+      DiagnosticType.warning(
+          "JSC_NTI_REFLECT_CONSTRUCTOR_EXPECTED",
+          "Constructor expected as first argument");
+
   // Not part of ALL_DIAGNOSTICS because it should not be enabled with
   // --jscomp_error=newCheckTypes. It should only be enabled explicitly.
 
@@ -318,6 +324,7 @@ final class NewTypeInference implements CompilerPass {
       CONST_PROPERTY_DELETED,
       CONST_PROPERTY_REASSIGNED,
       CONST_REASSIGNED,
+      REFLECT_CONSTRUCTOR_EXPECTED,
       CONSTRUCTOR_NOT_CALLABLE,
       FAILED_TO_UNIFY,
       FORIN_EXPECTS_STRING_KEY,
@@ -376,6 +383,8 @@ final class NewTypeInference implements CompilerPass {
   }
 
   private WarningReporter warnings;
+  private List<TypeMismatch> mismatches;
+  private List<TypeMismatch> implicitInterfaceUses;
   private final AbstractCompiler compiler;
   private final CodingConvention convention;
   private Map<DiGraphEdge<Node, ControlFlowGraph.Branch>, TypeEnv> envs;
@@ -459,6 +468,8 @@ final class NewTypeInference implements CompilerPass {
     try {
       this.symbolTable = (GlobalTypeInfo) compiler.getSymbolTable();
       this.commonTypes = symbolTable.getCommonTypes();
+      this.mismatches = symbolTable.getMismatches();
+      this.implicitInterfaceUses = symbolTable.getImplicitInterfaceUses();
 
       this.BOOLEAN = this.commonTypes.BOOLEAN;
       this.BOTTOM = this.commonTypes.BOTTOM;
@@ -511,6 +522,17 @@ final class NewTypeInference implements CompilerPass {
       }
       System.out.println(b);
     }
+  }
+
+  private void registerMismatchAndWarn(JSError error, JSType found, JSType required) {
+    TypeMismatch.registerMismatch(
+        this.mismatches, this.implicitInterfaceUses, found, required, error);
+    warnings.add(error);
+  }
+
+  private void registerImplicitUses(Node src, JSType from, JSType to) {
+    TypeMismatch.recordImplicitInterfaceUses(this.implicitInterfaceUses, src, from, to);
+    TypeMismatch.recordImplicitUseOfNativeObject(this.mismatches, src, from, to);
   }
 
   private TypeEnv getInEnv(DiGraphNode<Node, ControlFlowGraph.Branch> dn) {
@@ -1005,8 +1027,9 @@ final class NewTypeInference implements CompilerPass {
             outEnv = envPutType(retPair.env, RETVAL_ID, actualRetType);
           }
           if (!actualRetType.isSubtypeOf(declRetType)) {
-            warnings.add(JSError.make(n, RETURN_NONDECLARED_TYPE,
-                    errorMsgWithTypeDiff(declRetType, actualRetType)));
+            registerMismatchAndWarn(JSError.make(
+                n, RETURN_NONDECLARED_TYPE, errorMsgWithTypeDiff(declRetType, actualRetType)),
+                actualRetType, declRetType);
           }
           break;
         }
@@ -1271,6 +1294,11 @@ final class NewTypeInference implements CompilerPass {
         if (!(cond != null && NodeUtil.isImpureTrue(cond))) {
           return true;
         }
+      } else if (stm.isBreak()) {
+        // Allow break after return in switches.
+        if (!cfg.getDirectedPredNodes(dn).isEmpty()) {
+          return true;
+        }
       } else if (!stm.isReturn()) {
         return true;
       }
@@ -1307,12 +1335,13 @@ final class NewTypeInference implements CompilerPass {
     }
     if (declType != null && rhs != null) {
       if (!rhsType.isSubtypeOf(declType)) {
-        warnings.add(JSError.make(
-            rhs, MISTYPED_ASSIGN_RHS,
-            errorMsgWithTypeDiff(declType, rhsType)));
+        registerMismatchAndWarn(
+            JSError.make(rhs, MISTYPED_ASSIGN_RHS, errorMsgWithTypeDiff(declType, rhsType)),
+            rhsType, declType);
         // Don't flow the wrong initialization
         rhsType = declType;
       } else {
+        registerImplicitUses(rhs, rhsType, declType);
         // We do this to preserve type attributes like declaredness of
         // a property
         rhsType = declType.specialize(rhsType);
@@ -1455,6 +1484,9 @@ final class NewTypeInference implements CompilerPass {
             !NodeUtil.isAssignmentOp(expr.getParent()) ||
             !NodeUtil.isLValue(expr));
         if (expr.getBooleanProp(Node.ANALYZED_DURING_GTI)) {
+          if (expr.isQualifiedName() && !NodeUtil.isTypedefDecl(expr)) {
+            markAndGetTypeOfPreanalyzedNode(expr, inEnv, true);
+          }
           expr.removeProp(Node.ANALYZED_DURING_GTI);
           resultPair = new EnvTypePair(inEnv, requiredType);
         } else {
@@ -1705,10 +1737,11 @@ final class NewTypeInference implements CompilerPass {
     EnvTypePair objPair, ctorPair;
 
     // First, evaluate ignoring the specialized context
-    objPair = analyzeExprFwd(obj, inEnv, TOP_OBJECT);
+    objPair = analyzeExprFwd(obj, inEnv);
     JSType objType = objPair.type;
     if (!objType.isTop()
         && !objType.isUnknown()
+        && !objType.isTrueOrTruthy()
         && !objType.hasNonScalar()
         && !objType.hasTypeVariable()) {
       warnInvalidOperand(
@@ -1737,9 +1770,14 @@ final class NewTypeInference implements CompilerPass {
 
     // We are in a specialized context *and* we know the constructor type
     JSType instanceType = ctorFunType.getInstanceTypeOfCtor();
-    JSType instanceSpecType = specializedType.isTrueOrTruthy()
-        ? objType.specialize(instanceType)
-        : objType.removeType(instanceType);
+    JSType instanceSpecType;
+    if (specializedType.isTrueOrTruthy()) {
+      instanceSpecType = objType.specialize(instanceType);
+    } else if (objType.isTop()) {
+      instanceSpecType = objType;
+    } else {
+      instanceSpecType = objType.removeType(instanceType);
+    }
     if (!instanceSpecType.isBottom()) {
       objPair = analyzeExprFwd(obj, inEnv, UNKNOWN, instanceSpecType);
       ctorPair = analyzeExprFwd(ctor, objPair.env, commonTypes.topFunction());
@@ -1804,22 +1842,27 @@ final class NewTypeInference implements CompilerPass {
         return new EnvTypePair(inEnv, requiredType);
       }
       EnvTypePair rhsPair = analyzeExprFwd(rhs, inEnv, declType);
-      if (!rhsPair.type.isSubtypeOf(declType)
-          && !NodeUtil.isPrototypeAssignment(lhs)) {
-        warnings.add(JSError.make(expr, MISTYPED_ASSIGN_RHS,
-                errorMsgWithTypeDiff(declType, rhsPair.type)));
+      if (rhsPair.type.isSubtypeOf(declType)) {
+        registerImplicitUses(expr, rhsPair.type, declType);
+      } else if (!NodeUtil.isPrototypeAssignment(lhs)) {
+        registerMismatchAndWarn(
+            JSError.make(expr, MISTYPED_ASSIGN_RHS, errorMsgWithTypeDiff(declType, rhsPair.type)),
+            rhsPair.type, declType);
       }
       return rhsPair;
     }
     LValueResultFwd lvalue = analyzeLValueFwd(lhs, inEnv, requiredType);
     JSType declType = lvalue.declType;
-    EnvTypePair rhsPair =
-        analyzeExprFwd(rhs, lvalue.env, requiredType, specializedType);
-    if (declType != null && !rhsPair.type.isSubtypeOf(declType)) {
-      warnings.add(JSError.make(expr, MISTYPED_ASSIGN_RHS,
-              errorMsgWithTypeDiff(declType, rhsPair.type)));
-    } else {
+    EnvTypePair rhsPair = analyzeExprFwd(rhs, lvalue.env, requiredType, specializedType);
+    if (declType == null) {
       rhsPair.env = updateLvalueTypeInEnv(rhsPair.env, lhs, lvalue.ptr, rhsPair.type);
+    } else if (rhsPair.type.isSubtypeOf(declType)) {
+      registerImplicitUses(expr, rhsPair.type, declType);
+      rhsPair.env = updateLvalueTypeInEnv(rhsPair.env, lhs, lvalue.ptr, rhsPair.type);
+    } else {
+      registerMismatchAndWarn(
+          JSError.make(expr, MISTYPED_ASSIGN_RHS, errorMsgWithTypeDiff(declType, rhsPair.type)),
+          rhsPair.type, declType);
     }
     return rhsPair;
   }
@@ -1905,10 +1948,25 @@ final class NewTypeInference implements CompilerPass {
     return EnvTypePair.join(thenPair, elsePair);
   }
 
+  private EnvTypePair analyzeObjLitCastFwd(ObjectLiteralCast cast, Node call, TypeEnv inEnv) {
+    if (cast.objectNode == null) {
+      warnings.add(JSError.make(call, ClosureCodingConvention.OBJECTLIT_EXPECTED));
+      return new EnvTypePair(inEnv, TOP_OBJECT);
+    }
+    EnvTypePair pair = analyzeExprFwd(cast.objectNode, inEnv);
+    if (!pair.type.isPrototypeObject()) {
+      warnings.add(JSError.make(call, REFLECT_CONSTRUCTOR_EXPECTED));
+    }
+    return new EnvTypePair(pair.env, TOP_OBJECT);
+  }
+
   private EnvTypePair analyzeCallNewFwd(
       Node expr, TypeEnv inEnv, JSType requiredType, JSType specializedType) {
     if (isPropertyTestCall(expr)) {
       return analyzePropertyTestCallFwd(expr, inEnv, specializedType);
+    }
+    if (expr.isCall() && this.convention.getObjectLiteralCast(expr) != null) {
+      return analyzeObjLitCastFwd(this.convention.getObjectLiteralCast(expr), expr, inEnv);
     }
     Node callee = expr.getFirstChild();
     if (isFunctionBind(callee, inEnv, true)) {
@@ -1925,8 +1983,7 @@ final class NewTypeInference implements CompilerPass {
         callee, calleePair.type, null, envAfterCallee);
     JSType calleeType = calleePair.type;
     if (calleeType.isBottom() || !calleeType.isSubtypeOf(commonTypes.topFunction())) {
-      warnings.add(JSError.make(
-          expr, NOT_CALLABLE, calleeType.toString()));
+      warnings.add(JSError.make(expr, NOT_CALLABLE, calleeType.toString()));
     }
     FunctionType funType = calleeType.getFunTypeIfSingletonObj();
     if (funType == null
@@ -1967,7 +2024,7 @@ final class NewTypeInference implements CompilerPass {
           callee.isGetProp() ? callee.getFirstChild() : null,
           expr.getSecondChild(), funType, envAfterCallee);
       funType = funType.instantiateGenerics(typeMap);
-      println("Instantiated function type: " + funType);
+      println("Instantiated function type: ", funType);
     }
     // argTypes collects types of actuals for deferred checks.
     List<JSType> argTypes = new ArrayList<>();
@@ -2124,10 +2181,12 @@ final class NewTypeInference implements CompilerPass {
         argTypeForDeferredCheck = null; // No deferred check needed.
       } else if (!pair.type.isSubtypeOf(formalType)) {
         String fnName = getReadableCalleeName(call.getFirstChild());
-        warnings.add(JSError.make(arg, INVALID_ARGUMENT_TYPE,
-                Integer.toString(i + 1), fnName,
-                errorMsgWithTypeDiff(formalType, pair.type)));
+        JSError error = JSError.make(arg, INVALID_ARGUMENT_TYPE,
+            Integer.toString(i + 1), fnName, errorMsgWithTypeDiff(formalType, pair.type));
+        registerMismatchAndWarn(error, pair.type, formalType);
         argTypeForDeferredCheck = null; // No deferred check needed.
+      } else {
+        registerImplicitUses(arg, pair.type, formalType);
       }
       argTypesForDeferredCheck.add(argTypeForDeferredCheck);
       env = pair.env;
@@ -2269,18 +2328,21 @@ final class NewTypeInference implements CompilerPass {
     if ((parent.isOr() || parent.isAnd()) && expr == parent.getFirstChild()) {
       newSpecType = specializedType;
     }
-    EnvTypePair pair =
-        analyzeExprFwd(expr.getFirstChild(), inEnv, this.commonTypes.UNKNOWN, newSpecType);
+    Node insideCast = expr.getFirstChild();
+    EnvTypePair pair = analyzeExprFwd(insideCast, inEnv, this.commonTypes.UNKNOWN, newSpecType);
     JSType fromType = pair.type;
     JSType toType = symbolTable.getCastType(expr);
     if (!fromType.isInterfaceInstance()
         && !toType.isInterfaceInstance()
         && !JSType.haveCommonSubtype(fromType, toType)
         && !fromType.hasTypeVariable()) {
-      warnings.add(JSError.make(
-          expr, INVALID_CAST, fromType.toString(), toType.toString()));
+      JSError error = JSError.make(expr, INVALID_CAST, fromType.toString(), toType.toString());
+      registerMismatchAndWarn(error, fromType, toType);
+    } else {
+      registerImplicitUses(expr, fromType, toType);
     }
-    expr.getFirstChild().putProp(Node.TYPE_BEFORE_CAST, fromType);
+    insideCast.putProp(Node.TYPE_BEFORE_CAST, fromType);
+    insideCast.setTypeI(toType);
     pair.type = toType;
     return pair;
   }
@@ -2312,10 +2374,16 @@ final class NewTypeInference implements CompilerPass {
 
     EnvTypePair lhsPair = analyzeExprFwd(lhs, inEnv);
     EnvTypePair rhsPair = analyzeExprFwd(rhs, lhsPair.env);
-
-    if (!rhsPair.type.isNullOrUndef() && !JSType.haveCommonSubtype(lhsPair.type, rhsPair.type)) {
-      warnings.add(JSError.make(
-          lhs, INCOMPATIBLE_STRICT_COMPARISON, lhsPair.type.toString(), rhsPair.type.toString()));
+    JSType rhstype = rhsPair.type;
+    JSType lhstype = lhsPair.type;
+    if (!rhstype.isNullOrUndef()) {
+      if (JSType.haveCommonSubtype(lhstype, rhstype)) {
+        registerImplicitUses(lhs, lhstype, rhstype);
+      } else {
+        JSError error = JSError.make(
+            lhs, INCOMPATIBLE_STRICT_COMPARISON, lhstype.toString(), rhstype.toString());
+        registerMismatchAndWarn(error, lhstype, rhstype);
+      }
     }
 
     // This env may contain types that have been tightened after nullable deref.
@@ -2451,6 +2519,7 @@ final class NewTypeInference implements CompilerPass {
       case "undefined":
       case "function":
       case "object":
+      case "symbol":
       case "unknown": // IE-specific type name
         break;
       default:
@@ -2514,10 +2583,14 @@ final class NewTypeInference implements CompilerPass {
     Multimap<String, JSType> typeMultimap = LinkedHashMultimap.create();
     JSType funRecvType = funType.getThisType();
     if (receiver != null && funRecvType != null && !funRecvType.isSingletonObj()) {
-      EnvTypePair pair = analyzeExprFwd(receiver, typeEnv);
-      unifyWithSubtypeWarnIfFail(funRecvType, pair.type, typeParameters,
-          typeMultimap, receiver, isFwd);
-      typeEnv = pair.env;
+      JSType recvType = (JSType) receiver.getTypeI();
+      if (recvType == null) {
+        EnvTypePair pair = analyzeExprFwd(receiver, typeEnv);
+        recvType = pair.type;
+        typeEnv = pair.env;
+      }
+      unifyWithSubtypeWarnIfFail(
+          funRecvType, recvType, typeParameters, typeMultimap, receiver, isFwd);
     }
     Node arg = firstArg;
     int i = 0;
@@ -2703,7 +2776,42 @@ final class NewTypeInference implements CompilerPass {
         env = pair.env;
       }
     }
+    result = mayAdjustObjLitType(objLit, jsdoc, inEnv, result);
     return new EnvTypePair(env, result);
+  }
+
+  /**
+   * If the object literal is lended, or assigned to a prototype, find a better
+   * type for it than the object-literal type.
+   */
+  private JSType mayAdjustObjLitType(
+      Node objLit, JSDocInfo jsdoc, TypeEnv env, JSType originalType) {
+    Node parent = objLit.getParent();
+    QualifiedName classqname = null;
+    if (parent.isAssign() && NodeUtil.isPrototypeAssignment(parent.getFirstChild())) {
+      classqname = QualifiedName.fromNode(parent.getFirstFirstChild());
+    } else if (jsdoc != null && jsdoc.getLendsName() != null) {
+      QualifiedName lendsQname = QualifiedName.fromQualifiedString(jsdoc.getLendsName());
+      if (lendsQname.getRightmostName().equals("prototype")) {
+        classqname = lendsQname.getAllButRightmost();
+      }
+    } else if (parent.isCall() && this.convention.getObjectLiteralCast(parent) != null) {
+      ObjectLiteralCast cast = this.convention.getObjectLiteralCast(parent);
+      if (cast.typeName != null) {
+        classqname = QualifiedName.fromQualifiedString(cast.typeName);
+      }
+    }
+    if (classqname != null) {
+      JSType classType = envGetTypeOfQname(env, classqname);
+      if (classType != null) {
+        FunctionType clazz = classType.getFunTypeIfSingletonObj();
+        JSType instance = clazz == null ? null : clazz.getInstanceTypeOfCtor();
+        if (instance != null) {
+          return instance.getPrototypeObject();
+        }
+      }
+    }
+    return originalType;
   }
 
   private EnvTypePair analyzeEnumObjLitFwd(
@@ -3112,8 +3220,7 @@ final class NewTypeInference implements CompilerPass {
       recvSpecType = reqObjType.withProperty(propQname, specializedType);
     }
     pair = analyzeExprFwd(receiver, inEnv, recvReqType, recvSpecType);
-    pair = mayWarnAboutNullableReferenceAndTighten(
-        receiver, pair.type, recvSpecType, pair.env);
+    pair = mayWarnAboutNullableReferenceAndTighten(receiver, pair.type, recvSpecType, pair.env);
     JSType recvType = pair.type.autobox();
     if (recvType.isUnknown() || recvType.isTrueOrTruthy()) {
       mayWarnAboutInexistentProp(propAccessNode, recvType, propQname);
@@ -3933,6 +4040,14 @@ final class NewTypeInference implements CompilerPass {
     return env.getType(pname);
   }
 
+  private static JSType envGetTypeOfQname(TypeEnv env, QualifiedName qname) {
+    JSType leftmostType = envGetType(env, qname.getLeftmostName());
+    if (qname.isIdentifier()) {
+      return leftmostType;
+    }
+    return leftmostType == null ? null : leftmostType.getProp(qname.getAllButLeftmost());
+  }
+
   private static TypeEnv envPutType(TypeEnv env, String varName, JSType type) {
     Preconditions.checkArgument(!varName.contains("."));
     return env.putType(varName, type);
@@ -4341,7 +4456,7 @@ final class NewTypeInference implements CompilerPass {
     return getOutEnv(this.cfg.getEntry());
   }
 
-  private static class DeferredCheck {
+  private class DeferredCheck {
     final Node callSite;
     final NTIScope callerScope;
     final NTIScope calleeScope;
@@ -4397,11 +4512,14 @@ final class NewTypeInference implements CompilerPass {
         if (argNode.isName() && callerScope.isKnownFunction(argNode.getString())) {
           argType = summaries.get(callerScope.getScope(argNode.getString()));
         }
-        if (argType != null && !argType.isSubtypeOf(formalType)) {
-          warnings.add(JSError.make(
-              argNode, INVALID_ARGUMENT_TYPE,
-              Integer.toString(i + 1), calleeScope.getReadableName(),
-              errorMsgWithTypeDiff(formalType, argType)));
+        if (argType != null) {
+          if (argType.isSubtypeOf(formalType)) {
+            registerImplicitUses(argNode, argType, formalType);
+          } else {
+            JSError error = JSError.make(argNode, INVALID_ARGUMENT_TYPE, Integer.toString(i + 1),
+                calleeScope.getReadableName(), errorMsgWithTypeDiff(formalType, argType));
+            registerMismatchAndWarn(error, argType, formalType);
+          }
         }
         i++;
         argNode = argNode.getNext();

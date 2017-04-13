@@ -31,7 +31,7 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    compilerOptions.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    compilerOptions.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
     compilerOptions.setLanguageOut(LanguageMode.ECMASCRIPT3);
   }
 
@@ -103,7 +103,8 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
         "}",
         "/** @param {{always: function(this:Controller)}} spec */",
         "function vsyncMethod(spec) {}",
-        "vsyncMethod({always: (new SubController).method});"));
+        "vsyncMethod({always: (new SubController).method});"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
   }
 
   public void testDetectPropertyDefinitionOnNullableObject() {
@@ -231,7 +232,7 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
   }
 
   public void testSuper() {
-    compilerOptions.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    compilerOptions.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
     typeCheck(LINE_JOINER.join(
         "class A {",
         "  constructor(/** string */ x) {}",

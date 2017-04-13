@@ -16,10 +16,10 @@
 
 /**
  * @fileoverview Definitions for components of the WebRTC browser API.
- * @see http://dev.w3.org/2011/webrtc/editor/webrtc.html
- * @see http://tools.ietf.org/html/draft-ietf-rtcweb-jsep-01
+ * @see https://www.w3.org/TR/webrtc/
+ * @see https://tools.ietf.org/html/draft-ietf-rtcweb-jsep-19
  * @see https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API
- * @see http://www.w3.org/TR/mediacapture-streams/
+ * @see https://www.w3.org/TR/mediacapture-streams/
  *
  * @externs
  * @author bemasc@google.com (Benjamin M. Schwartz)
@@ -27,7 +27,7 @@
 
 /**
  * @typedef {string}
- * @see {http://dev.w3.org/2011/webrtc/editor/getusermedia.html
+ * @see {https://www.w3.org/TR/mediacapture-streams/
  *     #idl-def-MediaStreamTrackState}
  * In WebIDL this is an enum with values 'live', 'mute', and 'ended',
  * but there is no mechanism in Closure for describing a specialization of
@@ -55,7 +55,7 @@ SourceInfo.prototype.facing;
 /**
  * @interface
  * @extends {EventTarget}
- * @see http://www.w3.org/TR/mediacapture-streams/#mediastreamtrack
+ * @see https://www.w3.org/TR/mediacapture-streams/#mediastreamtrack
  */
 function MediaStreamTrack() {}
 
@@ -141,10 +141,7 @@ MediaStreamTrack.prototype.stop = function() {};
  * @constructor
  * @extends {Event}
  * @private
- * @see http://dev.w3.org/2011/webrtc/editor/
- * webrtc-20120720.html#mediastreamtrackevent
- * TODO(bemasc): Update this link to the final definition once one exists
- * (https://www.w3.org/Bugs/Public/show_bug.cgi?id=19568)
+ * @see https://www.w3.org/TR/mediacapture-streams/#mediastreamtrackevent
  */
 function MediaStreamTrackEvent() {}
 
@@ -158,19 +155,26 @@ MediaStreamTrackEvent.prototype.track;
  * @param {!MediaStream|!Array<!MediaStreamTrack>=} streamOrTracks
  * @constructor
  * @implements {EventTarget}
- * @see http://www.w3.org/TR/mediacapture-streams/#mediastream
+ * @see https://www.w3.org/TR/mediacapture-streams/#mediastream
  */
 function MediaStream(streamOrTracks) {}
 
-/** @inheritDoc */
+/**
+ * @override
+ */
 MediaStream.prototype.addEventListener = function(type, listener,
-    opt_options) {};
+    opt_useCapture) {};
 
-/** @inheritDoc */
+/**
+ * @override
+ */
 MediaStream.prototype.removeEventListener = function(type, listener,
-    opt_options) {};
+    opt_useCapture) {};
 
-/** @inheritDoc */
+/**
+ * @override
+ * @return {boolean}
+ */
 MediaStream.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -279,7 +283,7 @@ var webkitMediaStream;
 
 /**
  * @interface
- * @see http://w3c.github.io/webrtc-pc/#rtcrtpsender-interface
+ * @see https://www.w3.org/TR/webrtc/#rtcrtpsender-interface
  */
 function RTCRtpSender() {}
 
@@ -293,9 +297,17 @@ RTCRtpSender.prototype.track;
  */
 RTCRtpSender.prototype.replaceTrack = function(track) {};
 
+
+/**
+ * @param {!Object} params
+ * @return {!Promise<undefined>}
+ */
+RTCRtpSender.prototype.setParameters = function(params) {};
+
+
 /**
  * @interface
- * @see http://w3c.github.io/webrtc-pc/#rtcrtpreceiver-interface
+ * @see https://www.w3.org/TR/webrtc/#rtcrtpreceiver-interface
  */
 function RTCRtpReceiver() {}
 
@@ -304,6 +316,21 @@ function RTCRtpReceiver() {}
  */
 RTCRtpReceiver.prototype.track;
 
+/**
+ * @interface
+ * @see https://www.w3.org/TR/webrtc/#rtcrtptransceiver-interface
+ */
+function RTCRtpTransceiver() {}
+
+/**
+ * @const {?RTCRtpSender}
+ */
+RTCRtpTransceiver.prototype.sender;
+
+/**
+ * @const {?RTCRtpReceiver}
+ */
+RTCRtpTransceiver.prototype.receiver;
 
 /**
  * This interface defines the available constraint attributes.  These are the
@@ -483,7 +510,7 @@ NavigatorUserMediaError.prototype.constraintName;
  * @param {function(!NavigatorUserMediaError)=} errorCallback A
  *     NavigatorUserMediaErrorCallback function.
  * @see http://dev.w3.org/2011/webrtc/editor/getusermedia.html
- * @see http://www.w3.org/TR/mediacapture-streams/
+ * @see https://www.w3.org/TR/mediacapture-streams/
  * @return {undefined}
  */
 Navigator.prototype.webkitGetUserMedia =
@@ -501,6 +528,38 @@ function MediaStreamEvent(type, eventInitDict) {}
  * @const
  */
 MediaStreamEvent.prototype.stream;
+
+/**
+ * @see https://www.w3.org/TR/webrtc/#rtctrackevent
+ * @param {string} type
+ * @param {!Object} eventInitDict
+ * @constructor
+ */
+function RTCTrackEvent(type, eventInitDict) {}
+
+/**
+ * @type {?RTCRtpReceiver}
+ * @const
+ */
+RTCTrackEvent.prototype.receiver;
+
+/**
+ * @type {?MediaStreamTrack}
+ * @const
+ */
+RTCTrackEvent.prototype.track;
+
+/**
+ * @type {?Array<!MediaStream>}
+ * @const
+ */
+RTCTrackEvent.prototype.streams;
+
+/**
+ * @type {?RTCRtpTransceiver}
+ * @const
+ */
+RTCTrackEvent.prototype.transceiver;
 
 /**
  * @typedef {string}
@@ -552,7 +611,7 @@ Navigator.prototype.mediaDevices;
 
 /**
  * @typedef {string}
- * @see http://www.w3.org/TR/webrtc/#rtcsdptype
+ * @see https://www.w3.org/TR/webrtc/#rtcsdptype
  * In WebIDL this is an enum with values 'offer', 'pranswer', and 'answer',
  * but there is no mechanism in Closure for describing a specialization of
  * the string type.
@@ -565,19 +624,19 @@ var RTCSdpType;
  * {type:RTCSdpType, sdp:string}, but neither of these keys are required to be
  * present, and other keys are ignored, so the closest Closure type is Object.
  * @constructor
- * @see http://dev.w3.org/2011/webrtc/editor/webrtc.html#rtcsessiondescription-class
+ * @see https://www.w3.org/TR/webrtc/#rtcsessiondescription-class
  */
 function RTCSessionDescription(descriptionInitDict) {}
 
 /**
  * @type {?RTCSdpType}
- * @see http://www.w3.org/TR/webrtc/#widl-RTCSessionDescription-type
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcsessiondescription-type
  */
 RTCSessionDescription.prototype.type;
 
 /**
  * @type {?string}
- * @see http://www.w3.org/TR/webrtc/#widl-RTCSessionDescription-sdp
+ * @see https://www.w3.org/TR/webrtc/#dom-rtcsessiondescription-sdp
  */
 RTCSessionDescription.prototype.sdp;
 
@@ -606,7 +665,7 @@ IceCandidate.prototype.label;
  * these keys are required to be present, and other keys are ignored, so the
  * closest Closure type is Object.
  * @constructor
- * @see http://www.w3.org/TR/webrtc/#rtcicecandidate-type
+ * @see https://www.w3.org/TR/webrtc/#rtcicecandidate-interface
  */
 function RTCIceCandidate(candidateInitDict) {}
 
@@ -626,9 +685,9 @@ RTCIceCandidate.prototype.sdpMid;
 RTCIceCandidate.prototype.sdpMLineIndex;
 
 /**
- * @typedef {{url: string}}
+ * @typedef {{urls: string}|{urls: !Array<!string>}}
  * @private
- * @see http://www.w3.org/TR/webrtc/#rtciceserver-type
+ * @see https://www.w3.org/TR/webrtc/#rtciceserver-dictionary
  * This dictionary type also has an optional key {credential: ?string}.
  */
 var RTCIceServerRecord_;
@@ -640,9 +699,14 @@ var RTCIceServerRecord_;
 function RTCIceServerInterface_() {}
 
 /**
- * @type {string}
+ * @type {string|!Array<!string>}
  */
-RTCIceServerInterface_.prototype.url;
+RTCIceServerInterface_.prototype.urls;
+
+/**
+ * @type {?string}
+ */
+RTCIceServerInterface_.prototype.username;
 
 /**
  * @type {?string}
@@ -1005,17 +1069,13 @@ function RTCPeerConnection(configuration, constraints) {}
 RTCPeerConnection.generateCertificate = function (keygenAlgorithm) {};
 
 /**
- * @param {boolean=} opt_useCapture
  * @override
- * @return {undefined}
  */
 RTCPeerConnection.prototype.addEventListener = function(
     type, listener, opt_useCapture) {};
 
 /**
- * @param {boolean=} opt_useCapture
  * @override
- * @return {undefined}
  */
 RTCPeerConnection.prototype.removeEventListener = function(
     type, listener, opt_useCapture) {};
@@ -1205,6 +1265,11 @@ RTCPeerConnection.prototype.onsignalingstatechange;
  * @type {?function(!MediaStreamEvent)}
  */
 RTCPeerConnection.prototype.onaddstream;
+
+/**
+ * @type {?function(!RTCTrackEvent)}
+ */
+RTCPeerConnection.prototype.ontrack;
 
 /**
  * @type {?function(!MediaStreamEvent)}

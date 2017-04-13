@@ -278,6 +278,62 @@ public final class MakeDeclaredNamesUniqueTest extends Es6CompilerTestCase {
         "function foo(){var arguments$jscomp$0;}");
   }
 
+  public void testClassInForLoop() {
+    useDefaultRenamer = true;
+    testSameEs6("for (class a {};;) { break; }");
+  }
+
+  public void testFunctionInForLoop() {
+    useDefaultRenamer = true;
+    testSameEs6("for (function a() {};;) { break; }");
+  }
+
+  public void testLetsInSeparateBlocks() {
+    useDefaultRenamer = true;
+    testEs6(
+        LINE_JOINER.join(
+            "if (x) {",
+            "  let e;",
+            "  alert(e);",
+            "}",
+            "if (y) {",
+            "  let e;",
+            "  alert(e);",
+            "}"),
+        LINE_JOINER.join(
+            "if (x) {",
+            "  let e;",
+            "  alert(e);",
+            "}",
+            "if (y) {",
+            "  let e$jscomp$1;",
+            "  alert(e$jscomp$1);",
+            "}"));
+  }
+
+  public void testConstInGlobalHoistScope() {
+    useDefaultRenamer = true;
+    testSameEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x = 1; alert(x);",
+            "}"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x = 1; alert(x);",
+            "} else {",
+            "  const x = 1; alert(x);",
+            "}"),
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x = 1; alert(x);",
+            "} else {",
+            "  const x$jscomp$1 = 1; alert(x$jscomp$1);",
+            "}"));
+  }
+
   public void testMakeLocalNamesUniqueWithoutContext() {
     // Set the test type
     this.useDefaultRenamer = false;
@@ -303,17 +359,30 @@ public final class MakeDeclaredNamesUniqueTest extends Es6CompilerTestCase {
          "function foo$jscomp$unique_1(){var b$jscomp$unique_3;a$jscomp$unique_0}"
          + "function boo$jscomp$unique_2(){var b$jscomp$unique_4;a$jscomp$unique_0}");
 
-    testEs6("let a;"
-            + "function foo(a){let b;a}",
-            "let a$jscomp$unique_0;"
-            + "function foo$jscomp$unique_1(a$jscomp$unique_2){" +
-            "  let b$jscomp$unique_3;a$jscomp$unique_2}");
-    testEs6("let a;"
-            + "function foo(){let b;a}"
-            + "function boo(){let b;a}",
-            "let a$jscomp$unique_0;"
-            + "function foo$jscomp$unique_1(){let b$jscomp$unique_3;a$jscomp$unique_0}"
-            + "function boo$jscomp$unique_2(){let b$jscomp$unique_4;a$jscomp$unique_0}");
+    testEs6(
+        "let a; function foo(a) {let b; a; }",
+        LINE_JOINER.join(
+            "let a$jscomp$unique_0;",
+            "function foo$jscomp$unique_1(a$jscomp$unique_2) {",
+            "  let b$jscomp$unique_3;",
+            "  a$jscomp$unique_2;",
+            "}"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "let a;",
+            "function foo() { let b; a; }",
+            "function boo() { let b; a; }"),
+        LINE_JOINER.join(
+            "let a$jscomp$unique_0;",
+            "function foo$jscomp$unique_1() {",
+            "  let b$jscomp$unique_3;",
+            "  a$jscomp$unique_0;",
+            "}",
+            "function boo$jscomp$unique_2() {",
+            "  let b$jscomp$unique_4;",
+            "  a$jscomp$unique_0;",
+            "}"));
 
     // Verify function expressions are renamed.
     test("var a = function foo(){foo()};",
@@ -429,14 +498,34 @@ public final class MakeDeclaredNamesUniqueTest extends Es6CompilerTestCase {
   }
 
   public void testVarParamSameName() {
-    test("function f(x) { if (!x) var x = 6; }",
-         "function f$jscomp$unique_0(x$jscomp$unique_1) {"
-         + "  if (!x$jscomp$unique_1) var x$jscomp$unique_1 = 6; }");
-    test("function f(x) { if (!x) x = 6; }",
-         "function f$jscomp$unique_0(x$jscomp$unique_1) {"
-         + "  if (!x$jscomp$unique_1) x$jscomp$unique_1 = 6; }");
-    testEs6("function f(x) { if (!x) { let x = 6; } }",
-            "function f$jscomp$unique_0(x$jscomp$unique_1) {"
-            + "  if (!x$jscomp$unique_1) { let x$jscomp$unique_2 = 6; } }");
+    test(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  if (!x) var x = 6;",
+            "}"),
+        LINE_JOINER.join(
+             "function f$jscomp$unique_0(x$jscomp$unique_1) {",
+             "  if (!x$jscomp$unique_1) var x$jscomp$unique_1 = 6;",
+             "}"));
+
+    test(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  if (!x) x = 6;",
+            "}"),
+        LINE_JOINER.join(
+             "function f$jscomp$unique_0(x$jscomp$unique_1) {",
+             "  if (!x$jscomp$unique_1) x$jscomp$unique_1 = 6; ",
+             "}"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  if (!x) { let x = 6; }",
+            "}"),
+        LINE_JOINER.join(
+            "function f$jscomp$unique_0(x$jscomp$unique_1) {",
+            "  if (!x$jscomp$unique_1) { let x$jscomp$unique_2 = 6; }",
+            "}"));
   }
 }

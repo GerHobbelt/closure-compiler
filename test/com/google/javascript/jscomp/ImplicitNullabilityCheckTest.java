@@ -20,6 +20,12 @@ package com.google.javascript.jscomp;
 public final class ImplicitNullabilityCheckTest extends TypeICompilerTestCase {
 
   @Override
+  protected CompilerOptions getOptions(CompilerOptions options) {
+    options.setWarningLevel(DiagnosticGroups.ANALYZER_CHECKS, CheckLevel.WARNING);
+    return options;
+  }
+
+  @Override
   public CompilerPass getProcessor(Compiler compiler) {
     return new ImplicitNullabilityCheck(compiler);
   }
@@ -74,7 +80,8 @@ public final class ImplicitNullabilityCheckTest extends TypeICompilerTestCase {
     // Different warnings in OTI and NTI
     this.mode = TypeInferenceMode.OTI_ONLY;
     testSame(
-        DEFAULT_EXTERNS, "/** @type {gibberish} */ var x;", RhinoErrorReporter.TYPE_PARSE_ERROR);
+        DEFAULT_EXTERNS, "/** @type {gibberish} */ var x;",
+        RhinoErrorReporter.UNRECOGNIZED_TYPE_ERROR);
 
     this.mode = TypeInferenceMode.NTI_ONLY;
     testSame(

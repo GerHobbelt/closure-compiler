@@ -27,11 +27,16 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.primitives.Chars;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.parsing.Config;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SourcePosition;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,11 +49,17 @@ import javax.annotation.Nullable;
 
 /**
  * Compiler options
+ *
  * @author nicksantos@google.com (Nick Santos)
  */
-public class CompilerOptions {
+public class CompilerOptions implements Serializable {
   // The number of characters after which we insert a line break in the code
   static final int DEFAULT_LINE_LENGTH_THRESHOLD = 500;
+
+  static final char[] POLYMER_PROPERTY_RESERVED_FIRST_CHARS =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ$".toCharArray();
+  static final char[] POLYMER_PROPERTY_RESERVED_NON_FIRST_CHARS = "_$".toCharArray();
+  static final char[] ANGULAR_PROPERTY_RESERVED_FIRST_CHARS = {'$'};
 
   /**
    * A common enum for compiler passes that can run either globally or locally.
@@ -363,6 +374,23 @@ public class CompilerOptions {
     this.legacyCodeCompile = legacy;
   }
 
+  // TODO(bradfordcsmith): Resolve the closure managed dependencies case where we don't really want
+  // to fully parse all input files, then investigate how can we use multi-threads as default.
+  int numParallelThreads = 1;
+
+  /**
+   * Sets the level of parallelism for compilation passes that can exploit multi-threading.
+   *
+   * <p>Some compiler passes may take advantage of multi-threading, for example, parsing inputs.
+   * This sets the level of parallelism. The compiler will not start more than this number of
+   * threads.
+   *
+   * @param parallelism up to this number of parallel threads may be created.
+   */
+  public void setNumParallelThreads(int parallelism) {
+    numParallelThreads = parallelism;
+  }
+
   //--------------------------------
   // Optimizations
   //--------------------------------
@@ -537,6 +565,8 @@ public class CompilerOptions {
 
   /** Use type information to enable additional optimization opportunities. */
   boolean useTypesForLocalOptimization;
+
+  boolean useSizeHeuristicToStopOptimizationLoop = true;
 
   //--------------------------------
   // Renaming
@@ -1080,7 +1110,7 @@ public class CompilerOptions {
   private ImmutableList<ConformanceConfig> conformanceConfigs = ImmutableList.of();
 
   /**
-   * For use in {@value CompilationLevel#WHITESPACE_ONLY} mode, when using goog.module.
+   * For use in {@link CompilationLevel#WHITESPACE_ONLY} mode, when using goog.module.
    */
   boolean wrapGoogModulesForWhitespaceOnly = true;
 
@@ -2025,15 +2055,6 @@ public class CompilerOptions {
     return continueAfterErrors;
   }
 
-
-  @Deprecated
-  public void setParseJsDocDocumentation(boolean parseJsDocDocumentation) {
-    setParseJsDocDocumentation(
-        parseJsDocDocumentation
-            ? Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE
-            : Config.JsDocParsing.TYPES_ONLY);
-  }
-
   /**
    * Enables or disables the parsing of JSDoc documentation, and optionally also
    * the preservation of all whitespace and formatting within a JSDoc comment.
@@ -2218,6 +2239,10 @@ public class CompilerOptions {
 
   public void setUseTypesForLocalOptimization(boolean useTypesForLocalOptimization) {
     this.useTypesForLocalOptimization = useTypesForLocalOptimization;
+  }
+
+  public void setUseSizeHeuristicToStopOptimizationLoop(boolean mayStopEarly) {
+    this.useSizeHeuristicToStopOptimizationLoop = mayStopEarly;
   }
 
   @Deprecated
@@ -2683,6 +2708,19 @@ public class CompilerOptions {
 
   public void setModuleResolutionMode(ModuleLoader.ResolutionMode mode) {
     this.moduleResolutionMode = mode;
+  }
+
+  /** Serializes compiler options to a stream. */
+  @GwtIncompatible("ObjectOutputStream")
+  public void serialize(OutputStream objectOutputStream) throws IOException {
+    new java.io.ObjectOutputStream(objectOutputStream).writeObject(this);
+  }
+
+  /** Deserializes compiler options from a stream. */
+  @GwtIncompatible("ObjectInputStream")
+  public static CompilerOptions deserialize(InputStream objectInputStream)
+      throws IOException, ClassNotFoundException {
+    return (CompilerOptions) new java.io.ObjectInputStream(objectInputStream).readObject();
   }
 
   @Override
@@ -3233,5 +3271,35 @@ public class CompilerOptions {
   public CompilerOptions setStrictModeInput(boolean isStrictModeInput) {
     this.isStrictModeInput = isStrictModeInput;
     return this;
+  }
+
+  public char[] getPropertyReservedNamingFirstChars() {
+    char[] reservedChars = anonymousFunctionNaming.getReservedCharacters();
+    if (polymerVersion != null && polymerVersion > 1) {
+      if (reservedChars == null) {
+        reservedChars = POLYMER_PROPERTY_RESERVED_FIRST_CHARS;
+      } else {
+        reservedChars = Chars.concat(reservedChars, POLYMER_PROPERTY_RESERVED_FIRST_CHARS);
+      }
+    } else if (angularPass) {
+      if (reservedChars == null) {
+        reservedChars = ANGULAR_PROPERTY_RESERVED_FIRST_CHARS;
+      } else {
+        reservedChars = Chars.concat(reservedChars, ANGULAR_PROPERTY_RESERVED_FIRST_CHARS);
+      }
+    }
+    return reservedChars;
+  }
+
+  public char[] getPropertyReservedNamingNonFirstChars() {
+    char[] reservedChars = anonymousFunctionNaming.getReservedCharacters();
+    if (polymerVersion != null && polymerVersion > 1) {
+      if (reservedChars == null) {
+        reservedChars = POLYMER_PROPERTY_RESERVED_NON_FIRST_CHARS;
+      } else {
+        reservedChars = Chars.concat(reservedChars, POLYMER_PROPERTY_RESERVED_NON_FIRST_CHARS);
+      }
+    }
+    return reservedChars;
   }
 }

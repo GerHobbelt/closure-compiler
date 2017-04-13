@@ -363,8 +363,8 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   public void testEs6ObjectShorthand() {
-    setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6,
-        CompilerOptions.LanguageMode.ECMASCRIPT5);
+    setLanguage(
+        CompilerOptions.LanguageMode.ECMASCRIPT_2015, CompilerOptions.LanguageMode.ECMASCRIPT5);
     setFilename("test");
     testModules(
         LINE_JOINER.join(
@@ -499,7 +499,8 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   public void testClassRewriting() {
-    setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6, CompilerOptions.LanguageMode.ECMASCRIPT5);
+    setLanguage(
+        CompilerOptions.LanguageMode.ECMASCRIPT_2015, CompilerOptions.LanguageMode.ECMASCRIPT5);
     setFilename("test");
     testModules(
         LINE_JOINER.join(
@@ -541,7 +542,8 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   public void testMultipleAssignments() {
-    setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6, CompilerOptions.LanguageMode.ECMASCRIPT5);
+    setLanguage(
+        CompilerOptions.LanguageMode.ECMASCRIPT_2015, CompilerOptions.LanguageMode.ECMASCRIPT5);
     setExpectParseWarningsThisTest();
     setFilename("test");
     testModules(
@@ -560,7 +562,8 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   public void testDestructuringImports() {
-    setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6, CompilerOptions.LanguageMode.ECMASCRIPT5);
+    setLanguage(
+        CompilerOptions.LanguageMode.ECMASCRIPT_2015, CompilerOptions.LanguageMode.ECMASCRIPT5);
     setFilename("test");
     testModules(
         LINE_JOINER.join(
@@ -573,7 +576,8 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   public void testAnnotationsCopied() {
-    setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6, CompilerOptions.LanguageMode.ECMASCRIPT5);
+    setLanguage(
+        CompilerOptions.LanguageMode.ECMASCRIPT_2015, CompilerOptions.LanguageMode.ECMASCRIPT5);
     setFilename("test");
     testModules(
         LINE_JOINER.join(
@@ -768,5 +772,17 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
             "var module$test = /** @constructor */ function () {};",
             "/** @constructor */ function Bar$$module$test(Foo) { this.foo = new Foo(); }",
             "module$test.prototype.test = new Bar$$module$test(module$test);"));
+  }
+
+  public void testIssue2308() {
+    setFilename("test");
+    testModules(
+        "exports.y = null; var x; x = exports.y;",
+        LINE_JOINER.join(
+            "goog.provide('module$test');",
+            "/** @const */ var module$test = {};",
+            "module$test.y = null;",
+            "var x$$module$test;",
+            "x$$module$test = module$test.y"));
   }
 }

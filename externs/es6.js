@@ -197,6 +197,32 @@ Number.prototype.toLocaleString = function(opt_locales, opt_options) {};
 
 
 /**
+ * Pads the end of the string so that it reaches the given length.
+ * NOTE: this is an ES2017 (ES8) extern.
+ *
+ * @param {number} targetLength The target length.
+ * @param {string=} opt_padString The string to pad with.
+ * @this {String|string}
+ * @return {string}
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/padEnd
+ */
+String.prototype.padEnd = function(targetLength, opt_padString) {};
+
+/**
+ * Pads the start of the string so that it reaches the given length.
+ * NOTE: this is an ES2017 (ES8) extern.
+ *
+ * @param {number} targetLength The target length.
+ * @param {string=} opt_padString The string to pad with.
+ * @this {String|string}
+ * @return {string}
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/padStart
+ */
+String.prototype.padStart = function(targetLength, opt_padString) {};
+
+/**
  * Repeats the string the given number of times.
  *
  * @param {number} count The number of times the string is repeated.
@@ -340,6 +366,7 @@ var BufferSource;
 /**
  * @constructor
  * @implements {IArrayLike<number>}
+ * @implements {Iterable<number>}
  * @extends {ArrayBufferView}
  */
 function TypedArray() {};
@@ -423,6 +450,7 @@ TypedArray.prototype.findIndex = function(callback, opt_thisArg) {};
 TypedArray.prototype.forEach = function(callback, opt_thisArg) {};
 
 /**
+ * NOTE: this is an ES2016 (ES7) extern.
  * @param {number} searchElement
  * @param {number=} opt_fromIndex
  * @return {boolean}
@@ -577,6 +605,8 @@ TypedArray.prototype.toLocaleString = function() {};
  */
 TypedArray.prototype.toString = function() {};
 
+/** @override */
+TypedArray.prototype[Symbol.iterator] = function() {};
 
 /**
  * @param {number|ArrayBufferView|Array<number>|ArrayBuffer} length or array
@@ -1285,6 +1315,7 @@ Array.prototype.copyWithin = function(target, start, opt_end) {};
 
 
 /**
+ * NOTE: this is an ES2016 (ES7) extern.
  * @param {T} searchElement
  * @param {number=} opt_fromIndex
  * @return {boolean}
@@ -1397,6 +1428,7 @@ Object.assign = function(target, var_args) {};
 
 /**
  * TODO(dbeam): find a better place for ES2017 externs like this one.
+ * NOTE: this is an ES2017 (ES8) extern.
  * @param {!Object<T>} obj
  * @return {!Array<T>} values
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/values
@@ -1406,6 +1438,7 @@ Object.assign = function(target, var_args) {};
 Object.values = function(obj) {};
 
 /**
+ * NOTE: this is an ES2017 (ES8) extern.
  * @param {!Object<T>} obj
  * @return {!Array<!Array<(string|T)>>} entries
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/entries
@@ -1413,6 +1446,16 @@ Object.values = function(obj) {};
  * @template T
  */
 Object.entries = function(obj) {};
+
+/**
+ * NOTE: this is an ES2017 (ES8) extern.
+ * @param {!Object} obj
+ * @return {!Object<!ObjectPropertyDescriptor>} descriptors
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getOwnPropertyDescriptors
+ * @throws {Error}
+ * @template T
+ */
+Object.getOwnPropertyDescriptors = function(obj) {};
 
 
 

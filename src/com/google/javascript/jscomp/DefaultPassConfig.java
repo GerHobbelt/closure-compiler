@@ -284,6 +284,8 @@ public final class DefaultPassConfig extends PassConfig {
       return checks;
     }
 
+    checks.add(checkVariableReferences);
+
     if (options.closurePass) {
       checks.add(closureCheckModule);
       checks.add(closureRewriteModule);
@@ -299,7 +301,6 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     checks.add(checkMissingSuper);
-    checks.add(checkVariableReferences);
 
     if (options.closurePass) {
       checks.add(closureGoogScopeAliases);
@@ -532,6 +533,13 @@ public final class DefaultPassConfig extends PassConfig {
 
     if (options.skipNonTranspilationPasses) {
       return passes;
+    }
+
+    passes.add(normalize);
+
+    // Create extern exports after the normalize because externExports depends on unique names.
+    if (options.isExternExportsEnabled() || options.externExportsPath != null) {
+      passes.add(externExports);
     }
 
     // Gather property names in externs so they can be queried by the
@@ -1088,12 +1096,6 @@ public final class DefaultPassConfig extends PassConfig {
     assertPassOrder(
         checks,
         closureRewriteModule,
-        checkVariableReferences,
-        "If checkVariableReferences runs before closureRewriteModule, it will produce invalid"
-            + " warnings because it will think of module-scoped variables as global variables.");
-    assertPassOrder(
-        checks,
-        closureRewriteModule,
         processDefines,
         "Must rewrite goog.module before processing @define's, so that @defines in modules work.");
     assertPassOrder(
@@ -1394,7 +1396,7 @@ public final class DefaultPassConfig extends PassConfig {
 
   /** Inlines type aliases if they are explicitly or effectively const. */
   private final PassFactory aggressiveInlineAliases =
-      new PassFactory("aggressiveInlineAliases", false) {
+      new PassFactory("aggressiveInlineAliases", true) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
           return new AggressiveInlineAliases(compiler);
@@ -1553,7 +1555,7 @@ public final class DefaultPassConfig extends PassConfig {
 
   /** Various peephole optimizations. */
   private final PassFactory peepholeOptimizations =
-      new PassFactory("peepholeOptimizations", false /* oneTimePass */) {
+      new PassFactory(Compiler.PEEPHOLE_PASS_NAME, false /* oneTimePass */) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return createPeepholeOptimizationsPass(compiler);
@@ -1562,7 +1564,7 @@ public final class DefaultPassConfig extends PassConfig {
 
   /** Various peephole optimizations. */
   private final PassFactory peepholeOptimizationsOnce =
-      new PassFactory("peepholeOptimizations", true /* oneTimePass */) {
+      new PassFactory(Compiler.PEEPHOLE_PASS_NAME, true /* oneTimePass */) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return createPeepholeOptimizationsPass(compiler);
@@ -2225,7 +2227,7 @@ public final class DefaultPassConfig extends PassConfig {
    * Use data flow analysis to remove dead branches.
    */
   private final PassFactory removeUnreachableCode =
-      new PassFactory("removeUnreachableCode", false) {
+      new PassFactory(Compiler.UNREACHABLE_CODE_ELIM_NAME, false) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return new UnreachableCodeElimination(compiler, true);
@@ -2559,17 +2561,19 @@ public final class DefaultPassConfig extends PassConfig {
   };
 
   /**
-   * Renames properties so that the two properties that never appear on
-   * the same object get the same name.
+   * Renames properties so that the two properties that never appear on the same object get the same
+   * name.
    */
   private final PassFactory ambiguateProperties =
       new PassFactory("ambiguateProperties", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new AmbiguateProperties(
-          compiler, options.anonymousFunctionNaming.getReservedCharacters());
-    }
-  };
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new AmbiguateProperties(
+              compiler,
+              options.getPropertyReservedNamingFirstChars(),
+              options.getPropertyReservedNamingNonFirstChars());
+        }
+      };
 
   /**
    * Mark the point at which the normalized AST assumptions no longer hold.
@@ -2583,6 +2587,20 @@ public final class DefaultPassConfig extends PassConfig {
           compiler.setLifeCycleStage(LifeCycleStage.RAW);
         }
       };
+    }
+  };
+
+  private final PassFactory normalize = new PassFactory("normalize", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new Normalize(compiler, false);
+    }
+  };
+
+  private final PassFactory externExports = new PassFactory("externExports", true) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new ExternExportsPass(compiler);
     }
   };
 
@@ -2603,9 +2621,7 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
-  /**
-   * Renames properties.
-   */
+  /** Renames properties. */
   private final PassFactory renameProperties =
       new PassFactory("renameProperties", true) {
         @Override
@@ -2615,13 +2631,13 @@ public final class DefaultPassConfig extends PassConfig {
           return new CompilerPass() {
             @Override
             public void process(Node externs, Node root) {
-              char[] reservedChars = options.anonymousFunctionNaming.getReservedCharacters();
               RenameProperties rprop =
                   new RenameProperties(
                       compiler,
                       options.generatePseudoNames,
                       prevPropertyMap,
-                      reservedChars,
+                      options.getPropertyReservedNamingFirstChars(),
+                      options.getPropertyReservedNamingNonFirstChars(),
                       options.nameGenerator);
               rprop.process(externs, root);
               propertyMap = rprop.getPropertyMap();

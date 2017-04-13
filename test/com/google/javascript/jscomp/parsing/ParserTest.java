@@ -984,7 +984,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parseError(js, "primary expression expected");
   }
 
-  private void assertNodeEquality(Node expected, Node found) {
+  private static void assertNodeEquality(Node expected, Node found) {
     String message = expected.checkTreeEquals(found);
     if (message != null) {
       fail(message);
@@ -1106,7 +1106,7 @@ public final class ParserTest extends BaseJSTypeTestCase {
         parse("a = b + c(d + e).print()"));
   }
 
-  private Node createScript(Node n) {
+  private static Node createScript(Node n) {
     Node script = new Node(Token.SCRIPT);
     script.addChildToBack(n);
     return script;
@@ -1978,6 +1978,19 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parse("function * f() { (yield) + (yield); }"); // OK
     parse("function * f() { return yield; }"); // OK
     parse("function * f() { return yield 1; }"); // OK
+    parse(LINE_JOINER.join(
+        "function * f() {",
+        "  yield *", // line break allowed here
+        "      [1, 2, 3];",
+        "}"));
+    expectFeatures();
+    parseError(LINE_JOINER.join(
+        "function * f() {",
+        "  yield", // line break not allowed here
+        "      *[1, 2, 3];",
+        "}"),
+        "'}' expected");
+    parseError("function * f() { yield *; }", "yield* requires an expression");
   }
 
   public void testYield3() {
@@ -2496,6 +2509,27 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parseError("var abc\\t", "Invalid escape sequence");
   }
 
+  public void testUnnecessaryEscape() {
+    parseWarning("var str = '\\a'", "Unnecessary escape: '\\a' is equivalent to just 'a'");
+    parse("var str = '\\b'");
+    parseWarning("var str = '\\c'", "Unnecessary escape: '\\c' is equivalent to just 'c'");
+    parseWarning("var str = '\\d'", "Unnecessary escape: '\\d' is equivalent to just 'd'");
+    parseWarning("var str = '\\e'", "Unnecessary escape: '\\e' is equivalent to just 'e'");
+    parse("var str = '\\f'");
+    parse("var str = '\\/'");
+    parse("var str = '\\0'");
+    parseWarning("var str = '\\1'", "Unnecessary escape: '\\1' is equivalent to just '1'");
+    parseWarning("var str = '\\2'", "Unnecessary escape: '\\2' is equivalent to just '2'");
+    parseWarning("var str = '\\3'", "Unnecessary escape: '\\3' is equivalent to just '3'");
+    parseWarning("var str = '\\%'", "Unnecessary escape: '\\%' is equivalent to just '%'");
+
+    parse("var str = '\\$'");  // TODO(tbreisacher): We should warn for this case.
+
+    mode = LanguageMode.ECMASCRIPT6;
+    expectFeatures(Feature.TEMPLATE_LITERALS);
+    parse("var str = `\\$`");
+  }
+
   public void testEOFInUnicodeEscape() {
     parseError("var \\u1", "Invalid escape sequence");
     parseError("var \\u12", "Invalid escape sequence");
@@ -2946,6 +2980,12 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parseError("f( (x,y)\n=>2)", "No newline allowed before '=>'");
   }
 
+  public void testInvalidAwait() {
+    parseError("await 15;", "'await' used in a non-async function context");
+    parseError(
+        "function f() { return await 5; }", "'await' used in a non-async function context");
+  }
+
   public void testAsyncFunction() {
     String asyncFunctionExpressionSource = "f = async function() {};";
     String asyncFunctionDeclarationSource = "async function f() {}";
@@ -2966,6 +3006,18 @@ public final class ParserTest extends BaseJSTypeTestCase {
             requiresLanguageModeMessage(LanguageMode.ECMASCRIPT8, Feature.ASYNC_FUNCTIONS));
       }
     }
+  }
+
+  public void testAsyncNamedFunction() {
+    mode = LanguageMode.ECMASCRIPT6;
+    expectFeatures(Feature.CLASSES, Feature.CONST_DECLARATIONS);
+    parse(LINE_JOINER.join(
+        "class C {",
+        "  async(x) { return x; }",
+        "}",
+        "const c = new C();",
+        "c.async(1);",
+        "let foo = async(5);"));
   }
 
   public void testInvalidAsyncFunction() {
@@ -3490,11 +3542,11 @@ public final class ParserTest extends BaseJSTypeTestCase {
     assertThat(sourceMap.getOriginalSources()).containsExactly("foo.ts");
   }
 
-  private String getRequiresEs6Message(Feature feature) {
+  private static String getRequiresEs6Message(Feature feature) {
     return requiresLanguageModeMessage(LanguageMode.ECMASCRIPT6, feature);
   }
 
-  private String requiresLanguageModeMessage(LanguageMode languageMode, Feature feature) {
+  private static String requiresLanguageModeMessage(LanguageMode languageMode, Feature feature) {
     return String.format(
         "this language feature is only supported for %s mode or better: %s",
         languageMode,
@@ -3506,11 +3558,11 @@ public final class ParserTest extends BaseJSTypeTestCase {
     return n;
   }
 
-  private Node expr(Node n) {
+  private static Node expr(Node n) {
     return new Node(Token.EXPR_RESULT, n);
   }
 
-  private Node regex(String regex) {
+  private static Node regex(String regex) {
     return new Node(Token.REGEXP, Node.newString(regex));
   }
 

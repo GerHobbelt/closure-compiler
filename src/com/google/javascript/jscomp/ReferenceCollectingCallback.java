@@ -16,11 +16,14 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
@@ -294,7 +297,7 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
   }
 
   private static <T> T peek(List<T> list) {
-    return list.get(list.size() - 1);
+    return Iterables.getLast(list);
   }
 
   /**
@@ -583,7 +586,12 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
 
     @Override
     public String toString() {
-      return "<ReferenceCollection for " + getInitializingReference() + ">";
+      return toStringHelper(this)
+          .add("initRef", getInitializingReference())
+          .add("references", references)
+          .add("wellDefined", isWellDefined())
+          .add("assignedOnce", isAssignedOnceInLifetime())
+          .toString();
     }
   }
 
@@ -592,17 +600,23 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
    */
   public static final class Reference implements StaticRef {
 
-    private static final Set<Token> DECLARATION_PARENTS =
-        ImmutableSet.of(Token.VAR, Token.LET, Token.CONST, Token.PARAM_LIST,
-            Token.FUNCTION, Token.CLASS, Token.CATCH, Token.REST);
+    private static final ImmutableSet<Token> DECLARATION_PARENTS =
+        ImmutableSet.of(
+            Token.VAR,
+            Token.LET,
+            Token.CONST,
+            Token.PARAM_LIST,
+            Token.FUNCTION,
+            Token.CLASS,
+            Token.CATCH,
+            Token.REST);
 
     private final Node nameNode;
     private final BasicBlock basicBlock;
     private final Scope scope;
     private final InputId inputId;
 
-    Reference(Node nameNode, NodeTraversal t,
-        BasicBlock basicBlock) {
+    Reference(Node nameNode, NodeTraversal t, BasicBlock basicBlock) {
       this(nameNode, basicBlock, t.getScope(), t.getInput().getInputId());
     }
 
@@ -618,12 +632,10 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
      */
     @VisibleForTesting
     static Reference createRefForTest(CompilerInput input) {
-      return new Reference(new Node(Token.NAME), null, null,
-          input.getInputId());
+      return new Reference(new Node(Token.NAME), null, null, input.getInputId());
     }
 
-    private Reference(Node nameNode,
-        BasicBlock basicBlock, Scope scope, InputId inputId) {
+    private Reference(Node nameNode, BasicBlock basicBlock, Scope scope, InputId inputId) {
       this.nameNode = nameNode;
       this.basicBlock = basicBlock;
       this.scope = scope;

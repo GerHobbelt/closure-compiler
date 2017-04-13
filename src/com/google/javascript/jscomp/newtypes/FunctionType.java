@@ -22,6 +22,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.javascript.rhino.TypeI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -332,7 +334,7 @@ public final class FunctionType {
       return this.commonTypes.QMARK_FUNCTION;
     }
     FunctionTypeBuilder builder = new FunctionTypeBuilder(this.commonTypes);
-    builder.addReqFormal(fromReceiverToFirstFormal());
+    builder.addReqFormal(this.receiverType == null ? this.commonTypes.UNKNOWN : this.receiverType);
     for (JSType type : this.requiredFormals) {
       builder.addReqFormal(type);
     }
@@ -357,31 +359,18 @@ public final class FunctionType {
       return instantiateGenericsWithUnknown().transformByApplyProperty();
     }
     FunctionTypeBuilder builder = new FunctionTypeBuilder(this.commonTypes);
-    builder.addReqFormal(fromReceiverToFirstFormal());
+    builder.addReqFormal(this.receiverType == null ? this.commonTypes.UNKNOWN : this.receiverType);
     JSType arrayContents;
     if (getMaxArityWithoutRestFormals() == 0 && hasRestFormals()) {
       arrayContents = getRestFormalsType();
     } else {
       arrayContents = this.commonTypes.UNKNOWN;
     }
-    builder.addOptFormal(this.commonTypes.getIArrayLikeInstance(arrayContents));
+    JSType varargsArray = this.commonTypes.getIArrayLikeInstance(arrayContents);
+    builder.addOptFormal(JSType.join(this.commonTypes.NULL, varargsArray));
     builder.addRetType(this.returnType);
     builder.addAbstract(this.isAbstract);
     return builder.buildFunction();
-  }
-
-  private JSType fromReceiverToFirstFormal() {
-    if (this.receiverType == null) {
-      return this.commonTypes.UNKNOWN;
-    }
-    NominalType nt = this.receiverType.getNominalTypeIfSingletonObj();
-    if (nt == null || nt.isBuiltinObject()) {
-      return this.receiverType;
-    }
-    if (nt.isGeneric()) {
-      return nt.instantiateGenerics(this.commonTypes.MAP_TO_UNKNOWN).getInstanceAsJSType();
-    }
-    return nt.getInstanceAsJSType();
   }
 
   // Should only be used during GlobalTypeInfo.
@@ -557,11 +546,7 @@ public final class FunctionType {
       }
       if (this.receiverType != null && other.receiverType != null
           // Contravariance for the receiver type
-          && !other.receiverType.isSubtypeOf(this.receiverType, subSuperMap)
-          // NOTE(dimvar): Covariance for the receiver type.
-          // Not correct, but allowed to make migration easier.
-          // After bounded generics, we could probably drop support for this.
-          && !this.receiverType.isSubtypeOf(other.receiverType, subSuperMap)) {
+          && !other.receiverType.isSubtypeOf(this.receiverType, subSuperMap)) {
         return false;
       }
     }
@@ -780,6 +765,17 @@ public final class FunctionType {
     return typeParameters;
   }
 
+  List<TypeI> getParameterTypes() {
+    int howmanyTypes = getMaxArityWithoutRestFormals() + (hasRestFormals() ? 1 : 0);
+    ArrayList<TypeI> types = new ArrayList<>(howmanyTypes);
+    types.addAll(this.requiredFormals);
+    types.addAll(this.optionalFormals);
+    if (hasRestFormals()) {
+      types.add(this.restFormals);
+    }
+    return types;
+  }
+
   boolean unifyWithSubtype(FunctionType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap, SubtypeCache subSuperMap) {
     Preconditions.checkState(this.typeParameters.isEmpty(),
@@ -965,36 +961,24 @@ public final class FunctionType {
     if (typeMap.isEmpty() || this.isTopFunction()) {
       return this;
     }
-    Map<String, JSType> reducedMap = typeMap;
     if (!this.commonTypes.MAP_TO_UNKNOWN.equals(typeMap)) {
-      boolean foundShadowedTypeParam = false;
+      // Before we switched to unique generated names for type variables, a method's type variables
+      // could shadow type variables defined on the class. Check that this no longer happens.
       for (String typeParam : this.typeParameters) {
-        if (typeMap.containsKey(typeParam)) {
-          foundShadowedTypeParam = true;
-          break;
-        }
-      }
-      if (foundShadowedTypeParam) {
-        ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
-        for (Map.Entry<String, JSType> entry : typeMap.entrySet()) {
-          if (!typeParameters.contains(entry.getKey())) {
-            builder.put(entry);
-          }
-        }
-        reducedMap = builder.build();
+        Preconditions.checkState(!typeMap.containsKey(typeParam));
       }
     }
     FunctionTypeBuilder builder = new FunctionTypeBuilder(this.commonTypes);
     for (JSType reqFormal : this.requiredFormals) {
-      builder.addReqFormal(reqFormal.substituteGenerics(reducedMap));
+      builder.addReqFormal(reqFormal.substituteGenerics(typeMap));
     }
     for (JSType optFormal : this.optionalFormals) {
-      builder.addOptFormal(optFormal.substituteGenerics(reducedMap));
+      builder.addOptFormal(optFormal.substituteGenerics(typeMap));
     }
     if (this.restFormals != null) {
-      builder.addRestFormals(restFormals.substituteGenerics(reducedMap));
+      builder.addRestFormals(restFormals.substituteGenerics(typeMap));
     }
-    builder.addRetType(this.returnType.substituteGenerics(reducedMap));
+    builder.addRetType(this.returnType.substituteGenerics(typeMap));
     if (isLoose()) {
       builder.addLoose();
     }
@@ -1076,26 +1060,37 @@ public final class FunctionType {
     return substituteParametricGenerics(typeMap);
   }
 
-  public FunctionType instantiateGenericsFromArgumentTypes(
-      List<JSType> argTypes) {
+  public FunctionType instantiateGenericsFromArgumentTypes(JSType recvtype, List<JSType> argTypes) {
     Preconditions.checkState(isGeneric());
     if (argTypes.size() < getMinArity() || argTypes.size() > getMaxArity()) {
       return null;
     }
     Multimap<String, JSType> typeMultimap = LinkedHashMultimap.create();
+    if (recvtype != null
+        && !getThisType()
+            .unifyWithSubtype(recvtype, typeParameters, typeMultimap, SubtypeCache.create())) {
+      return null;
+    }
     for (int i = 0, size = argTypes.size(); i < size; i++) {
+      JSType argType = argTypes.get(i);
+      if (argType.isBottom()) {
+        continue;
+      }
       if (!this.getFormalType(i).unifyWithSubtype(
-          argTypes.get(i), typeParameters, typeMultimap, SubtypeCache.create())) {
+          argType, typeParameters, typeMultimap, SubtypeCache.create())) {
         return null;
       }
     }
     ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
     for (String typeParam : typeParameters) {
       Collection<JSType> types = typeMultimap.get(typeParam);
-      if (types.size() != 1) {
+      if (types.size() > 1) {
         return null;
+      } else if (types.isEmpty()) {
+        builder.put(typeParam, this.commonTypes.UNKNOWN);
+      } else {
+        builder.put(typeParam, Iterables.getOnlyElement(types));
       }
-      builder.put(typeParam, Iterables.getOnlyElement(types));
     }
     return substituteParametricGenerics(builder.build());
   }

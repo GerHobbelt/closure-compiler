@@ -31,7 +31,6 @@ import com.google.common.collect.Iterables;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.CompilerOptions.DevMode;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.TypeValidator.TypeMismatch;
 import com.google.javascript.jscomp.WarningsGuard.DiagnosticGroupState;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
@@ -105,8 +104,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   static final String READING_PASS_NAME = "readInputs";
   static final String PARSING_PASS_NAME = "parseInputs";
   static final String CROSS_MODULE_CODE_MOTION_NAME = "crossModuleCodeMotion";
-  static final String CROSS_MODULE_METHOD_MOTION_NAME =
-      "crossModuleMethodMotion";
+  static final String CROSS_MODULE_METHOD_MOTION_NAME = "crossModuleMethodMotion";
+  static final String PEEPHOLE_PASS_NAME = "peepholeOptimizations";
+  static final String UNREACHABLE_CODE_ELIM_NAME = "removeUnreachableCode";
 
   private static final String CONFIG_RESOURCE =
       "com.google.javascript.jscomp.parsing.ParserConfig";
@@ -157,7 +157,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private CompilerOptions.LanguageMode languageMode =
       CompilerOptions.LanguageMode.ECMASCRIPT3;
 
-  private Map<InputId, CompilerInput> inputsById;
+  private final Map<InputId, CompilerInput> inputsById = new ConcurrentHashMap<>();
 
   // Function to load source files from disk or memory.
   private Function<String, SourceFile> originalSourcesLoader =
@@ -177,7 +177,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       new ConcurrentHashMap<>();
 
   // Map from filenames to lists of all the comments in each file.
-  private Map<String, List<Comment>> commentsPerFile = new HashMap<>();
+  private Map<String, List<Comment>> commentsPerFile = new ConcurrentHashMap<>();
 
   /** The source code map */
   private SourceMap sourceMap;
@@ -207,7 +207,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   CodingConvention defaultCodingConvention = new ClosureCodingConvention();
 
   private JSTypeRegistry typeRegistry;
-  private Config parserConfig = null;
+  private volatile Config parserConfig = null;
   private Config externsParserConfig = null;
 
   private ReverseAbstractInterpreter abstractInterpreter;
@@ -293,7 +293,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   public void setErrorManager(ErrorManager errorManager) {
     Preconditions.checkNotNull(
         errorManager, "the error manager cannot be null");
-    this.errorManager = errorManager;
+    this.errorManager = new ThreadSafeDelegatingErrorManager(errorManager);
   }
 
   /**
@@ -508,6 +508,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
 
     this.inputs = getAllInputsFromModules(modules);
+    this.commentsPerFile = new ConcurrentHashMap<>(inputs.size());
     initBasedOnOptions();
 
     initInputsByIdMap();
@@ -645,7 +646,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * duplicate inputs.
    */
   void initInputsByIdMap() {
-    inputsById = new HashMap<>();
+    inputsById.clear();
     for (CompilerInput input : externs) {
       InputId id = input.getInputId();
       CompilerInput previous = putCompilerInput(id, input);
@@ -906,16 +907,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     phaseOptimizer = null;
   }
 
-  private void externExports() {
-    logger.fine("Creating extern file for exports");
-    startPass("externExports");
-
-    ExternExportsPass pass = new ExternExportsPass(this);
-    process(pass);
-
-    externExports = pass.getGeneratedExterns();
-
-    endPass("externExports");
+  @Override
+  void setExternExports(String externExports) {
+    this.externExports = externExports;
   }
 
   @Override
@@ -1166,6 +1160,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   public CompilerInput getInput(InputId id) {
+    // TODO(bradfordcsmith): Allowing null id is less ideal. Add checkNotNull(id) here and fix
+    // call sites that break.
+    if (id == null) {
+      return null;
+    }
     return inputsById.get(id);
   }
 
@@ -1211,9 +1210,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   CompilerInput putCompilerInput(InputId id, CompilerInput input) {
-    if (inputsById == null) {
-      inputsById = new HashMap<>();
-    }
     input.setCompiler(this);
     return inputsById.put(id, input);
   }
@@ -1434,12 +1430,26 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   Iterable<TypeMismatch> getTypeMismatches() {
-    return getTypeValidator().getMismatches();
+    switch (this.mostRecentTypechecker) {
+      case OTI:
+        return getTypeValidator().getMismatches();
+      case NTI:
+        return getSymbolTable().getMismatches();
+      default:
+        throw new RuntimeException("Can't ask for type mismatches before type checking.");
+    }
   }
 
   @Override
   Iterable<TypeMismatch> getImplicitInterfaceUses() {
-    return getTypeValidator().getImplicitInterfaceUses();
+    switch (this.mostRecentTypechecker) {
+      case OTI:
+        return getTypeValidator().getImplicitInterfaceUses();
+      case NTI:
+        return getSymbolTable().getImplicitInterfaceUses();
+      default:
+        throw new RuntimeException("Can't ask for type mismatches before type checking.");
+    }
   }
 
   @Override
@@ -1522,6 +1532,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           return null;
         }
         externsRoot.addChildToBack(n);
+      }
+
+      if (options.numParallelThreads > 1) {
+        // Pre-build AST using multiple thread if we can.
+        new PrebuildAst(this, options.numParallelThreads).prebuild(inputs);
       }
 
       if (options.lowerFromEs6()
@@ -1890,9 +1905,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     initBasedOnOptions();
     CompilerInput input = new CompilerInput(
         SourceFile.fromCode("[testcode]", js));
-    if (inputsById == null) {
-      inputsById = new HashMap<>();
-    }
     putCompilerInput(input.getInputId(), input);
     return input.getAstRoot(this);
   }
@@ -2204,18 +2216,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       return;
     }
 
-    // Ideally, this pass should be the first pass run, however:
-    // 1) VariableReferenceCheck reports unexpected warnings if Normalize
-    // is done first.
-    // 2) ReplaceMessages, stripCode, and potentially custom passes rely on
-    // unmodified local names.
-    normalize();
-
-    // Create extern exports after the normalize because externExports depends on unique names.
-    if (options.isExternExportsEnabled()
-        || options.externExportsPath != null) {
-      externExports();
-    }
 
     phaseOptimizer = new PhaseOptimizer(this, tracker, null);
     if (options.devMode == DevMode.EVERY_PASS) {
@@ -2247,13 +2247,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     process(cfa);
     stopTracer(tracer, "computeCFG");
     return cfa.getCfg();
-  }
-
-  public void normalize() {
-    logger.fine("Normalizing");
-    startPass("normalize");
-    process(new Normalize(this, false));
-    endPass("normalize");
   }
 
   @Override
@@ -2305,6 +2298,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     if (phaseOptimizer != null) {
       phaseOptimizer.setScope(n);
     }
+  }
+
+  Node getExternsRoot() {
+    return externsRoot;
   }
 
   @Override
@@ -2385,15 +2382,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   @Override
   Config getParserConfig(ConfigContext context) {
     if (parserConfig == null) {
-      Config.LanguageMode configLanguageMode = getParserConfigLanguageMode(options.getLanguageIn());
-      Config.StrictMode strictMode =
-          expectStrictModeInput() ? Config.StrictMode.STRICT : Config.StrictMode.SLOPPY;
-      parserConfig = createConfig(configLanguageMode, strictMode);
-      // Externs must always be parsed with at least ES5 language mode.
-      externsParserConfig =
-          configLanguageMode.equals(Config.LanguageMode.ECMASCRIPT3)
-          ? createConfig(Config.LanguageMode.ECMASCRIPT5, strictMode)
-          : parserConfig;
+      synchronized (this) {
+        if (parserConfig == null) {
+          Config.LanguageMode configLanguageMode = getParserConfigLanguageMode(
+              options.getLanguageIn());
+          Config.StrictMode strictMode =
+              expectStrictModeInput() ? Config.StrictMode.STRICT : Config.StrictMode.SLOPPY;
+          parserConfig = createConfig(configLanguageMode, strictMode);
+          // Externs must always be parsed with at least ES5 language mode.
+          externsParserConfig =
+              configLanguageMode.equals(Config.LanguageMode.ECMASCRIPT3)
+                  ? createConfig(Config.LanguageMode.ECMASCRIPT5, strictMode)
+                  : parserConfig;
+        }
+      }
     }
     switch (context) {
       case EXTERNS:
@@ -2673,7 +2675,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   @Override
   public ErrorManager getErrorManager() {
     if (options == null) {
-      initOptions(newCompilerOptions());
+      initOptions(new CompilerOptions());
     }
     return errorManager;
   }

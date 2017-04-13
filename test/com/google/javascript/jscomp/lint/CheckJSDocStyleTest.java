@@ -212,6 +212,8 @@ public final class CheckJSDocStyleTest extends CompilerTestCase {
     testWarning("if (COMPILED) { var f = function() {}; }", MISSING_JSDOC);
     testWarning("var f = async function() {};", MISSING_JSDOC);
     testWarning("async function f() {};", MISSING_JSDOC);
+    testWarning("Polymer({ method() {} });", MISSING_JSDOC);
+    testWarning("Polymer({ method: function() {} });", MISSING_JSDOC);
 
     testSame("/** @return {string} */ function f() {}");
     testSame("/** @return {string} */ var f = function() {}");
@@ -224,6 +226,8 @@ public final class CheckJSDocStyleTest extends CompilerTestCase {
     testSame("var Foo = class { /** @return {string} */ bar() {} };");
     testSame("/** @param {string} s */ var f = async function(s) {};");
     testSame("/** @param {string} s */ async function f(s) {};");
+    testSame("Polymer({ /** @return {null} */ method() {} });");
+    testSame("Polymer({ /** @return {null} */ method: function() {} });");
   }
 
   public void testMissingJsDoc_noWarningIfInlineJsDocIsPresent() {
@@ -252,12 +256,14 @@ public final class CheckJSDocStyleTest extends CompilerTestCase {
     testSame(LINE_JOINER.join(
         "Polymer({",
         "  is: 'example-elem',",
+        "  /** @return {null} */",
         "  someMethod: function() {},",
         "});"));
 
     testSame(LINE_JOINER.join(
         "Polymer({",
         "  is: 'example-elem',",
+        "  /** @return {null} */",
         "  someMethod() {},",
         "});"));
   }
@@ -297,7 +303,7 @@ public final class CheckJSDocStyleTest extends CompilerTestCase {
     testSame("goog.module('a.b.c'); /** @type {function()} */ var f = function() {};");
   }
 
-  private String inIIFE(String js) {
+  private static String inIIFE(String js) {
     return "(function() {\n" + js + "\n})()";
   }
 

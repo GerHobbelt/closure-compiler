@@ -296,15 +296,15 @@ XPathNamespace.XPATH_NAMESPACE_NODE = 13;
  */
 function XMLHttpRequest() {}
 
-/** @inheritDoc */
-XMLHttpRequest.prototype.addEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+XMLHttpRequest.prototype.addEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
-XMLHttpRequest.prototype.removeEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+XMLHttpRequest.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 XMLHttpRequest.prototype.dispatchEvent = function(evt) {};
 
 /**

@@ -382,16 +382,72 @@ public class SuggestedFixTest {
   }
 
   @Test
-  public void testChangeJsDocType_privateType() {
+  public void testChangeJsDocType_packageType1() {
     String before = "/** ";
-    String after = "@private Foo */\nvar foo = new Foo()";
+    String after = "@package {Foo} */\nvar foo = new Foo()";
     Compiler compiler = getCompiler(before + after);
     Node root = compileToScriptRoot(compiler);
     SuggestedFix fix = new SuggestedFix.Builder()
         .changeJsDocType(root.getFirstChild(), compiler, "Object")
         .build();
     CodeReplacement replacement = new CodeReplacement(
-        before.length(), "@private Foo".length(), "@private {Object}");
+        before.length(), "@package {Foo}".length(), "@package {Object}");
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testChangeJsDocType_privateType1() {
+    String before = "/** ";
+    String after = "@private {Foo} */\nvar foo = new Foo()";
+    Compiler compiler = getCompiler(before + after);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .changeJsDocType(root.getFirstChild(), compiler, "Object")
+        .build();
+    CodeReplacement replacement = new CodeReplacement(
+        before.length(), "@private {Foo}".length(), "@private {Object}");
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testChangeJsDocType_privateType2() {
+    String before = "/** @private ";
+    String after = "@const {Foo} */\nvar foo = new Foo()";
+    Compiler compiler = getCompiler(before + after);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .changeJsDocType(root.getFirstChild(), compiler, "Object")
+        .build();
+    CodeReplacement replacement = new CodeReplacement(
+        before.length(), "@const {Foo}".length(), "@const {Object}");
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testChangeJsDocType_privateType3() {
+    String before = "/** @private ";
+    String after = "@const {Foo} */\nvar foo = new Foo()";
+    Compiler compiler = getCompiler(before + after);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .changeJsDocType(root.getFirstChild(), compiler, "Object")
+        .build();
+    CodeReplacement replacement = new CodeReplacement(
+        before.length(), "@const {Foo}".length(), "@const {Object}");
+    assertReplacement(fix, replacement);
+  }
+
+  @Test
+  public void testChangeJsDocType_privateType4() {
+    String before = "/** ";
+    String after = "@const {Foo} */\nvar foo = new Foo()";
+    Compiler compiler = getCompiler(before + after);
+    Node root = compileToScriptRoot(compiler);
+    SuggestedFix fix = new SuggestedFix.Builder()
+        .changeJsDocType(root.getFirstChild(), compiler, "Object")
+        .build();
+    CodeReplacement replacement = new CodeReplacement(
+        before.length(), "@const {Foo}".length(), "@const {Object}");
     assertReplacement(fix, replacement);
   }
 
@@ -671,7 +727,7 @@ public class SuggestedFixTest {
     assertThat(replacementMap).isEmpty();
   }
 
-  private void assertAddGoogRequire(String before, String after, String namespace) {
+  private static void assertAddGoogRequire(String before, String after, String namespace) {
     Compiler compiler = getCompiler(before + after);
     Node root = compileToScriptRoot(compiler);
     Match match = new Match(root.getFirstChild(), new NodeMetadata(compiler));
@@ -796,17 +852,15 @@ public class SuggestedFixTest {
     assertTrue(info.isInClosurizedFile());
   }
 
-  /**
-   * Returns the root script node produced from the compiled JS input.
-   */
-  private Node compileToScriptRoot(Compiler compiler) {
+  /** Returns the root script node produced from the compiled JS input. */
+  private static Node compileToScriptRoot(Compiler compiler) {
     Node root = compiler.getRoot();
     // The last child of the compiler root is a Block node, and the first child
     // of that is the Script node.
     return root.getLastChild().getFirstChild();
   }
 
-  private Compiler getCompiler(String jsInput) {
+  private static Compiler getCompiler(String jsInput) {
     Compiler compiler = new Compiler();
     CompilerOptions options = RefactoringDriver.getCompilerOptions();
     compiler.init(

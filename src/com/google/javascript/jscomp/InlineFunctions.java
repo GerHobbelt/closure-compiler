@@ -148,7 +148,6 @@ class InlineFunctions implements CompilerPass {
   private static boolean isAlwaysInlinable(Node fn) {
     Preconditions.checkArgument(fn.isFunction());
     Node body = NodeUtil.getFunctionBody(fn);
-    int numOfStmsInBody = body.getChildCount();
     return (!body.hasChildren())
         || (body.hasOneChild() && body.getFirstChild().isReturn());
   }
@@ -519,8 +518,7 @@ class InlineFunctions implements CompilerPass {
       InliningMode mode = fs.canInlineDirectly()
            ? InliningMode.DIRECT : InliningMode.BLOCK;
       boolean referenceAdded = maybeAddReferenceUsingMode(t, fs, callNode, module, mode);
-      if (!referenceAdded &&
-          mode == InliningMode.DIRECT && blockFunctionInliningEnabled) {
+      if (!referenceAdded && mode == InliningMode.DIRECT && blockFunctionInliningEnabled) {
         // This reference can not be directly inlined, see if
         // block replacement inlining is possible.
         mode = InliningMode.BLOCK;

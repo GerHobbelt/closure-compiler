@@ -24,6 +24,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.AbstractCompiler.MostRecentTypechecker;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.testing.BlackHoleErrorManager;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
@@ -150,6 +151,8 @@ public abstract class CompilerTestCase extends TestCase {
 
   private LanguageMode languageOut = LanguageMode.ECMASCRIPT5;
 
+  private boolean emitUseStrict = false;
+
   /**
    * Whether externs changes should be allowed for this pass.
    */
@@ -201,6 +204,13 @@ public abstract class CompilerTestCase extends TestCase {
           " * @return {!Object}",
           " */",
           "function Object(opt_value) {}",
+          "/** @return {string} */",
+          "Object.prototype.toString = function() {};",
+          "/**",
+          " * @param {*} propertyName",
+          " * @return {boolean}",
+          " */",
+          "Object.prototype.hasOwnProperty = function(propertyName) {};",
           "/** @type {?Function} */ Object.prototype.constructor;",
           "Object.defineProperties = function(obj, descriptors) {};",
           "/** @constructor",
@@ -211,6 +221,8 @@ public abstract class CompilerTestCase extends TestCase {
           "/** @type {!Function} */ Function.prototype.call;",
           "/** @type {number} */",
           "Function.prototype.length;",
+          "/** @type {string} */",
+          "Function.prototype.name;",
           "/** @constructor",
           " * @param {*=} arg",
           " * @return {string} */",
@@ -244,6 +256,20 @@ public abstract class CompilerTestCase extends TestCase {
           " * @modifies {this}",
           " */",
           "Array.prototype.push = function(var_args) {};",
+          "/**",
+          " * @this {IArrayLike<T>}",
+          " * @return {T}",
+          " * @template T",
+          " */",
+          "Array.prototype.shift = function() {};",
+          "/**",
+          " * @param {?function(this:S, T, number, !Array<T>): ?} callback",
+          " * @param {S=} opt_thisobj",
+          " * @this {?IArrayLike<T>|string}",
+          " * @template T,S",
+          " * @return {undefined}",
+          " */",
+          "Array.prototype.forEach = function(callback, opt_thisobj) {};",
           "/**",
           " * @constructor",
           " * @template T",
@@ -358,6 +384,7 @@ public abstract class CompilerTestCase extends TestCase {
    */
   protected CompilerOptions getOptions(CompilerOptions options) {
     options.setLanguageIn(acceptedLanguage);
+    options.setEmitUseStrict(emitUseStrict);
     options.setLanguageOut(languageOut);
 
     // This doesn't affect whether checkSymbols is run--it just affects
@@ -420,6 +447,10 @@ public abstract class CompilerTestCase extends TestCase {
 
   protected void setLanguageOut(LanguageMode acceptedLanguage) {
     this.languageOut = acceptedLanguage;
+  }
+
+  protected void setEmitUseStrict(boolean emitUseStrict) {
+    this.emitUseStrict = emitUseStrict;
   }
 
   /**
@@ -592,7 +623,7 @@ public abstract class CompilerTestCase extends TestCase {
   private static TypeCheck createTypeCheck(Compiler compiler) {
     ReverseAbstractInterpreter rai =
         new SemanticReverseAbstractInterpreter(compiler.getTypeRegistry());
-
+    compiler.setMostRecentTypechecker(MostRecentTypechecker.OTI);
     return new TypeCheck(compiler, rai, compiler.getTypeRegistry());
   }
 
@@ -1417,7 +1448,7 @@ public abstract class CompilerTestCase extends TestCase {
       }
 
       if (warning == null) {
-        assertThat(aggregateWarnings).isEmpty();
+        assertThat(aggregateWarnings).named("aggregate warnings").isEmpty();
       } else {
         assertEquals(
             "There should be one warning, repeated "
@@ -1576,7 +1607,7 @@ public abstract class CompilerTestCase extends TestCase {
     }
   }
 
-  private void transpileToEs5(AbstractCompiler compiler, Node externsRoot, Node codeRoot) {
+  private static void transpileToEs5(AbstractCompiler compiler, Node externsRoot, Node codeRoot) {
     List<PassFactory> factories = new ArrayList<>();
     TranspilationPasses.addEs6EarlyPasses(factories);
     TranspilationPasses.addEs6LatePasses(factories);
@@ -1597,7 +1628,7 @@ public abstract class CompilerTestCase extends TestCase {
     }
   }
 
-  private void normalizeActualCode(Compiler compiler, Node externsRoot, Node mainRoot) {
+  private static void normalizeActualCode(Compiler compiler, Node externsRoot, Node mainRoot) {
     Normalize normalize = new Normalize(compiler, false);
     normalize.process(externsRoot, mainRoot);
   }

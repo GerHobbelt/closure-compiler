@@ -15,7 +15,7 @@
  */
 
 /**
- * @fileoverview Externs for the Google Maps v3.27 API.
+ * @fileoverview Externs for the Google Maps v3.28 API.
  * @see http://code.google.com/apis/maps/documentation/javascript/reference.html
  * @externs
  */
@@ -36,26 +36,6 @@ google.maps.Animation = {
   BOUNCE: 0,
   DROP: 1
 };
-
-/**
- * @record
- */
-google.maps.Attribution = function() {};
-
-/**
- * @type {string}
- */
-google.maps.Attribution.prototype.iosDeepLinkId;
-
-/**
- * @type {string}
- */
-google.maps.Attribution.prototype.source;
-
-/**
- * @type {string}
- */
-google.maps.Attribution.prototype.webUrl;
 
 /**
  * @extends {google.maps.MVCObject}
@@ -2977,10 +2957,10 @@ google.maps.MVCObject.prototype.notify = function(key) {};
 
 /**
  * @param {string} key
- * @param {?=} opt_value
+ * @param {*} value
  * @return {undefined}
  */
-google.maps.MVCObject.prototype.set = function(key, opt_value) {};
+google.maps.MVCObject.prototype.set = function(key, value) {};
 
 /**
  * @param {Object=} opt_values
@@ -3334,11 +3314,6 @@ google.maps.MapOptions.prototype.scaleControlOptions;
 google.maps.MapOptions.prototype.scrollwheel;
 
 /**
- * @type {boolean}
- */
-google.maps.MapOptions.prototype.signInControl;
-
-/**
  * @type {google.maps.StreetViewPanorama}
  */
 google.maps.MapOptions.prototype.streetView;
@@ -3379,7 +3354,7 @@ google.maps.MapOptions.prototype.zoomControl;
 google.maps.MapOptions.prototype.zoomControlOptions;
 
 /**
- * @constructor
+ * @record
  */
 google.maps.MapPanes = function() {};
 
@@ -3509,11 +3484,11 @@ google.maps.MapTypeRegistry = function() {};
 
 /**
  * @param {string} id
- * @param {google.maps.MapType=} opt_mapType
+ * @param {google.maps.MapType=} mapType
  * @return {undefined}
  * @override
  */
-google.maps.MapTypeRegistry.prototype.set = function(id, opt_mapType) {};
+google.maps.MapTypeRegistry.prototype.set = function(id, mapType) {};
 
 /**
  * @record
@@ -3557,12 +3532,6 @@ google.maps.Marker = function(opt_opts) {};
  * @return {?google.maps.Animation}
  */
 google.maps.Marker.prototype.getAnimation = function() {};
-
-/**
- * @nosideeffects
- * @return {google.maps.Attribution}
- */
-google.maps.Marker.prototype.getAttribution = function() {};
 
 /**
  * @nosideeffects
@@ -3647,12 +3616,6 @@ google.maps.Marker.prototype.getZIndex = function() {};
  * @return {undefined}
  */
 google.maps.Marker.prototype.setAnimation = function(animation) {};
-
-/**
- * @param {google.maps.Attribution} attribution
- * @return {undefined}
- */
-google.maps.Marker.prototype.setAttribution = function(attribution) {};
 
 /**
  * @param {boolean} flag
@@ -3788,11 +3751,6 @@ google.maps.MarkerOptions.prototype.anchorPoint;
  * @type {google.maps.Animation}
  */
 google.maps.MarkerOptions.prototype.animation;
-
-/**
- * @type {google.maps.Attribution}
- */
-google.maps.MarkerOptions.prototype.attribution;
 
 /**
  * @type {boolean}
@@ -3950,7 +3908,7 @@ google.maps.MotionTrackingControlOptions = function() {};
 google.maps.MotionTrackingControlOptions.prototype.position;
 
 /**
- * @constructor
+ * @record
  */
 google.maps.MouseEvent = function() {};
 
@@ -4094,8 +4052,7 @@ google.maps.Point.prototype.equals = function(other) {};
 google.maps.Point.prototype.toString = function() {};
 
 /**
- * @extends {google.maps.MouseEvent}
- * @constructor
+ * @record
  */
 google.maps.PolyMouseEvent = function() {};
 
@@ -4583,59 +4540,6 @@ google.maps.RotateControlOptions = function() {};
  * @type {google.maps.ControlPosition}
  */
 google.maps.RotateControlOptions.prototype.position;
-
-/**
- * @param {Node} container
- * @param {(google.maps.SaveWidgetOptions|Object.<string>)=} opt_opts
- * @extends {google.maps.MVCObject}
- * @constructor
- */
-google.maps.SaveWidget = function(container, opt_opts) {};
-
-/**
- * @nosideeffects
- * @return {google.maps.Attribution}
- */
-google.maps.SaveWidget.prototype.getAttribution = function() {};
-
-/**
- * @nosideeffects
- * @return {google.maps.MarkerPlace}
- */
-google.maps.SaveWidget.prototype.getPlace = function() {};
-
-/**
- * @param {google.maps.Attribution} attribution
- * @return {undefined}
- */
-google.maps.SaveWidget.prototype.setAttribution = function(attribution) {};
-
-/**
- * @param {google.maps.SaveWidgetOptions|Object.<string>} opts
- * @return {undefined}
- */
-google.maps.SaveWidget.prototype.setOptions = function(opts) {};
-
-/**
- * @param {google.maps.MarkerPlace} place
- * @return {undefined}
- */
-google.maps.SaveWidget.prototype.setPlace = function(place) {};
-
-/**
- * @record
- */
-google.maps.SaveWidgetOptions = function() {};
-
-/**
- * @type {google.maps.Attribution}
- */
-google.maps.SaveWidgetOptions.prototype.attribution;
-
-/**
- * @type {google.maps.MarkerPlace}
- */
-google.maps.SaveWidgetOptions.prototype.place;
 
 /**
  * @record
@@ -6730,3 +6634,4 @@ google.maps.visualization.WeightedLocation.prototype.location;
  * @type {number}
  */
 google.maps.visualization.WeightedLocation.prototype.weight;
+

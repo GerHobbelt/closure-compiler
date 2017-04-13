@@ -340,6 +340,11 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
     return "goog.global";
   }
 
+  @Override
+  public boolean isAliasingGlobalThis(Node n) {
+    return CodingConventions.isAliasingGlobalThis(this, n);
+  }
+
   private final Set<String> propertyTestFunctions = ImmutableSet.of(
       "goog.isDef", "goog.isNull", "goog.isDefAndNotNull",
       "goog.isString", "goog.isNumber", "goog.isBoolean",
@@ -366,7 +371,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
 
   @Override
   public ObjectLiteralCast getObjectLiteralCast(Node callNode) {
-    Preconditions.checkArgument(callNode.isCall());
+    Preconditions.checkArgument(callNode.isCall(), "Expected call node but found %s", callNode);
     ObjectLiteralCast proxyCast = super.getObjectLiteralCast(callNode);
     if (proxyCast != null) {
       return proxyCast;
@@ -388,8 +393,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
       return new ObjectLiteralCast(null, null, OBJECTLIT_EXPECTED);
     }
 
-    return new ObjectLiteralCast(
-        typeNode.getQualifiedName(), typeNode.getNext(), null);
+    return new ObjectLiteralCast(typeNode.getQualifiedName(), typeNode.getNext(), null);
   }
 
   @Override
@@ -536,7 +540,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
               functionType = functionType.getProp(qname.getAllButLeftmost());
             }
             com.google.javascript.jscomp.newtypes.FunctionType ctorType =
-                functionType.getFunTypeIfSingletonObj();
+                functionType == null ? null : functionType.getFunTypeIfSingletonObj();
             if (ctorType != null && ctorType.isUniqueConstructor()) {
               return ctorType.getInstanceTypeOfCtor();
             }

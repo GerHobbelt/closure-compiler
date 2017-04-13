@@ -893,6 +893,40 @@ public class ErrorToFixMapperTest {
   }
 
   @Test
+  public void testSwitchToShorthand_JSDoc7() {
+    assertChanges(
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "var Animal = goog.require('world.util.Animal');",
+            "",
+            "/** @type {?Array<world.util.Animal.Turtle>} */",
+            "var turtles;"),
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "var Animal = goog.require('world.util.Animal');",
+            "",
+            "/** @type {?Array<Animal.Turtle>} */",
+            "var turtles;"));
+  }
+
+  @Test
+  public void testSwitchToShorthand_JSDoc8() {
+    assertChanges(
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "var AnimalAltName = goog.require('world.util.Animal');",
+            "",
+            "/** @type {?Array<world.util.Animal.Turtle>} */",
+            "var turtles;"),
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "var AnimalAltName = goog.require('world.util.Animal');",
+            "",
+            "/** @type {?Array<AnimalAltName.Turtle>} */",
+            "var turtles;"));
+  }
+
+  @Test
   public void testMissingRequireInGoogModule_atExtends_qname() {
     assertChanges(
         LINE_JOINER.join(
@@ -1001,7 +1035,7 @@ public class ErrorToFixMapperTest {
   }
 
   @Test
-  public void testShortRequireInGoogModule() {
+  public void testShortRequireInGoogModule1() {
     assertChanges(
         LINE_JOINER.join(
             "goog.module('m');",
@@ -1015,6 +1049,40 @@ public class ErrorToFixMapperTest {
             "var c = goog.require('a.b.c');",
             "",
             "alert(c);"));
+  }
+
+  @Test
+  public void testShortRequireInGoogModule2() {
+    assertChanges(
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "",
+            "var Classname = goog.require('a.b.Classname');",
+            "",
+            "alert(a.b.Classname.instance_.foo());"),
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "",
+            "var Classname = goog.require('a.b.Classname');",
+            "",
+            "alert(Classname.instance_.foo());"));
+  }
+
+  @Test
+  public void testShortRequireInGoogModule3() {
+    assertChanges(
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "",
+            "var Classname = goog.require('a.b.Classname');",
+            "",
+            "alert(a.b.Classname.INSTANCE_.foo());"),
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "",
+            "var Classname = goog.require('a.b.Classname');",
+            "",
+            "alert(Classname.INSTANCE_.foo());"));
   }
 
   @Test

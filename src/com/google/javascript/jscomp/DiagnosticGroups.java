@@ -188,7 +188,8 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup INVALID_CASTS =
       DiagnosticGroups.registerGroup("invalidCasts",
-          TypeValidator.INVALID_CAST);
+          TypeValidator.INVALID_CAST,
+          NewTypeInference.INVALID_CAST);
 
   @Deprecated
   public static final DiagnosticGroup INFERRED_CONST_CHECKS =
@@ -235,7 +236,9 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("missingProperties",
           TypeCheck.INEXISTENT_PROPERTY,
           TypeCheck.INEXISTENT_PROPERTY_WITH_SUGGESTION,
-          TypeCheck.POSSIBLE_INEXISTENT_PROPERTY);
+          TypeCheck.POSSIBLE_INEXISTENT_PROPERTY,
+          NewTypeInference.INEXISTENT_PROPERTY,
+          NewTypeInference.POSSIBLY_INEXISTENT_PROPERTY);
 
   public static final DiagnosticGroup J2CL_CHECKS =
       DiagnosticGroups.registerGroup("j2clChecks",
@@ -373,6 +376,10 @@ public class DiagnosticGroups {
           NewTypeInference.UNKNOWN_ASSERTION_TYPE,
           NewTypeInference.UNKNOWN_TYPEOF_VALUE);
   }
+
+  public static final DiagnosticGroup TOO_MANY_TYPE_PARAMS =
+      DiagnosticGroups.registerGroup("tooManyTypeParams",
+          RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS);
 
   public static final DiagnosticGroup CHECK_EVENTFUL_OBJECT_DISPOSAL =
       DiagnosticGroups.registerGroup("checkEventfulObjectDisposal",
@@ -588,15 +595,16 @@ public class DiagnosticGroups {
               CheckUnusedLabels.UNUSED_LABEL,
               CheckUselessBlocks.USELESS_BLOCK,
               ClosureCheckModule.GOOG_MODULE_IN_NON_MODULE,
+              ClosureCheckModule.INCORRECT_SHORTNAME_CAPITALIZATION,
               ClosureCheckModule.LET_GOOG_REQUIRE,
               ClosureCheckModule.JSDOC_REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME,
               ClosureCheckModule.JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME,
               ClosureCheckModule.REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME,
               ClosureCheckModule.REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME,
               ClosureRewriteModule.USELESS_USE_STRICT_DIRECTIVE,
+              RhinoErrorReporter.UNNECESSARY_ESCAPE,
               RhinoErrorReporter.JSDOC_MISSING_BRACES_WARNING,
-              RhinoErrorReporter.JSDOC_MISSING_TYPE_WARNING,
-              RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS));
+              RhinoErrorReporter.JSDOC_MISSING_TYPE_WARNING));
 
   static final DiagnosticGroup STRICT_MODULE_CHECKS =
       DiagnosticGroups.registerGroup(
@@ -617,7 +625,8 @@ public class DiagnosticGroups {
           CheckArrayWithGoogObject.ARRAY_PASSED_TO_GOOG_OBJECT,
           CheckNullableReturn.NULLABLE_RETURN,
           CheckNullableReturn.NULLABLE_RETURN_WITH_NAME,
-          ImplicitNullabilityCheck.IMPLICITLY_NULLABLE_JSDOC);
+          ImplicitNullabilityCheck.IMPLICITLY_NULLABLE_JSDOC,
+          RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS);
 
   // Similar to the lintChecks group above, but includes things that cannot be done on a single
   // file at a time, for example because they require typechecking.
@@ -644,6 +653,13 @@ public class DiagnosticGroups {
         PeepholeFoldConstants.FRACTIONAL_BITWISE_OPERAND);
   }
 
+  // This diagnostic group is intentionally absent in ParserConfig.properties.
+  // Conformance checks are supposed to be enforced project-wide, so we don't
+  // allow suppressions on individual functions.
+  // In the future, we may carve out a subset of the conformance checks that is
+  // OK to suppress.
+  // For now, the only way to suppress a check at a granularity smaller than
+  // the file level is by using a whitelist file.
   @GwtIncompatible("Conformance")
   public static final DiagnosticGroup CONFORMANCE_VIOLATIONS =
       DiagnosticGroups.registerGroup("conformanceViolations",

@@ -63,7 +63,7 @@ public final class Es6SyntacticScopeCreatorTest extends TestCase {
   protected void setUp() {
     compiler = new Compiler();
     CompilerOptions options = new CompilerOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
     compiler.initOptions(options);
     redeclarations = HashMultiset.create();
     RedeclarationHandler handler = new RecordingRedeclarationHandler();
@@ -554,13 +554,17 @@ public final class Es6SyntacticScopeCreatorTest extends TestCase {
     Node function = root.getFirstChild();
     checkState(function.isFunction(), function);
     Scope fScope = scopeCreator.createScope(function, global);
+    Var arguments = fScope.getArgumentsVar();
+    assertThat(fScope.getVar("arguments")).isSameAs(arguments);
 
     Node fBlock = NodeUtil.getFunctionBody(function);
     Scope fBlockScope = scopeCreator.createScope(fBlock, fScope);
+    assertThat(fBlockScope.getVar("arguments")).isSameAs(arguments);
 
     Node ifBlock = fBlock.getFirstChild().getLastChild();
     Scope blockScope = scopeCreator.createScope(ifBlock, fBlockScope);
     assertTrue(blockScope.isDeclared("arguments", false));
+    assertThat(blockScope.getVar("arguments")).isNotEqualTo(arguments);
   }
 
   public void testIsFunctionBlockScoped() {

@@ -173,12 +173,20 @@ import javax.annotation.Nullable;
  * </pre>
  */
 public class Parser {
+
+  /**
+   * Indicates the type of function currently being parsed.
+   */
+  private enum FunctionFlavor {
+    NORMAL, GENERATOR, ASYNCHRONOUS;
+  }
+
   private final Scanner scanner;
   private final ErrorReporter errorReporter;
   private final Config config;
   private final boolean parseInlineSourceMaps;
   private final CommentRecorder commentRecorder = new CommentRecorder();
-  private final ArrayDeque<Boolean> inGeneratorContext = new ArrayDeque<>();
+  private final ArrayDeque<FunctionFlavor> functionContextStack = new ArrayDeque<>();
   private FeatureSet features = FeatureSet.ES3;
   private SourcePosition lastSourcePosition;
   @Nullable
@@ -190,7 +198,8 @@ public class Parser {
     this.errorReporter = errorReporter;
     this.parseInlineSourceMaps = parseInlineSourceMaps;
     this.scanner = new Scanner(errorReporter, commentRecorder, source, offset);
-    this.inGeneratorContext.add(initialGeneratorContext);
+    this.functionContextStack.addLast(
+        initialGeneratorContext ? FunctionFlavor.GENERATOR : FunctionFlavor.NORMAL);
     lastSourcePosition = scanner.getPosition();
   }
 
@@ -239,8 +248,7 @@ public class Parser {
   private static final String BASE64_URL_PREFIX = "data:application/json;base64,";
 
   private class CommentRecorder implements Scanner.CommentRecorder {
-    private ImmutableList.Builder<Comment> comments =
-        ImmutableList.builder();
+    private final ImmutableList.Builder<Comment> comments = ImmutableList.builder();
     @Override
     public void recordComment(
         Comment.Type type, SourceRange range, String value) {
@@ -911,7 +919,7 @@ public class Parser {
                 .setName(name)
                 .setStatic(partial.isStatic)
                 .setAccess(accessOnFunction);
-        parseFunctionTail(builder, isGenerator);
+        parseFunctionTail(builder, isGenerator ? FunctionFlavor.GENERATOR : FunctionFlavor.NORMAL);
 
         function = builder.build(getTreeLocation(partial.start));
       }
@@ -973,7 +981,7 @@ public class Parser {
             .setFunctionBody(new EmptyStatementTree(getTreeLocation(partial.start)));
         eatPossibleImplicitSemiColon();
       } else {
-        parseFunctionTail(builder, /* isGenerator */ false);
+        parseFunctionTail(builder, FunctionFlavor.ASYNCHRONOUS);
       }
 
       return builder.build(getTreeLocation(name.getStart()));
@@ -987,7 +995,7 @@ public class Parser {
           FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.EXPRESSION)
               .setAsync(true)
               .setStatic(partial.isStatic);
-      parseFunctionTail(builder, /* isGenerator */ false);
+      parseFunctionTail(builder, FunctionFlavor.ASYNCHRONOUS);
 
       ParseTree function = builder.build(getTreeLocation(nameExpr.getStart()));
       return new ComputedPropertyMethodTree(
@@ -1035,23 +1043,16 @@ public class Parser {
     return builder.build(getTreeLocation(start));
   }
 
-  private void parseFunctionTail(FunctionDeclarationTree.Builder builder) {
-    parseFunctionTail(builder, /* isGenerator */ false);
-  }
-
-  private void parseGeneratorFunctionTail(FunctionDeclarationTree.Builder builder) {
-    parseFunctionTail(builder, /* isGenerator */ true);
-  }
-
-  private void parseFunctionTail(FunctionDeclarationTree.Builder builder, boolean isGenerator) {
-    inGeneratorContext.addLast(isGenerator);
+  private void parseFunctionTail(
+      FunctionDeclarationTree.Builder builder, FunctionFlavor functionFlavor) {
+    functionContextStack.addLast(functionFlavor);
     builder
-        .setGenerator(isGenerator)
+        .setGenerator(functionFlavor == FunctionFlavor.GENERATOR)
         .setGenerics(maybeParseGenericTypes())
         .setFormalParameterList(parseFormalParameterList(ParamContext.IMPLEMENTATION))
         .setReturnType(maybeParseColonType())
         .setFunctionBody(parseFunctionBody());
-    inGeneratorContext.removeLast();
+    functionContextStack.removeLast();
   }
 
   private NamespaceDeclarationTree parseNamespaceDeclaration(boolean isAmbient) {
@@ -1209,7 +1210,7 @@ public class Parser {
 
     FunctionDeclarationTree.Builder builder =
         FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.DECLARATION).setName(eatId());
-    parseFunctionTail(builder, isGenerator);
+    parseFunctionTail(builder, isGenerator ? FunctionFlavor.GENERATOR : FunctionFlavor.NORMAL);
     return builder.build(getTreeLocation(start));
   }
 
@@ -1221,7 +1222,7 @@ public class Parser {
     FunctionDeclarationTree.Builder builder =
         FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.EXPRESSION)
             .setName(eatIdOpt());
-    parseFunctionTail(builder, isGenerator);
+    parseFunctionTail(builder, isGenerator ? FunctionFlavor.GENERATOR : FunctionFlavor.NORMAL);
 
     return builder.build(getTreeLocation(start));
   }
@@ -1242,7 +1243,7 @@ public class Parser {
             .setName(eatId())
             .setAsync(true);
 
-    parseFunctionTail(builder);
+    parseFunctionTail(builder, FunctionFlavor.ASYNCHRONOUS);
     return builder.build(getTreeLocation(start));
   }
 
@@ -1262,7 +1263,7 @@ public class Parser {
             .setName(eatIdOpt())
             .setAsync(true);
 
-    parseFunctionTail(builder);
+    parseFunctionTail(builder, FunctionFlavor.ASYNCHRONOUS);
     return builder.build(getTreeLocation(start));
   }
 
@@ -2478,7 +2479,7 @@ public class Parser {
       } else {
         FunctionDeclarationTree.Builder builder =
             FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.EXPRESSION);
-        parseFunctionTail(builder);
+        parseFunctionTail(builder, FunctionFlavor.NORMAL);
         ParseTree value = builder.build(getTreeLocation(start));
         return new ComputedPropertyMethodTree(
             getTreeLocation(start), null, name, value);
@@ -2504,7 +2505,7 @@ public class Parser {
       FunctionDeclarationTree.Builder builder =
           FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.EXPRESSION);
 
-      parseGeneratorFunctionTail(builder);
+      parseFunctionTail(builder, FunctionFlavor.GENERATOR);
       ParseTree value = builder.build(getTreeLocation(start));
       return new ComputedPropertyMethodTree(getTreeLocation(start), null, name, value);
     }
@@ -2817,13 +2818,15 @@ public class Parser {
       return parseYield(expressionIn);
     }
 
-    if (peekAsyncArrowFunction()) {
-      return parseAsyncArrowFunction(expressionIn);
-    }
-
     SourcePosition start = getTreeStartLocation();
     // TODO(blickly): Allow TypeScript syntax in arrow function parameters
     ParseTree left = parseConditional(expressionIn);
+
+    if (isStartOfAsyncArrowFunction(left)) {
+      // re-evaluate as an async arrow function.
+      resetScanner(left);
+      return parseAsyncArrowFunction(expressionIn);
+    }
     if (peek(TokenType.ARROW)) {
       return completeAssignmentExpressionParseAtArrow(left, expressionIn);
     }
@@ -2843,14 +2846,30 @@ public class Parser {
     return left;
   }
 
-  private boolean peekAsyncArrowFunction() {
-    if (!peekPredefinedString(ASYNC)) {
-      return false;
-    } else if (peekImplicitSemiColon(1)) {
-      // No newline allowed between `async` and argument list.
-      return false;
+  private boolean isStartOfAsyncArrowFunction(ParseTree partialExpression) {
+    if (partialExpression.type == ParseTreeType.IDENTIFIER_EXPRESSION) {
+      final IdentifierToken identifierToken =
+          partialExpression.asIdentifierExpression().identifierToken;
+      // partialExpression is `async`
+      // followed by `[no newline] bindingIdentifier [no newline] =>`
+      return identifierToken.value.equals(ASYNC)
+          && !peekImplicitSemiColon(0)
+          && peekId()
+          && !peekImplicitSemiColon(1)
+          && peek(1, TokenType.ARROW);
+    } else if (partialExpression.type == ParseTreeType.CALL_EXPRESSION) {
+      final CallExpressionTree callExpression = partialExpression.asCallExpression();
+      ParseTree callee = callExpression.operand;
+      ParseTree arguments = callExpression.arguments;
+      // partialExpression is `async [no newline] (parameters)`
+      // followed by `[no newline] =>`
+      return callee.type == ParseTreeType.IDENTIFIER_EXPRESSION
+          && callee.asIdentifierExpression().identifierToken.value.equals(ASYNC)
+          && callee.location.end.line == arguments.location.start.line
+          && !peekImplicitSemiColon()
+          && peek(TokenType.ARROW);
     } else {
-      return peek(1, TokenType.OPEN_PAREN) || peek(1, TokenType.IDENTIFIER);
+      return false;
     }
   }
 
@@ -2859,7 +2878,7 @@ public class Parser {
     if (leftOfArrow.type == ParseTreeType.CALL_EXPRESSION) {
       //   ... someAssignmentExpression // implicit semicolon
       //   (args) =>
-      return completeAssignmentExpressionParseAtArrow(leftOfArrow.asCallExpression(), expressionIn);
+      return completeAssignmentExpressionParseAtArrow(leftOfArrow.asCallExpression());
     } else {
       return completeArrowFunctionParseAtArrow(leftOfArrow, expressionIn);
     }
@@ -2873,7 +2892,7 @@ public class Parser {
       reportError("No newline allowed before '=>'");
     }
     eat(TokenType.ARROW);
-    ParseTree arrowFunctionBody = parseArrowFunctionBody(expressionIn);
+    ParseTree arrowFunctionBody = parseArrowFunctionBody(expressionIn, FunctionFlavor.NORMAL);
 
     FunctionDeclarationTree.Builder builder =
         FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.ARROW)
@@ -2909,8 +2928,7 @@ public class Parser {
     return arrowParameterList;
   }
 
-  private ParseTree completeAssignmentExpressionParseAtArrow(
-      CallExpressionTree callExpression, Expression expressionIn) {
+  private ParseTree completeAssignmentExpressionParseAtArrow(CallExpressionTree callExpression) {
     ParseTree operand = callExpression.operand;
     ParseTree arguments = callExpression.arguments;
     ParseTree result;
@@ -2950,7 +2968,7 @@ public class Parser {
       reportError("No newline allowed before '=>'");
     }
     eat(TokenType.ARROW);
-    ParseTree arrowFunctionBody = parseArrowFunctionBody(expressionIn);
+    ParseTree arrowFunctionBody = parseArrowFunctionBody(expressionIn, FunctionFlavor.ASYNCHRONOUS);
 
     FunctionDeclarationTree.Builder builder =
         FunctionDeclarationTree.builder(FunctionDeclarationTree.Kind.ARROW)
@@ -2960,19 +2978,19 @@ public class Parser {
     return builder.build(getTreeLocation(start));
   }
 
-  private ParseTree parseArrowFunctionBody(Expression expressionIn) {
-    inGeneratorContext.addLast(false);
+  private ParseTree parseArrowFunctionBody(Expression expressionIn, FunctionFlavor functionFlavor) {
+    functionContextStack.addLast(functionFlavor);
     ParseTree arrowFunctionBody;
     if (peek(TokenType.OPEN_CURLY)) {
       arrowFunctionBody = parseFunctionBody();
     } else {
       arrowFunctionBody = parseAssignment(expressionIn);
     }
-    inGeneratorContext.removeLast();
+    functionContextStack.removeLast();
     return arrowFunctionBody;
   }
 
-  private FormalParameterListTree newEmptyFormalParameterList(SourceRange location) {
+  private static FormalParameterListTree newEmptyFormalParameterList(SourceRange location) {
     return new FormalParameterListTree(location, ImmutableList.<ParseTree>of());
   }
 
@@ -3036,7 +3054,7 @@ public class Parser {
 
   private boolean inGeneratorContext() {
     // disallow yield outside of generators
-    return inGeneratorContext.peekLast();
+    return functionContextStack.peekLast() == FunctionFlavor.GENERATOR;
   }
 
   // yield [no line terminator] (*)? AssignExpression
@@ -3050,6 +3068,8 @@ public class Parser {
       isYieldFor = eatOpt(TokenType.STAR) != null;
       if (peekAssignmentExpression()) {
         expression = parseAssignment(expressionIn);
+      } else if (isYieldFor) {
+        reportError("yield* requires an expression");
       }
     }
     return new YieldExpressionTree(
@@ -3305,13 +3325,15 @@ public class Parser {
   private static final String AWAIT = "await";
 
   private boolean peekAwaitExpression() {
-    // TODO(bradfordcsmith): This should be handled such that it's treated as special only within an
-    //     async function.
     return peekPredefinedString(AWAIT);
   }
 
   private ParseTree parseAwaitExpression() {
     SourcePosition start = getTreeStartLocation();
+    if (functionContextStack.isEmpty()
+        || functionContextStack.peekLast() != FunctionFlavor.ASYNCHRONOUS) {
+      reportError("'await' used in a non-async function context");
+    }
     eatPredefinedString(AWAIT);
     ParseTree expression = parseUnaryExpression();
     return new AwaitExpressionTree(getTreeLocation(start), expression);

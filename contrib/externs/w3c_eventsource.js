@@ -29,15 +29,15 @@
  */
 function EventSource(url, opt_eventSourceInitDict) {}
 
-/** @inheritDoc */
-EventSource.prototype.addEventListener = function(type, listener, opt_options)
-    {};
+/** @override */
+EventSource.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/** @inheritDoc */
-EventSource.prototype.removeEventListener = function(type, listener, opt_options)
-    {};
+/** @override */
+EventSource.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 EventSource.prototype.dispatchEvent = function(evt) {};
 
 /**

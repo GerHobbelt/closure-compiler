@@ -61,189 +61,20 @@ IDBFactory.prototype.deleteDatabase = function(name) {};
 
 /**
  * @constructor
- * @see http://www.w3.org/TR/IndexedDB/#idl-def-IDBDatabaseException
- */
-function IDBDatabaseException() {}
-
-/**
- * @constructor
- * @extends {IDBDatabaseException}
- * @see http://www.w3.org/TR/IndexedDB/#idl-def-IDBDatabaseException
- */
-function webkitIDBDatabaseException() {}
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.UNKNOWN_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.UNKNOWN_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.NON_TRANSIENT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.NON_TRANSIENT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.NOT_FOUND_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.NOT_FOUND_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.CONSTRAINT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.CONSTRAINT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.DATA_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.DATA_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.NOT_ALLOWED_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.NOT_ALLOWED_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.TRANSACTION_INACTIVE_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.TRANSACTION_INACTIVE_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.ABORT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.ABORT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.READ_ONLY_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.READ_ONLY_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.TIMEOUT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.TIMEOUT_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.QUOTA_ERR;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.QUOTA_ERR;
-
-/**
- * @const
- * @type {number}
- */
-IDBDatabaseException.prototype.code;
-
-/**
- * @const
- * @type {number}
- */
-webkitIDBDatabaseException.prototype.code;
-
-/**
- * @const
- * @type {string}
- */
-IDBDatabaseException.prototype.message;
-
-/**
- * @const
- * @type {string}
- */
-webkitIDBDatabaseException.prototype.message;
-
-/**
- * @constructor
  * @implements {EventTarget}
  * @see http://www.w3.org/TR/IndexedDB/#idl-def-IDBRequest
  */
 function IDBRequest() {}
 
-/** @inheritDoc */
-IDBRequest.prototype.addEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+IDBRequest.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/** @inheritDoc */
-IDBRequest.prototype.removeEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+IDBRequest.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 IDBRequest.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -409,15 +240,15 @@ IDBDatabase.prototype.onerror = function() {};
  */
 IDBDatabase.prototype.onversionchange = function() {};
 
-/** @inheritDoc */
-IDBDatabase.prototype.addEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+IDBDatabase.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/** @inheritDoc */
-IDBDatabase.prototype.removeEventListener =
-    function(type, listener, opt_options) {};
+/** @override */
+IDBDatabase.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 IDBDatabase.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -489,7 +320,7 @@ IDBObjectStore.prototype.clear = function() {};
 
 /**
  * @param {IDBKeyRange=} range The range of the cursor.
- * @param {(number|string)=} direction The direction of cursor enumeration.
+ * @param {string=} direction The direction of cursor enumeration.
  * @return {!IDBRequest} The IDBRequest object.
  */
 IDBObjectStore.prototype.openCursor = function(range, direction) {};
@@ -554,14 +385,14 @@ IDBIndex.prototype.unique;
 
 /**
  * @param {IDBKeyRange=} range The range of the cursor.
- * @param {(number|string)=} direction The direction of cursor enumeration.
+ * @param {string=} direction The direction of cursor enumeration.
  * @return {!IDBRequest} The IDBRequest object.
  */
 IDBIndex.prototype.openCursor = function(range, direction) {};
 
 /**
  * @param {IDBKeyRange=} range The range of the cursor.
- * @param {(number|string)=} direction The direction of cursor enumeration.
+ * @param {string=} direction The direction of cursor enumeration.
  * @return {!IDBRequest} The IDBRequest object.
  */
 IDBIndex.prototype.openKeyCursor = function(range, direction) {};
@@ -646,7 +477,7 @@ webkitIDBCursor.PREV_NO_DUPLICATE;
 IDBCursor.prototype.source;
 
 /**
- * @type {number}
+ * @type {string}
  * @const
  */
 IDBCursor.prototype.direction;

@@ -80,6 +80,12 @@ public final class NominalType {
         : this.rawType.getInstanceAsJSType();
   }
 
+  ObjectType getInstanceAsObjectType() {
+    return (this.rawType.isGeneric() && !typeMap.isEmpty())
+        ? ObjectType.fromNominalType(this)
+        : this.rawType.getInstanceAsJSType().getObjTypeIfSingletonObj();
+  }
+
   JSTypes getCommonTypes() {
     return this.rawType.getCommonTypes();
   }
@@ -177,6 +183,10 @@ public final class NominalType {
     return this.rawType.getDefSite();
   }
 
+  public JSType getPrototypeObject() {
+    return this.rawType.getPrototypeObject();
+  }
+
   public FunctionType getConstructorFunction() {
     if (this.typeMap.isEmpty()) {
       return this.rawType.getConstructorFunction();
@@ -254,6 +264,10 @@ public final class NominalType {
     return this.rawType;
   }
 
+  Set<RawNominalType> getSubtypes() {
+    return this.rawType.getSubtypes();
+  }
+
   public boolean isClass() {
     return this.rawType.isClass();
   }
@@ -304,8 +318,7 @@ public final class NominalType {
 
   public JSType getPrototypePropertyOfCtor() {
     Preconditions.checkState(this.rawType.isFinalized());
-    return this.rawType.getCtorPropDeclaredType("prototype")
-        .substituteGenerics(typeMap);
+    return this.rawType.getCtorPropDeclaredType("prototype");
   }
 
   // We require finalization for the interfaces here because the inheritance
@@ -329,6 +342,20 @@ public final class NominalType {
       }
     }
     return result.build();
+  }
+
+  NominalType getTopDefiningInterface(String pname) {
+    Preconditions.checkState(isInterface(), "Expected interface, found: %s", this);
+    NominalType result = null;
+    if (getOwnProp(pname) != null) {
+      result = this;
+    }
+    for (NominalType nt : this.getInstantiatedInterfaces()) {
+      if (nt.getOwnProp(pname) != null) {
+        result = nt.getTopDefiningInterface(pname);
+      }
+    }
+    return result;
   }
 
   Property getProp(String pname) {

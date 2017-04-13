@@ -22,7 +22,6 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.TypeValidator.TypeMismatch;
 import com.google.javascript.jscomp.graph.AdjacencyGraph;
 import com.google.javascript.jscomp.graph.Annotation;
 import com.google.javascript.jscomp.graph.GraphColoring;
@@ -30,6 +29,7 @@ import com.google.javascript.jscomp.graph.GraphColoring.GreedyGraphColoring;
 import com.google.javascript.jscomp.graph.GraphNode;
 import com.google.javascript.jscomp.graph.SubGraph;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
@@ -78,7 +78,9 @@ class AmbiguateProperties implements CompilerPass {
 
   private final List<Node> stringNodesToRename = new ArrayList<>();
   // Can't use these as property names.
-  private final char[] reservedCharacters;
+  private final char[] reservedFirstCharacters;
+  // Can't use these as property names.
+  private final char[] reservedNonFirstCharacters;
 
   /** Map from property name to Property object */
   private final Map<String, Property> propertyMap = new HashMap<>();
@@ -117,7 +119,7 @@ class AmbiguateProperties implements CompilerPass {
   private Map<JSType, JSTypeBitSet> relatedBitsets = new HashMap<>();
 
   /** A set of types that invalidate properties from ambiguation. */
-  private final Set<JSType> invalidatingTypes;
+  private final Set<TypeI> invalidatingTypes;
 
   /**
    * Prefix of properties to skip renaming.  These should be renamed in the
@@ -125,14 +127,17 @@ class AmbiguateProperties implements CompilerPass {
    */
   static final String SKIP_PREFIX = "JSAbstractCompiler";
 
-  AmbiguateProperties(AbstractCompiler compiler,
-      char[] reservedCharacters) {
+  AmbiguateProperties(
+      AbstractCompiler compiler,
+      char[] reservedFirstCharacters,
+      char[] reservedNonFirstCharacters) {
     Preconditions.checkState(compiler.getLifeCycleStage().isNormalized());
     this.compiler = compiler;
-    this.reservedCharacters = reservedCharacters;
+    this.reservedFirstCharacters = reservedFirstCharacters;
+    this.reservedNonFirstCharacters = reservedNonFirstCharacters;
 
     JSTypeRegistry r = compiler.getTypeRegistry();
-    invalidatingTypes = new HashSet<>(ImmutableSet.of(
+    invalidatingTypes = new HashSet<>(ImmutableSet.<TypeI>of(
         r.getNativeType(JSTypeNative.ALL_TYPE),
         r.getNativeType(JSTypeNative.FUNCTION_FUNCTION_TYPE),
         r.getNativeType(JSTypeNative.FUNCTION_INSTANCE_TYPE),
@@ -157,9 +162,11 @@ class AmbiguateProperties implements CompilerPass {
   }
 
   static AmbiguateProperties makePassForTesting(
-      AbstractCompiler compiler, char[] reservedCharacters) {
+      AbstractCompiler compiler,
+      char[] reservedFirstCharacters,
+      char[] reservedNonFirstCharacters) {
     AmbiguateProperties ap =
-        new AmbiguateProperties(compiler, reservedCharacters);
+        new AmbiguateProperties(compiler, reservedFirstCharacters, reservedNonFirstCharacters);
     ap.renamingMap = new HashMap<>();
     return ap;
   }
@@ -167,16 +174,16 @@ class AmbiguateProperties implements CompilerPass {
   /**
    * Invalidates the given type, so that no properties on it will be renamed.
    */
-  private void addInvalidatingType(JSType type) {
+  private void addInvalidatingType(TypeI type) {
     type = type.restrictByNotNullOrUndefined();
     if (type.isUnionType()) {
-      for (JSType alt : type.toMaybeUnionType().getAlternatesWithoutStructuralTyping()) {
+      for (TypeI alt : type.getUnionMembers()) {
         addInvalidatingType(alt);
       }
     }
 
     invalidatingTypes.add(type);
-    ObjectType objType = ObjectType.cast(type);
+    ObjectType objType = (ObjectType) type.toMaybeObjectType();
     if (objType != null && objType.isInstanceType()) {
       invalidatingTypes.add(objType.getImplicitPrototype());
     }
@@ -230,8 +237,9 @@ class AmbiguateProperties implements CompilerPass {
     int numNewPropertyNames = coloring.color();
 
     // Generate new names for the properties that will be renamed.
-    NameGenerator nameGen = new DefaultNameGenerator(
-        reservedNames.build(), "", reservedCharacters);
+    NameGenerator nameGen =
+        new DefaultNameGenerator(
+            reservedNames.build(), "", reservedFirstCharacters, reservedNonFirstCharacters);
     String[] colorMap = new String[numNewPropertyNames];
     for (int i = 0; i < numNewPropertyNames; ++i) {
       colorMap[i] = nameGen.generateNextName();

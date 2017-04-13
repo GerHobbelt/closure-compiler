@@ -76,7 +76,7 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
     enableClosurePass();
     enableClosurePassForExpected();
     enableRewriteClosureCode();
-    setLanguage(LanguageMode.ECMASCRIPT6_STRICT, LanguageMode.ECMASCRIPT5_STRICT);
+    setLanguage(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5_STRICT);
   }
 
   @Override
@@ -1147,6 +1147,41 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
     testSame("throw new Error('test');");
   }
 
+  public void testCustomRestrictThrow3() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanThrowOfNonErrorTypes'\n" +
+        "  error_message: 'BanThrowOfNonErrorTypes Message'\n" +
+        "}";
+
+    testSame(LINE_JOINER.join(
+        "/** @param {*} x */",
+        "function f(x) {",
+        "  throw x;",
+        "}"));
+  }
+
+  public void testCustomRestrictThrow4() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanThrowOfNonErrorTypes'\n" +
+        "  error_message: 'BanThrowOfNonErrorTypes Message'\n" +
+        "}";
+
+    testSame(LINE_JOINER.join(
+        "/** @constructor @extends {Error} */",
+        "function MyError() {}",
+        "/** @param {*} x */",
+        "function f(x) {",
+        "  if (x instanceof MyError) {",
+        "  } else {",
+        "    throw x;",
+        "  }",
+        "}"));
+  }
+
   public void testCustomBanUnknownThis1() {
     configuration =
         "requirement: {\n" +
@@ -1635,5 +1670,69 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
             "/** @const */ var module$testcode = {};",
             "var x$$module$testcode=2;",
             "module$testcode.x = x$$module$testcode;"));
+  }
+
+  public void testBanCreateDom() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanCreateDom'\n" +
+        "  error_message: 'BanCreateDom Message'\n" +
+        "  value: 'iframe.src'\n" +
+        "  value: 'div.class'\n" +
+        "}";
+
+    testWarning(
+        "goog.dom.createDom('iframe', {'src': src});",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom('iframe', {'src': src, 'name': ''}, '');",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom(goog.dom.TagName.IFRAME, {'src': src});",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom('div', 'red');",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom('div', ['red']);",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    // TODO(jakubvrana): Add a test for goog.dom.DomHelper.
+
+    testWarning(
+        "goog.dom.createDom(tag, {'src': src});",
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
+        "Possible violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom('iframe', attrs);",
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
+        "Possible violation: BanCreateDom Message");
+
+    testWarning(
+        "goog.dom.createDom(tag, attrs);",
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
+        "Possible violation: BanCreateDom Message");
+
+    testSame("goog.dom.createDom('iframe');");
+    testSame("goog.dom.createDom('iframe', {'src': ''});");
+    testSame("goog.dom.createDom('iframe', {'name': name});");
+    testSame("goog.dom.createDom('iframe', 'red' + '');");
+    testSame("goog.dom.createDom('iframe', ['red']);");
+    testSame("goog.dom.createDom('iframe', undefined);");
+    testSame("goog.dom.createDom('iframe', null);");
+    testSame("goog.dom.createDom('img', {'src': src});");
+    testSame("goog.dom.createDom('img', attrs);");
+    testSame("goog.dom.createDom(tag, {});");
   }
 }

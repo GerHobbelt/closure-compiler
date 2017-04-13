@@ -27,15 +27,15 @@
  */
 function MediaSource() {}
 
-/** @inheritDoc */
-MediaSource.prototype.addEventListener = function(
-    type, listener, opt_options) {};
+/** @override */
+MediaSource.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/** @inheritDoc */
+/** @override */
 MediaSource.prototype.removeEventListener = function(
     type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 MediaSource.prototype.dispatchEvent = function(evt) {};
 
 /** @type {Array<SourceBuffer>} */
@@ -94,15 +94,15 @@ MediaSource.isTypeSupported = function(type) {};
  */
 function SourceBuffer() {}
 
-/** @inheritDoc */
+ * @override
 SourceBuffer.prototype.addEventListener = function(
     type, listener, opt_options) {};
 
-/** @inheritDoc */
+ * @override
 SourceBuffer.prototype.removeEventListener = function(
     type, listener, opt_options) {};
 
-/** @inheritDoc */
+ * @override
 SourceBuffer.prototype.dispatchEvent = function(evt) {};
 
 /** @type {string} */

@@ -310,6 +310,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           ABSTRACT_SUPER_METHOD_NOT_CALLABLE,
           ES5_CLASS_EXTENDING_ES6_CLASS,
           RhinoErrorReporter.TYPE_PARSE_ERROR,
+          RhinoErrorReporter.UNRECOGNIZED_TYPE_ERROR,
           TypedScopeCreator.UNKNOWN_LENDS,
           TypedScopeCreator.LENDS_ON_NON_OBJECT,
           TypedScopeCreator.CTOR_INITIALIZER,
@@ -340,8 +341,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   private int nullCount = 0;
   private int unknownCount = 0;
   private boolean inExterns;
-
-  private boolean shouldExpectAbstractMethodsImplemented = true;
 
   private static final class SuggestionPair {
     private final String suggestion;
@@ -449,11 +448,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       String filename = n.getSourceFileName();
       if (filename != null && filename.endsWith(".java.js")) {
         this.subtypingMode = SubtypingMode.IGNORE_NULL_UNDEFINED;
-        // TODO(moz): Remove the bypass for J2CL once b/30481839 is fixed
-        this.shouldExpectAbstractMethodsImplemented = false;
       } else {
         this.subtypingMode = SubtypingMode.NORMAL;
-        this.shouldExpectAbstractMethodsImplemented = true;
       }
       this.validator.setSubtypingMode(this.subtypingMode);
     }
@@ -1753,7 +1749,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         }
         // check properties
         validator.expectAllInterfaceProperties(t, n, functionType);
-        if (!functionType.isAbstract() && shouldExpectAbstractMethodsImplemented) {
+        if (!functionType.isAbstract()) {
           validator.expectAbstractMethodsImplemented(n, functionType);
         }
       }

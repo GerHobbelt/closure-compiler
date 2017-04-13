@@ -281,6 +281,17 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     testSameEs6("goog.module('m'); /** @typedef {string} */ let x;");
   }
 
+  public void testAliasInModule() {
+    enableUnusedLocalAssignmentCheck = true;
+    testSameEs6(
+        LINE_JOINER.join(
+            "goog.module('m');",
+            "const x = goog.require('x');",
+            "const y = x.y;",
+            "/** @type {y} */ var z;",
+            "alert(z);"));
+  }
+
   /**
    * Inside a goog.scope, don't warn because the alias might be used in a type annotation.
    */
@@ -760,6 +771,15 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     testSameEs6("for (let {length: x} in obj) {}");
 
     testSameEs6("for (let [{length: z}, w] in obj) {}");
+  }
+
+  public void testEnhancedForLoopTemporalDeadZone() {
+    assertEarlyReferenceError("for (let x of [x]);");
+    assertEarlyReferenceError("for (let x in [x]);");
+    assertEarlyReferenceError("for (const x of [x]);");
+    testSameEs6("for (var x of [x]);");
+    testSameEs6("for (let x of [() => x]);");
+    testSameEs6("let x = 1; for (let y of [x]);");
   }
 
   /**

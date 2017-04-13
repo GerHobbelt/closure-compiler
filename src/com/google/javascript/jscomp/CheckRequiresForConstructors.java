@@ -28,7 +28,6 @@ import com.google.javascript.jscomp.NodeUtil.Visitor;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -102,8 +101,9 @@ public class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTr
   public static final DiagnosticType EXTRA_REQUIRE_WARNING = DiagnosticType.disabled(
       "JSC_EXTRA_REQUIRE_WARNING", "extra require: ''{0}''");
 
-  private static final Set<String> DEFAULT_EXTRA_NAMESPACES = ImmutableSet.of(
-      "goog.testing.asserts", "goog.testing.jsunit", "goog.testing.JsTdTestCaseAdapter");
+  private static final ImmutableSet<String> DEFAULT_EXTRA_NAMESPACES =
+      ImmutableSet.of(
+          "goog.testing.asserts", "goog.testing.jsunit", "goog.testing.JsTdTestCaseAdapter");
 
   CheckRequiresForConstructors(AbstractCompiler compiler, Mode mode) {
     this.compiler = compiler;
@@ -407,7 +407,7 @@ public class CheckRequiresForConstructors implements HotSwapCompilerPass, NodeTr
       visitRequire(defaultImport.getString(), importNode);
     }
     Node namedImports = defaultImport.getNext();
-    if (namedImports.getToken() == Token.IMPORT_SPECS) {
+    if (namedImports.isImportSpecs()) {
       for (Node importSpec : namedImports.children()) {
         visitRequire(importSpec.getLastChild().getString(), importNode);
       }

@@ -483,15 +483,15 @@ FileError.prototype.code;
  */
 function FileReader() {}
 
-/** @inheritDoc */
-FileReader.prototype.addEventListener = function(type, listener, opt_options)
-    {};
+/** @override */
+FileReader.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/** @inheritDoc */
-FileReader.prototype.removeEventListener = function(type, listener, opt_options)
-	{};
+/** @override */
+FileReader.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
-/** @inheritDoc */
+/** @override */
 FileReader.prototype.dispatchEvent = function(evt) {};
 
 /**

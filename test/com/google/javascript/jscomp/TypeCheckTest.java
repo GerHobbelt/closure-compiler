@@ -4044,7 +4044,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testGoodSuperCall() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {",
@@ -4064,7 +4064,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testBadSuperCall() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {",
@@ -4283,7 +4283,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         + "  method: function() { return ''; }\n"
         + "}",
         ""
-        + "mismatch of the method property type and the type of the property "
+        + "mismatch of the method property on type MyClass and the type of the property "
         + "it overrides from interface MyInterface\n"
         + "original: function (): number\n"
         + "override: function (): string");
@@ -8532,7 +8532,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8554,7 +8554,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class_prototype() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8572,7 +8572,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class_prototype_warning() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8591,7 +8591,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testNonAbstractMethodCall_Es6Class_prototype() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8612,7 +8612,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
   // GitHub issue #2262: https://github.com/google/closure-compiler/issues/2262
   public void testAbstractMethodCall_Es6ClassWithSpread() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8977,7 +8977,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     // Some code assumes that an object literal must have a object type,
     // while because of the cast, it could have any type (including
     // a union).
-    compiler.getOptions().setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT6);
+    compiler.getOptions().setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2015);
     testTypes(
         "for (var i = 0; i < 10; i++) {" +
           "var x = /** @type {Object|number} */ ({foo: 3});" +
@@ -9299,7 +9299,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testConstDecl2() throws Exception {
-    compiler.getOptions().setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT6);
+    compiler.getOptions().setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2015);
     testTypes(
         "/** @param {?number} x */" +
         "function f(x) { " +
@@ -10102,42 +10102,40 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
   public void testInterfaceInheritanceCheck5() throws Exception {
     testTypes(
-        "/** @interface */function Super() {};" +
-        "/** @return {string} */Super.prototype.foo = function() {};" +
-        "/** @constructor\n @implements {Super} */function Sub() {};" +
-        "/** @override\n @return {number} */Sub.prototype.foo =\n" +
-        "function() { return 1; };",
-        "mismatch of the foo property type and the type of the property it " +
-        "overrides from interface Super\n" +
-        "original: function (this:Super): string\n" +
-        "override: function (this:Sub): number");
+        "/** @interface */function Super() {};"
+            + "/** @return {string} */Super.prototype.foo = function() {};"
+            + "/** @constructor\n @implements {Super} */function Sub() {};"
+            + "/** @override\n @return {number} */Sub.prototype.foo = function() { return 1; };",
+        "mismatch of the foo property on type Sub and the type of the property it "
+            + "overrides from interface Super\n"
+            + "original: function (this:Super): string\n"
+            + "override: function (this:Sub): number");
   }
 
   public void testInterfaceInheritanceCheck6() throws Exception {
     testTypes(
-        "/** @interface */function Root() {};" +
-        "/** @return {string} */Root.prototype.foo = function() {};" +
-        "/** @interface\n @extends {Root} */function Super() {};" +
-        "/** @constructor\n @implements {Super} */function Sub() {};" +
-        "/** @override\n @return {number} */Sub.prototype.foo =\n" +
-        "function() { return 1; };",
-        "mismatch of the foo property type and the type of the property it " +
-        "overrides from interface Root\n" +
-        "original: function (this:Root): string\n" +
-        "override: function (this:Sub): number");
+        "/** @interface */function Root() {};"
+            + "/** @return {string} */Root.prototype.foo = function() {};"
+            + "/** @interface\n @extends {Root} */function Super() {};"
+            + "/** @constructor\n @implements {Super} */function Sub() {};"
+            + "/** @override\n @return {number} */Sub.prototype.foo = function() { return 1; };",
+        "mismatch of the foo property on type Sub and the type of the property it "
+            + "overrides from interface Root\n"
+            + "original: function (this:Root): string\n"
+            + "override: function (this:Sub): number");
   }
 
   public void testInterfaceInheritanceCheck7() throws Exception {
     testTypes(
-        "/** @interface */function Super() {};" +
-        "/** @param {number} bar */Super.prototype.foo = function(bar) {};" +
-        "/** @constructor\n @implements {Super} */function Sub() {};" +
-        "/** @override\n  @param {string} bar */Sub.prototype.foo =\n" +
-        "function(bar) {};",
-        "mismatch of the foo property type and the type of the property it " +
-        "overrides from interface Super\n" +
-        "original: function (this:Super, number): undefined\n" +
-        "override: function (this:Sub, string): undefined");
+        "/** @interface */function Super() {};"
+            + "/** @param {number} bar */Super.prototype.foo = function(bar) {};"
+            + "/** @constructor\n @implements {Super} */function Sub() {};"
+            + "/** @override\n  @param {string} bar */Sub.prototype.foo =\n"
+            + "function(bar) {};",
+        "mismatch of the foo property on type Sub and the type of the property it "
+            + "overrides from interface Super\n"
+            + "original: function (this:Super, number): undefined\n"
+            + "override: function (this:Sub, string): undefined");
   }
 
   public void testInterfaceInheritanceCheck8() throws Exception {
@@ -10183,16 +10181,16 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
   public void testInterfaceInheritanceCheck12() throws Exception {
     testTypes(
-        "/** @interface */ function I() {};\n" +
-        "/** @type {string} */ I.prototype.foobar;\n" +
-        "/** \n * @constructor \n * @implements {I} */\n" +
-        "function C() {\n" +
-        "/** \n * @type {number} */ this.foobar = 2;};\n" +
-        "/** @type {I} */ \n var test = new C(); alert(test.foobar);",
-        "mismatch of the foobar property type and the type of the property" +
-        " it overrides from interface I\n" +
-        "original: string\n" +
-        "override: number");
+        "/** @interface */ function I() {};\n"
+            + "/** @type {string} */ I.prototype.foobar;\n"
+            + "/** \n * @constructor \n * @implements {I} */\n"
+            + "function C() {\n"
+            + "/** \n * @type {number} */ this.foobar = 2;};\n"
+            + "/** @type {I} */ \n var test = new C(); alert(test.foobar);",
+        "mismatch of the foobar property on type C and the type of the property"
+            + " it overrides from interface I\n"
+            + "original: string\n"
+            + "override: number");
   }
 
   public void testInterfaceInheritanceCheck13() throws Exception {
@@ -10275,14 +10273,14 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
    */
   public void testInterfacePropertyNotImplemented3() throws Exception {
     testTypes(
-        "/** @interface\n @template T */function Int() {};" +
-        "/** @return {T} */Int.prototype.foo = function() {};" +
-        "/** @constructor\n @implements {Int<string>} */function Foo() {};" +
-        "/** @return {number}\n @override */Foo.prototype.foo = function() {};",
-        "mismatch of the foo property type and the type of the property it " +
-        "overrides from interface Int\n" +
-        "original: function (this:Int): string\n" +
-        "override: function (this:Foo): number");
+        "/** @interface\n @template T */function Int() {};"
+            + "/** @return {T} */Int.prototype.foo = function() {};"
+            + "/** @constructor\n @implements {Int<string>} */function Foo() {};"
+            + "/** @return {number}\n @override */Foo.prototype.foo = function() {};",
+        "mismatch of the foo property on type Foo and the type of the property it "
+            + "overrides from interface Int\n"
+            + "original: function (this:Int): string\n"
+            + "override: function (this:Foo): number");
   }
 
   public void testStubConstructorImplementingInterface() throws Exception {
@@ -10536,38 +10534,40 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
             + "function C() {}\n"
             + "/** @override */\n"
             + "C.prototype.x = 'foo';",
-        "mismatch of the x property type and the type of the property it "
+        "mismatch of the x property on type C and the type of the property it "
             + "overrides from interface T\n"
             + "original: number\n"
             + "override: string");
   }
 
   public void testDataPropertyOnInterface3() throws Exception {
-    testTypes("/** @interface */ function T() {};\n" +
-        "/** @type {number} */T.prototype.x;\n" +
-        "/** @constructor \n" +
-        " *  @implements {T} \n" +
-        " */\n" +
-        "function C() {}\n" +
-        "/** @override */\n" +
-        "C.prototype.x = 'foo';",
-        "mismatch of the x property type and the type of the property it " +
-        "overrides from interface T\n" +
-        "original: number\n" +
-        "override: string");
+    testTypes(
+        "/** @interface */ function T() {};\n"
+            + "/** @type {number} */T.prototype.x;\n"
+            + "/** @constructor \n"
+            + " *  @implements {T} \n"
+            + " */\n"
+            + "function C() {}\n"
+            + "/** @override */\n"
+            + "C.prototype.x = 'foo';",
+        "mismatch of the x property on type C and the type of the property it "
+            + "overrides from interface T\n"
+            + "original: number\n"
+            + "override: string");
   }
 
   public void testDataPropertyOnInterface4() throws Exception {
-    testTypes("/** @interface */ function T() {};\n" +
-        "/** @type {number} */T.prototype.x;\n" +
-        "/** @constructor \n" +
-        " *  @implements {T} \n" +
-        " */\n" +
-        "function C() { /** @type {string} */ \n this.x = 'foo'; }\n",
-        "mismatch of the x property type and the type of the property it " +
-        "overrides from interface T\n" +
-        "original: number\n" +
-        "override: string");
+    testTypes(
+        "/** @interface */ function T() {};\n"
+            + "/** @type {number} */T.prototype.x;\n"
+            + "/** @constructor \n"
+            + " *  @implements {T} \n"
+            + " */\n"
+            + "function C() { /** @type {string} */ \n this.x = 'foo'; }\n",
+        "mismatch of the x property on type C and the type of the property it "
+            + "overrides from interface T\n"
+            + "original: number\n"
+            + "override: string");
   }
 
   public void testWarnDataPropertyOnInterface3() throws Exception {
@@ -17512,7 +17512,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class Foo {}",
@@ -17521,7 +17521,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class_noWarning() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {}",
@@ -17560,6 +17560,60 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
             "/** @constructor */",
             "function C() {}",
             "C.prototype = new C;"));
+  }
+
+  public void testFilterNoResolvedType() throws Exception {
+    testClosureTypes(
+        LINE_JOINER.join(
+            "goog.forwardDeclare('Foo');",
+            "/**",
+            " * @param {boolean} pred",
+            " * @param {?Foo} x",
+            " */",
+            "function f(pred, x) {",
+            "  var y;",
+            "  if (pred) {",
+            "    y = null;",
+            "  } else {",
+            "    y = x;",
+            "  }",
+            "  var /** number */ z = y;",
+            "}"),
+        // Tests that the type of y is (NoResolvedType|null) and not (Foo|null)
+        LINE_JOINER.join(
+            "initializing variable",
+            "found   : (NoResolvedType|null)",
+            "required: number"));
+  }
+
+  public void testNoResolvedTypeDoesntCauseInfiniteLoop() throws Exception {
+    testClosureTypes(LINE_JOINER.join(
+        "goog.forwardDeclare('Foo');",
+        "goog.forwardDeclare('Bar');",
+        "/** @const */",
+        "var goog = {};",
+        "goog.forwardDeclare = function(x) {};",
+        "/** @const */",
+        "goog.asserts = {};",
+        "goog.asserts.assert = function(x, y) {};",
+        "/** @interface */",
+        "var Baz = function() {};",
+        "/** @return {!Bar} */",
+        "Baz.prototype.getBar = function() {};",
+        "/** @constructor */",
+        "var Qux = function() {",
+        "  /** @type {?Foo} */",
+        "  this.jobRuntimeTracker_ = null;",
+        "};",
+        "/** @param {!Baz} job */",
+        "Qux.prototype.runRenderJobs_ = function(job) {",
+        "  for (var i = 0; i < 10; i++) {",
+        "    if (this.jobRuntimeTracker_) {",
+        "      goog.asserts.assert(job.getBar, '');",
+        "    }",
+        "  }",
+        "};"),
+        null);
   }
 
   private void testTypes(String js) {

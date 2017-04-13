@@ -208,6 +208,7 @@ public abstract class JSType implements TypeI, Serializable {
     return false;
   }
 
+  @Override
   public boolean isStringValueType() {
     return false;
   }
@@ -366,7 +367,10 @@ public abstract class JSType implements TypeI, Serializable {
   }
 
   @Override
-  public boolean isInstanceofObject() {
+  public final boolean isLiteralObject() {
+    if (this instanceof PrototypeObjectType) {
+      return ((PrototypeObjectType) this).isAnonymous();
+    }
     return false;
   }
 
@@ -565,6 +569,16 @@ public abstract class JSType implements TypeI, Serializable {
   @Override
   public final boolean isObjectType() {
     return isObject();
+  }
+
+  @Override
+  public final boolean isInstanceofObject() {
+    // Some type whose class is Object
+    if (this instanceof InstanceObjectType) {
+      InstanceObjectType iObj = (InstanceObjectType) this;
+      return iObj.isNativeObjectType() && "Object".equals(iObj.getReferenceName());
+    }
+    return isRecordType() || isLiteralObject();
   }
 
   /**
@@ -1056,6 +1070,7 @@ public abstract class JSType implements TypeI, Serializable {
    * @return <code>this &#8744; that</code>
    */
   public JSType getLeastSupertype(JSType that) {
+    that = filterNoResolvedType(that);
     if (that.isUnionType()) {
       // Union types have their own implementation of getLeastSupertype.
       return that.toMaybeUnionType().getLeastSupertype(this);
@@ -1369,8 +1384,10 @@ public abstract class JSType implements TypeI, Serializable {
    * This function is added for disambiguate properties,
    * and is deprecated for the other use cases.
    */
-  public boolean isSubtypeWithoutStructuralTyping(JSType that) {
-    return isSubtype(that, ImplCache.createWithoutStructuralTyping(), SubtypingMode.NORMAL);
+  @Override
+  public boolean isSubtypeWithoutStructuralTyping(TypeI that) {
+    return isSubtype(
+        (JSType) that, ImplCache.createWithoutStructuralTyping(), SubtypingMode.NORMAL);
   }
 
   /**

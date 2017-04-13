@@ -2064,23 +2064,31 @@ chrome.enterprise.Token.prototype.subtleCrypto;
 /**
  * @param {!ArrayBuffer} challenge A challenge as emitted by the Verified Access
  *     Web API.
- * @param {function(!ArrayBuffer): void=} callback Called back with the
- *     challenge response.
+ * @param {boolean|function(!ArrayBuffer): void} registerKeyOrCallback Either a
+ *     flag indicating whether to register the key, in which case the callback
+ *     is passed as the next arg, or the callback. If a flag is set, the current
+ *     Enterprise Machine Key is registered with the "system" token and
+ *     relinquishes the Enterprise Machine Key role. The key can then be
+ *     associated with a certificate and used like any other signing key. This
+ *     key is 2048-bit RSA. Subsequent calls to this function will then generate
+ *     a new Enterprise Machine Key.
+ * @param {function(!ArrayBuffer=): void=} callback The callback (called back
+ *     with the challenge response), if arg2 was the registerKey flag.
  * @return {undefined}
  */
 chrome.enterprise.platformKeys.challengeMachineKey =
-    function(challenge, callback) {};
+    function(challenge, registerKeyOrCallback, callback) {};
 
 
 /**
  * @param {!ArrayBuffer} challenge A challenge as emitted by the Verified Access
  *     Web API.
  * @param {boolean} registerKey If set, the current Enterprise User Key is
- *     registered with the "user"> token and relinquishes the Enterprise User
+ *     registered with the "user" token and relinquishes the Enterprise User
  *     Key role. The key can then be associated with a certificate and used like
  *     any other signing key. This key is 2048-bit RSA. Subsequent calls to this
  *     function will then generate a new Enterprise User Key.
- * @param {function(!ArrayBuffer): void=} callback Called back with the
+ * @param {function(!ArrayBuffer): void} callback Called back with the
  *     challenge response.
  * @return {undefined}
  */
@@ -2384,6 +2392,16 @@ chrome.runtime.requestUpdateCheck = function(callback) {};
  */
 chrome.runtime.restart = function() {};
 
+
+/**
+ * @see https://developer.chrome.com/extensions/runtime#method-restartAfterDelay
+ * @param {number} seconds Time to wait in seconds before rebooting the device,
+ *     or -1 to cancel a scheduled reboot.
+ * @param {function():void=} opt_callback A callback to be invoked when a
+ *     restart request was successfully rescheduled.
+ * @return {undefined}
+ */
+chrome.runtime.restartAfterDelay = function(seconds, opt_callback) {};
 
 
 /**
@@ -4450,8 +4468,19 @@ chrome.history.onVisited;
 chrome.identity = {};
 
 
+/** @typedef {?{id: string}} */
+chrome.identity.AccountInfo;
+
+
 /**
- * @param {(chrome.identity.TokenDetails|function(string=): void)}
+ * @param {function(!Array<!chrome.identity.AccountInfo>): void} callback
+ * @return {undefined}
+ */
+chrome.identity.getAccounts = function(callback) {};
+
+
+/**
+ * @param {(!chrome.identity.TokenDetails|function(string=): void)}
  *     detailsOrCallback Token options or a callback function if no options are
  *     specified.
  * @param {function(string=): void=} opt_callback A callback function if options
@@ -4461,31 +4490,37 @@ chrome.identity = {};
 chrome.identity.getAuthToken = function(detailsOrCallback, opt_callback) {};
 
 
-/** @typedef {{interactive: (boolean|undefined)}} */
+/**
+ * @typedef {?{
+ *   interactive: (boolean|undefined),
+ *   account: (!chrome.identity.AccountInfo|undefined),
+ *   scopes: (!Array<string>|undefined)
+ * }}
+ */
 chrome.identity.TokenDetails;
 
 
 /**
- * @param {chrome.identity.InvalidTokenDetails} details
- * @param {function(): void} callback
+ * @param {!chrome.identity.InvalidTokenDetails} details
+ * @param {function(): void=} opt_callback
  * @return {undefined}
  */
-chrome.identity.removeCachedAuthToken = function(details, callback) {};
+chrome.identity.removeCachedAuthToken = function(details, opt_callback) {};
 
 
-/** @typedef {{token: string}} */
+/** @typedef {?{token: string}} */
 chrome.identity.InvalidTokenDetails;
 
 
 /**
- * @param {chrome.identity.WebAuthFlowDetails} details
+ * @param {!chrome.identity.WebAuthFlowDetails} details
  * @param {function(string=): void} callback
  * @return {undefined}
  */
 chrome.identity.launchWebAuthFlow = function(details, callback) {};
 
 
-/** @typedef {{url: string, interactive: (boolean|undefined)}} */
+/** @typedef {?{url: string, interactive: (boolean|undefined)}} */
 chrome.identity.WebAuthFlowDetails;
 
 
@@ -4496,8 +4531,49 @@ chrome.identity.WebAuthFlowDetails;
 chrome.identity.getProfileUserInfo = function(callback) {};
 
 
-/** @type {!ChromeEvent} */
+
+/** @constructor */
+chrome.identity.OnSignInChangedEvent = function() {}
+
+
+/**
+ * @param {function(!chrome.identity.AccountInfo, boolean):void} callback
+ * @return {undefined}
+ */
+chrome.identity.OnSignInChangedEvent.prototype.addListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.identity.AccountInfo, boolean):void} callback
+ * @return {undefined}
+ */
+chrome.identity.OnSignInChangedEvent.prototype.removeListener =
+    function(callback) {};
+
+
+/**
+ * @param {function(!chrome.identity.AccountInfo, boolean):void} callback
+ * @return {boolean}
+ */
+chrome.identity.OnSignInChangedEvent.prototype.hasListener =
+    function(callback) {};
+
+
+/** @return {boolean} */
+chrome.identity.OnSignInChangedEvent.prototype.hasListeners =
+    function() {};
+
+
+/** @type {!chrome.identity.OnSignInChangedEvent} */
 chrome.identity.onSignInChanged;
+
+
+/**
+ * @param {string=} opt_path
+ * @return {string}
+ */
+chrome.identity.getRedirectURL = function(opt_path) {};
 
 
 /**
