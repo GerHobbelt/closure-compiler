@@ -1505,7 +1505,7 @@ public final class CommandLineRunnerTest extends TestCase {
   }
 
   public void testES5ChecksByDefault() {
-    testSame("var x = 3; delete x;");
+    test("var x = 3; delete x;", StrictModeCheck.DELETE_VARIABLE);
   }
 
   public void testES5ChecksInVerbose() {
@@ -1636,15 +1636,14 @@ public final class CommandLineRunnerTest extends TestCase {
               "goog.provide=function(a){};goog.require=function(a){};"),
           "goog.array={};",
           LINE_JOINER.join(
-              "function Baz$$module$Baz(){}",
-              "Baz$$module$Baz.prototype={",
+              "var module$Baz = function (){};",
+              "module$Baz.prototype={",
               "  baz:function(){return goog.array.last(['asdf','asd','baz'])},",
               "  bar:function(){return 8}",
-              "};",
-              "var module$Baz=Baz$$module$Baz;"),
+              "};"),
           LINE_JOINER.join(
-              "var Baz = Baz$$module$Baz,",
-              "    baz = new Baz();",
+              "var Baz = module$Baz,",
+              "    baz = new module$Baz();",
               "console.log(baz.baz());",
               "console.log(baz.bar());")
         });
@@ -1693,19 +1692,18 @@ public final class CommandLineRunnerTest extends TestCase {
         },
         new String[] {
           LINE_JOINER.join(
-          "var goog=goog||{},COMPILED=!1;",
+              "var goog=goog||{},COMPILED=!1;",
               "goog.provide=function(a){};goog.require=function(a){};"),
           "goog.array={};",
           LINE_JOINER.join(
-              "function Baz$$module$Baz(){}",
-              "Baz$$module$Baz.prototype={",
-              "baz:function(){return goog.array.last([\"asdf\",\"asd\",\"baz\"])},",
-              "bar:function(){return 8}",
-              "};",
-              "var module$Baz=Baz$$module$Baz;"),
+              "var module$Baz = function (){};",
+              "module$Baz.prototype={",
+              "  baz:function(){return goog.array.last([\"asdf\",\"asd\",\"baz\"])},",
+              "  bar:function(){return 8}",
+              "};"),
           LINE_JOINER.join(
-              "var Baz = Baz$$module$Baz,",
-              "    baz = new Baz();",
+              "var Baz = module$Baz,",
+              "    baz = new module$Baz();",
               "console.log(baz.baz());",
               "console.log(baz.bar());")
         });
@@ -1720,14 +1718,11 @@ public final class CommandLineRunnerTest extends TestCase {
     setFilename(1, "app.js");
     test(
         new String[] {
+          LINE_JOINER.join("export default class Foo {", "  bar() { console.log('bar'); }", "}"),
           LINE_JOINER.join(
-              "export default class Foo {",
-              "  bar() { console.log('bar'); }",
-              "}"),
-          LINE_JOINER.join(
-             "var FooBar = require('./foo');",
-             "var baz = new FooBar.default();",
-             "console.log(baz.bar());")
+              "var FooBar = require('./foo');",
+              "var baz = new FooBar.default();",
+              "console.log(baz.bar());")
         },
         new String[] {
           LINE_JOINER.join(
@@ -1737,7 +1732,7 @@ public final class CommandLineRunnerTest extends TestCase {
               "module$foo.default=Foo$$module$foo;"),
           LINE_JOINER.join(
               "var FooBar = module$foo,",
-              "    baz = new FooBar.default();",
+              "    baz = new module$foo.default();",
               "console.log(baz.bar());")
         });
   }
@@ -1762,12 +1757,10 @@ public final class CommandLineRunnerTest extends TestCase {
         },
         new String[] {
           LINE_JOINER.join(
-              "function Foo$$module$foo(){}",
-              "Foo$$module$foo.prototype.bar=function(){console.log(\"bar\")};",
-              "var module$foo=Foo$$module$foo;"),
+              "/** @constructor */ var module$foo = function(){};",
+              "module$foo.prototype.bar=function(){console.log(\"bar\")};"),
           LINE_JOINER.join(
-              "var baz$$module$app = new Foo$$module$foo();",
-              "console.log(baz$$module$app.bar());")
+              "var baz$$module$app = new module$foo();", "console.log(baz$$module$app.bar());")
         });
   }
 
@@ -1858,11 +1851,12 @@ public final class CommandLineRunnerTest extends TestCase {
     String inputString = "[{\"src\": \"alert('foo');\", \"path\":\"foo.js\"}]";
     args.add("--json_streams=IN");
 
-    CommandLineRunner runner = new CommandLineRunner(
-        args.toArray(new String[]{}),
-        new ByteArrayInputStream(inputString.getBytes()),
-        new PrintStream(outReader),
-        new PrintStream(errReader));
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outReader),
+            new PrintStream(errReader));
 
     lastCompiler = runner.getCompiler();
     try {
@@ -1879,11 +1873,12 @@ public final class CommandLineRunnerTest extends TestCase {
     String inputString = "alert('foo');";
     args.add("--json_streams=OUT");
 
-    CommandLineRunner runner = new CommandLineRunner(
-        args.toArray(new String[]{}),
-        new ByteArrayInputStream(inputString.getBytes()),
-        new PrintStream(outReader),
-        new PrintStream(errReader));
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outReader),
+            new PrintStream(errReader));
 
     lastCompiler = runner.getCompiler();
     try {
@@ -1906,11 +1901,12 @@ public final class CommandLineRunnerTest extends TestCase {
     args.add("--json_streams=BOTH");
     args.add("--js_output_file=bar.js");
 
-    CommandLineRunner runner = new CommandLineRunner(
-        args.toArray(new String[]{}),
-        new ByteArrayInputStream(inputString.getBytes()),
-        new PrintStream(outReader),
-        new PrintStream(errReader));
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outReader),
+            new PrintStream(errReader));
 
     lastCompiler = runner.getCompiler();
     try {
@@ -1928,16 +1924,67 @@ public final class CommandLineRunnerTest extends TestCase {
         + "\\n\\\"names\\\":[\\\"alert\\\"]\\n}\\n\"}]");
   }
 
+  public void testJsonStreamSourceMap() {
+    String inputSourceMap =
+        "{\n"
+            + "\"version\":3,\n"
+            + "\"file\":\"one.out.js\",\n"
+            + "\"lineCount\":1,\n"
+            + "\"mappings\":\"AAAAA,QAASA,IAAG,CAACC,CAAD,CAAI,CACdC,"
+            + "OAAAF,IAAA,CAAYC,CAAZ,CADc,CAGhBD,GAAA,CAAI,QAAJ;\",\n"
+            + "\"sources\":[\"one.js\"],\n"
+            + "\"names\":[\"log\",\"a\",\"console\"]\n"
+            + "}";
+    inputSourceMap = inputSourceMap.replace("\"", "\\\"");
+    String inputString =
+        "[{"
+            + "\"src\": \"function log(a){console.log(a)}log(\\\"one.js\\\");\", "
+            + "\"path\":\"one.out.js\", "
+            + "\"sourceMap\": \""
+            + inputSourceMap
+            + "\" }]";
+    args.add("--json_streams=BOTH");
+    args.add("--js_output_file=bar.js");
+    args.add("--apply_input_source_maps");
+
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outReader),
+            new PrintStream(errReader));
+
+    lastCompiler = runner.getCompiler();
+    try {
+      runner.doRun();
+    } catch (IOException e) {
+      e.printStackTrace();
+      fail("Unexpected exception " + e);
+    }
+    String output = new String(outReader.toByteArray(), UTF_8);
+    assertThat(output)
+        .isEqualTo(
+            "[{"
+                + "\"src\":\"function log(a){console.log(a)}log(\\\"one.js\\\");\\n\","
+                + "\"path\":\"bar.js\","
+                + "\"source_map\":\"{\\n\\\"version\\\":3,\\n\\\"file\\\":\\\"bar.js\\\",\\n"
+                + "\\\"lineCount\\\":1,\\n\\\"mappings\\\":\\\"AAAAA,QAASA,IAAG,CAACC,CAAD,CAAI,CACdC,"
+                + "OAAAF,IAAA,CAAYC,CAAZ,CADc,CAGhBD,GAAA,CAAI,QAAJ;\\\",\\n"
+                + "\\\"sources\\\":[\\\"one.js\\\"],\\n\\\"names\\\":[\\\"log\\\",\\\"a\\\","
+                + "\\\"console\\\"]\\n}\\n\"}]");
+  }
+
   public void testOutputModuleNaming() {
     String inputString = "[{\"src\": \"alert('foo');\", \"path\":\"foo.js\"}]";
     args.add("--json_streams=BOTH");
     args.add("--module=foo--bar.baz:1");
 
-    CommandLineRunner runner = new CommandLineRunner(
-        args.toArray(new String[]{}),
-        new ByteArrayInputStream(inputString.getBytes()),
-        new PrintStream(outReader),
-        new PrintStream(errReader));
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outReader),
+            new PrintStream(errReader));
 
     lastCompiler = runner.getCompiler();
     try {

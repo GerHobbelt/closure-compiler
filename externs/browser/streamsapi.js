@@ -15,10 +15,10 @@
  */
 /**
  * @fileoverview Streams API definitions
- * 
+ *
  * Based on Living Standard — Last Updated 5 August 2016
  * https://streams.spec.whatwg.org/commit-snapshots/34ecaadbcce8df9943d7a2cdb7fca4dc25914df4/
- * 
+ *
  * @see https://streams.spec.whatwg.org/
  * @externs
  */
@@ -139,7 +139,7 @@ ReadableStream.prototype.tee = function() {};
 /**
  * The ReadableStreamDefaultReader constructor is generally not meant to be used directly;
  * instead, a stream’s getReader() method should be used.
- * 
+ *
  * @interface
  * @see https://streams.spec.whatwg.org/#default-reader-class
  */
@@ -172,9 +172,9 @@ ReadableStreamDefaultReader.prototype.releaseLock = function() {};
 
 
 /**
- * The ReadableStreamBYOBReader constructor is generally not meant to be used directly;
- * instead, a stream’s getReader() method should be used.
- * 
+ * The ReadableStreamBYOBReader constructor is generally not meant to be used
+ * directly; instead, a stream’s getReader() method should be used.
+ *
  * @interface
  * @see https://streams.spec.whatwg.org/#byob-reader-class
  */
@@ -210,7 +210,7 @@ ReadableStreamBYOBReader.prototype.releaseLock = function() {};
 /**
  * The ReadableStreamDefaultController constructor cannot be used directly;
  * it only works on a ReadableStream that is in the middle of being constructed.
- * 
+ *
  * @interface
  * @see https://streams.spec.whatwg.org/#rs-default-controller-class
  */
@@ -246,7 +246,7 @@ ReadableStreamDefaultController.prototype.error = function(err) {};
 /**
  * The ReadableByteStreamController constructor cannot be used directly;
  * it only works on a ReadableStream that is in the middle of being constructed.
- * 
+ *
  * @interface
  * @see https://streams.spec.whatwg.org/#rbs-controller-class
  */
@@ -412,7 +412,7 @@ WritableStreamDefaultWriter.prototype.write = function(chunk) {};
 /**
  * The WritableStreamDefaultController constructor cannot be used directly;
  * it only works on a WritableStream that is in the middle of being constructed.
- * 
+ *
  * @interface
  * @see https://streams.spec.whatwg.org/#ws-default-controller-class
  */
@@ -436,7 +436,7 @@ function ByteLengthQueuingStrategy(config) {}
 /**
  * If we don't want to be strict we can define chunk as {*}
  * and return as {number|undefined}
- * 
+ *
  * @param {{ byteLength:number }} chunk
  * @return {number}
  * @see https://streams.spec.whatwg.org/#blqs-size

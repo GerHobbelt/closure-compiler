@@ -2104,6 +2104,16 @@ chrome.enterprise.platformKeys.removeCertificate =
 chrome.extension = {};
 
 
+/**
+ * @enum {string}
+ * @see https://developer.chrome.com/extensions/extension#type-ViewType
+ */
+chrome.extension.ViewType = {
+  TAB: '',
+  POPUP: '',
+};
+
+
 /** @type {!Object|undefined} */
 chrome.extension.lastError = {};
 
@@ -2147,8 +2157,16 @@ chrome.extension.getURL = function(path) {};
 
 
 /**
- * @param {Object=} opt_fetchProperties An object with optional 'type' and
- *     optional 'windowId' keys.
+ * @typedef {?{
+ *   type: (!chrome.extension.ViewType|string|undefined),
+ *   windowId: (number|undefined),
+ *   tabId: (number|undefined)
+ * }}
+ */
+chrome.extension.ViewInfo;
+
+/**
+ * @param {?chrome.extension.ViewInfo=} opt_fetchProperties
  * @return {Array<Window>} The global JS objects for each content view.
  */
 chrome.extension.getViews = function(opt_fetchProperties) {};
@@ -8291,7 +8309,7 @@ chrome.usb.TransferResultInfo.prototype.data;
 
 /**
  * @typedef {?{
- *   deviceId: number,
+ *   vendorId: number,
  *   productId: number,
  *   interfaceId: (number|undefined)
  * }}
@@ -9913,6 +9931,32 @@ chrome.bluetoothPrivate.setAdapterState = function(adapterState, callback) {};
  */
 chrome.bluetoothPrivate.setPairingResponse = function(options, callback) {};
 
+
+/**
+ * @param {string} deviceAddress
+ * @param {function():void=} callback
+ * @return {undefined}
+ */
+chrome.bluetoothPrivate.forgetDevice = function(deviceAddress, callback) {};
+
+
+/**
+ * @typedef {{
+ *   transport: (!chrome.bluetoothPrivate.TransportType|undefined),
+ *   uuids: ((string|!Array<string>)|undefined),
+ *   rssi: (number|undefined),
+ *   pathloss: (number|undefined)
+ * }}
+ */
+chrome.bluetoothPrivate.DiscoveryFilter;
+
+
+/**
+ * Set or clear discovery filter.
+ * @param {!chrome.bluetoothPrivate.DiscoveryFilter} discoveryFilter
+ * @param {function():void=} callback
+ */
+chrome.bluetoothPrivate.setDiscoveryFilter = function(discoveryFilter, callback) {};
 
 
 /**

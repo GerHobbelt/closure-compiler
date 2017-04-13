@@ -619,20 +619,12 @@ public class Node implements Serializable {
     return new StringNode(token, str, lineno, charno);
   }
 
-  public Token getToken() {
+  public final Token getToken() {
     return token;
-  }
-
-  public Token getType() {
-    return getToken();
   }
 
   public void setToken(Token token) {
     this.token = token;
-  }
-
-  public void setType(Token token) {
-    setToken(token);
   }
 
   public boolean hasChildren() {
@@ -660,11 +652,11 @@ public class Node implements Serializable {
     return first != null ? first.previous : null;
   }
 
-  public Node getNext() {
+  public final Node getNext() {
     return next;
   }
 
-  public Node getPrevious() {
+  public final Node getPrevious() {
     return this == parent.first ? null : previous;
   }
 
@@ -751,6 +743,9 @@ public class Node implements Serializable {
   }
 
   public void addChildrenToFront(Node children) {
+    if (children == null) {
+      return; // removeChildren() returns null when there are none
+    }
     for (Node child = children; child != null; child = child.next) {
       Preconditions.checkArgument(child.parent == null);
       child.parent = this;
@@ -813,6 +808,9 @@ public class Node implements Serializable {
    * Add all children after 'node'.
    */
   public void addChildrenAfter(Node children, Node node) {
+    if (children == null) {
+      return; // removeChildren() returns null when there are none
+    }
     Preconditions.checkArgument(node == null || node.parent == this);
     Preconditions.checkState(children.previous != null);
     if (node == null) {
@@ -1620,6 +1618,25 @@ public class Node implements Serializable {
   }
 
   /**
+   * Check for two children more efficiently than {@code getChildCount() == 2}
+   *
+   * @return Whether the node has exactly two children.
+   */
+  public boolean hasTwoChildren() {
+    return first != null && first.next != null && first.next == getLastChild();
+  }
+
+  /**
+   * Check for zero or one child more efficiently than by iterating over all the
+   * children as is done with Node.getChildCount().
+   *
+   * @return Whether the node has no children or exactly one child.
+   */
+  public boolean hasZeroOrOneChild() {
+    return first == getLastChild();
+  }
+
+  /**
    * Check for more than one child more efficiently than by iterating over all
    * the children as is done with Node.getChildCount().
    *
@@ -1627,6 +1644,19 @@ public class Node implements Serializable {
    */
   public boolean hasMoreThanOneChild() {
     return first != null && first.next != null;
+  }
+
+  /**
+   * Check for has exactly the number of specified children.
+   *
+   * @return Whether the node has exactly the number of children specified.
+   */
+  public boolean hasXChildren(int x) {
+    int c = 0;
+    for (Node n = first; n != null && c <= x; n = n.next) {
+      c++;
+    }
+    return c == x;
   }
 
   public int getChildCount() {
@@ -1839,21 +1869,22 @@ public class Node implements Serializable {
    *         of the name and properties.
    */
   public String getQualifiedName() {
-    if (token == Token.NAME || getBooleanProp(IS_MODULE_NAME)) {
-      String name = getString();
-      return name.isEmpty() ? null : name;
-    } else if (token == Token.GETPROP) {
-      String left = getFirstChild().getQualifiedName();
-      if (left == null) {
+    switch (token) {
+      case NAME:
+        String name = getString();
+        return name.isEmpty() ? null : name;
+      case GETPROP:
+        String left = getFirstChild().getQualifiedName();
+        if (left == null) {
+          return null;
+        }
+        return left + "." + getLastChild().getString();
+      case THIS:
+        return "this";
+      case SUPER:
+        return "super";
+      default:
         return null;
-      }
-      return left + "." + getLastChild().getString();
-    } else if (token == Token.THIS) {
-      return "this";
-    } else if (token == Token.SUPER) {
-      return "super";
-    } else {
-      return null;
     }
   }
 
@@ -2593,10 +2624,6 @@ public class Node implements Serializable {
       return this;
     }
 
-    public boolean areAllFlagsSet() {
-      return value == Node.SIDE_EFFECTS_ALL;
-    }
-
     /**
      * Preserve the return result flag, but clear the others:
      *   no global state change, no throws, no this change, no arguments change
@@ -2635,6 +2662,31 @@ public class Node implements Serializable {
 
     private void removeFlag(int flag) {
       value &= ~flag;
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder builder = new StringBuilder("Side effects: ");
+      if ((value & Node.FLAG_THIS_UNMODIFIED) == 0) {
+        builder.append("this ");
+      }
+
+      if ((value & Node.FLAG_GLOBAL_STATE_UNMODIFIED) == 0) {
+        builder.append("global ");
+      }
+
+      if ((value & Node.FLAG_NO_THROWS) == 0) {
+        builder.append("throw ");
+      }
+
+      if ((value & Node.FLAG_ARGUMENTS_UNMODIFIED) == 0) {
+        builder.append("args ");
+      }
+
+      if ((value & Node.FLAG_LOCAL_RESULTS) == 0) {
+        builder.append("return ");
+      }
+      return builder.toString();
     }
   }
 

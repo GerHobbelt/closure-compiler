@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp.parsing.parser;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.BaseEncoding;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
@@ -206,12 +208,8 @@ public class Parser {
     public static enum Mode {
       ES3,
       ES5,
-      ES5_STRICT,
-      ES6,
-      ES6_STRICT,
-      ES6_TYPED,
-      ES7,
-      ES8
+      ES6_OR_GREATER,
+      TYPESCRIPT,
     }
 
     /**
@@ -221,29 +219,18 @@ public class Parser {
     //     this is false.
     private final boolean parseTypeSyntax;
     private final boolean atLeast6;
-    private final boolean atLeast5;
     private final boolean isStrictMode;
     private final boolean warnTrailingCommas;
 
-    public Config(Mode mode) {
-      parseTypeSyntax = mode == Mode.ES6_TYPED;
-      atLeast6 =
-          mode == Mode.ES8
-          || mode == Mode.ES7
-          || mode == Mode.ES6
-          || mode == Mode.ES6_STRICT
-          || mode == Mode.ES6_TYPED;
-      atLeast5 = atLeast6 || mode == Mode.ES5 || mode == Mode.ES5_STRICT;
-      this.isStrictMode =
-          mode == Mode.ES5_STRICT
-          || mode == Mode.ES6_STRICT
-          || mode == Mode.ES6_TYPED
-          || mode == Mode.ES7
-          || mode == Mode.ES8;
+    public Config(Mode mode, boolean isStrictMode) {
+      checkArgument(!(mode == Mode.ES3 && isStrictMode));
+      parseTypeSyntax = mode == Mode.TYPESCRIPT;
+      atLeast6 = !(mode == Mode.ES3 || mode == Mode.ES5);
+      this.isStrictMode = isStrictMode;
 
       // Generally, we allow everything that is valid in any mode
       // we only warn about things that are not represented in the AST.
-      this.warnTrailingCommas = !atLeast5;
+      this.warnTrailingCommas = mode == Mode.ES3;
     }
   }
 
@@ -574,10 +561,9 @@ public class Parser {
     }
 
     LiteralToken moduleSpecifier = null;
-    if (isExportAll ||
-        (isExportSpecifier && peekPredefinedString(PredefinedName.FROM))) {
+    if (isExportAll || (isExportSpecifier && peekPredefinedString(PredefinedName.FROM))) {
       eatPredefinedString(PredefinedName.FROM);
-      moduleSpecifier = eat(TokenType.STRING).asLiteral();
+      moduleSpecifier = (LiteralToken) eat(TokenType.STRING);
     } else if (isExportSpecifier) {
       for (ParseTree tree : exportSpecifierList) {
         IdentifierToken importedName = tree.asExportSpecifier().importedName;
@@ -969,7 +955,7 @@ public class Parser {
   }
 
   private ParseTree parseAsyncMethod(PartialClassElement partial) {
-    features.require(Feature.ASYNC_FUNCTIONS);
+    features = features.require(Feature.ASYNC_FUNCTIONS);
     eatPredefinedString(ASYNC);
     if (peekIdOrKeyword()) {
       IdentifierToken name = eatIdOrKeywordAsId();
@@ -1197,7 +1183,7 @@ public class Parser {
   }
 
   private boolean peekFunctionTypeExpression() {
-    if (config.parseTypeSyntax && peek(TokenType.OPEN_PAREN) || peek(TokenType.OPEN_ANGLE)) {
+    if ((config.parseTypeSyntax && peek(TokenType.OPEN_PAREN)) || peek(TokenType.OPEN_ANGLE)) {
       // TODO(blickly): determine if we can parse this without the
       // overhead of forking the parser.
       Parser p = createLookaheadParser();
@@ -1242,7 +1228,7 @@ public class Parser {
 
   private ParseTree parseAsyncFunctionDeclaration() {
     SourcePosition start = getTreeStartLocation();
-    features.require(Feature.ASYNC_FUNCTIONS);
+    features = features.require(Feature.ASYNC_FUNCTIONS);
     eatAsyncFunctionStart();
 
     if (peek(TokenType.STAR)) {
@@ -1262,7 +1248,7 @@ public class Parser {
 
   private ParseTree parseAsyncFunctionExpression() {
     SourcePosition start = getTreeStartLocation();
-    features.require(Feature.ASYNC_FUNCTIONS);
+    features = features.require(Feature.ASYNC_FUNCTIONS);
     eatAsyncFunctionStart();
 
     if (peek(TokenType.STAR)) {

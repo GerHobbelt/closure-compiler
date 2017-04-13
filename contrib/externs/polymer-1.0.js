@@ -856,6 +856,13 @@ PolymerDomApi.prototype.classList;
 PolymerDomApi.prototype.queryDistributedElements = function(selector) {};
 
 /**
+ * Returns a list of effective child nodes for this element.
+ *
+ * @return {!Array<!HTMLElement>}
+ */
+PolymerDomApi.prototype.getEffectiveChildNodes = function() {};
+
+/**
  * A Polymer Event API.
  *
  * @constructor
@@ -1142,6 +1149,16 @@ DomRepeatElement.prototype.keyForElement = function(el) {};
  *   not correspond to the array index if a user `sort` is applied).
  */
 DomRepeatElement.prototype.indexForElement = function(el) {};
+
+
+/**
+ * Count of currently rendered items after `filter` (if any) has been applied.
+ * If "chunking mode" is enabled, `renderedItemCount` is updated each time a
+ * set of template instances is rendered.
+ *
+ * @type {number}
+ */
+DomRepeatElement.prototype.renderedItemCount;
 
 
 

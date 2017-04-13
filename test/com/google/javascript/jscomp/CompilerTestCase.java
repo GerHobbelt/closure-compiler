@@ -112,6 +112,9 @@ public abstract class CompilerTestCase extends TestCase {
   /** Whether we run InferConsts before checking. */
   private boolean enableInferConsts = false;
 
+  /** Whether we run CheckAccessControls after the pass being tested. */
+  private boolean checkAccessControls = false;
+
   /** Whether to check that all line number information is preserved. */
   private boolean checkLineNumbers = true;
 
@@ -157,13 +160,14 @@ public abstract class CompilerTestCase extends TestCase {
   private String filename = "testcode";
 
   static final String ACTIVE_X_OBJECT_DEF =
-  "/**\n" +
-  " * @param {string} progId\n" +
-  " * @param {string=} opt_location\n" +
-  " * @constructor\n" +
-  " * @see http://msdn.microsoft.com/en-us/library/7sw4ddf8.aspx\n" +
-  " */\n" +
-  "function ActiveXObject(progId, opt_location) {}\n";
+      LINE_JOINER.join(
+          "/**",
+          " * @param {string} progId",
+          " * @param {string=} opt_location",
+          " * @constructor",
+          " * @see http://msdn.microsoft.com/en-us/library/7sw4ddf8.aspx",
+          " */",
+          "function ActiveXObject(progId, opt_location) {}");
 
   /** A default set of externs for testing. */
   public static final String DEFAULT_EXTERNS =
@@ -237,6 +241,26 @@ public abstract class CompilerTestCase extends TestCase {
           "function Arguments() {}",
           "/** @type {number} */",
           "Arguments.prototype.length;",
+          "/**",
+          " * @constructor",
+          " */",
+          // TODO(bradfordcsmith): Copy fields for this from es5.js this when we have test cases
+          //     that depend on them.
+          "function ObjectPropertyDescriptor() {}",
+          "/**",
+          " * @param {!Object} obj",
+          " * @param {string} prop",
+          " * @return {!ObjectPropertyDescriptor|undefined}",
+          " * @nosideeffects",
+          " */",
+          "Object.getOwnPropertyDescriptor = function(obj, prop) {};",
+          "/**",
+          " * @param {!Object} obj",
+          " * @param {string} prop",
+          " * @param {!Object} descriptor",
+          " * @return {!Object}",
+          " */",
+          "Object.defineProperty = function(obj, prop, descriptor) {};",
           "/** @type {?} */ var unknown;", // For producing unknowns in tests.
           ACTIVE_X_OBJECT_DEF);
 
@@ -375,6 +399,13 @@ public abstract class CompilerTestCase extends TestCase {
    */
   protected void enableInferConsts(boolean enable) {
     this.enableInferConsts = enable;
+  }
+
+  /**
+   * Whether to run CheckAccessControls after the pass being tested (and checking types).
+   */
+  protected void enableCheckAccessControls(boolean enable) {
+    this.checkAccessControls = enable;
   }
 
   /**
@@ -594,6 +625,14 @@ public abstract class CompilerTestCase extends TestCase {
   }
 
   /**
+   * Verifies that the compiler generates the given warning for the given input.
+   */
+  public void testWarning(String[] js, DiagnosticType warning) {
+    assertNotNull(warning);
+    test(js, null, null, warning);
+  }
+
+  /**
    * Verifies that the compiler generates the given warning and description for the given input.
    *
    * @param js Input
@@ -783,14 +822,14 @@ public abstract class CompilerTestCase extends TestCase {
   }
 
   /**
-   * Verifies that the compiler pass's JS output matches the expected output,
-   * or that an expected error is encountered.
+   * Verifies that the compiler pass's JS output matches the expected output, or that an expected
+   * error is encountered.
    *
    * @param js Inputs
    * @param expected Expected JS output
    * @param error Expected error, or null if no error is expected
    */
-  public void test(String[] js, String[] expected, DiagnosticType error) {
+  private void test(String[] js, String[] expected, DiagnosticType error) {
     test(js, expected, error, null);
   }
 
@@ -991,20 +1030,6 @@ public abstract class CompilerTestCase extends TestCase {
    * Verifies that the compiler pass's JS output is the same as its input
    * and (optionally) that an expected warning is issued.
    *
-   * @param js Input and output
-   * @param warning Expected warning, or null if no warning is expected
-   * @param description The description of the expected warning,
-   *      or null if no warning is expected or if the warning's description
-   *      should not be examined
-   */
-  public void testSameNoExterns(String js, DiagnosticType warning, String description) {
-    testSame("", js, warning, description, false);
-  }
-
-  /**
-   * Verifies that the compiler pass's JS output is the same as its input
-   * and (optionally) that an expected warning is issued.
-   *
    * @param externs Externs input
    * @param js Input and output
    * @param diag Expected error or warning, or null if none is expected
@@ -1046,7 +1071,7 @@ public abstract class CompilerTestCase extends TestCase {
    * @param error Whether the "type" parameter represents an error.
    *   (false indicated the type is a warning). Ignored if type is null.
    */
-  public void testSame(
+  private void testSame(
       String externs, String js, DiagnosticType type, String description, boolean error) {
     List<SourceFile> externsInputs = ImmutableList.of(SourceFile.fromCode("externs", externs));
     if (error) {
@@ -1246,7 +1271,7 @@ public abstract class CompilerTestCase extends TestCase {
         if (closurePassEnabled && i == 0) {
           recentChange.reset();
           new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
-              .process(null, mainRoot);
+              .process(externsRoot, mainRoot);
           hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
         }
 
@@ -1310,6 +1335,10 @@ public abstract class CompilerTestCase extends TestCase {
             && this.newTypeInferenceEnabled
             && i == 0) {
           runNewTypeInference(compiler, externsRoot, mainRoot);
+        }
+
+        if (checkAccessControls) {
+          (new CheckAccessControls(compiler, false)).process(externsRoot, mainRoot);
         }
 
         hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
@@ -1515,6 +1544,7 @@ public abstract class CompilerTestCase extends TestCase {
     List<PassFactory> factories = new ArrayList<>();
     TranspilationPasses.addEs6EarlyPasses(factories);
     TranspilationPasses.addEs6LatePasses(factories);
+    TranspilationPasses.addRewritePolyfillPass(factories);
     for (PassFactory factory : factories) {
       factory.create(compiler).process(externsRoot, codeRoot);
     }
@@ -1565,7 +1595,8 @@ public abstract class CompilerTestCase extends TestCase {
     }
 
     if (closurePassEnabled && closurePassEnabledForExpected && !compiler.hasErrors()) {
-      new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false).process(null, mainRoot);
+      new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
+          .process(externsRoot, mainRoot);
     }
 
     if (rewriteClosureCode) {

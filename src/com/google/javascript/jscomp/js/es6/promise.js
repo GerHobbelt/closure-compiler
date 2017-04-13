@@ -16,6 +16,7 @@
 
 'require base';
 'require es6/util/makeiterator';
+'require util/global';
 'require util/polyfill';
 
 /**
@@ -34,7 +35,7 @@ $jscomp.EXPOSE_ASYNC_EXECUTOR = true;
 $jscomp.FORCE_POLYFILL_PROMISE = false;
 
 
-$jscomp.polyfill('$jscomp_Promise', function(NativePromise) {
+$jscomp.polyfill('Promise', function(NativePromise) {
   // TODO(bradfordcsmith): Do we need to add checks for standards conformance?
   //     e.g. The version of FireFox we currently use for testing has a Promise
   //     that fails to reject attempts to fulfill it with itself, but that
@@ -93,7 +94,7 @@ $jscomp.polyfill('$jscomp_Promise', function(NativePromise) {
 
   // NOTE: We want to make sure AsyncExecutor will work as expected even if
   // testing code should override setTimeout()
-  /** @const */ var nativeSetTimeout = setTimeout;
+  /** @const */ var nativeSetTimeout = $jscomp.global['setTimeout'];
 
   /**
    * Schedule a function to execute asynchronously as soon as possible.
@@ -479,7 +480,6 @@ $jscomp.polyfill('$jscomp_Promise', function(NativePromise) {
 
 
   /**
-   * @export
    * @param {!Array<(TYPE|!IThenable<TYPE>)>} thenablesOrValues
    * @return {!Promise<TYPE>} A Promise that receives the result of the
    *     first Promise (or Promise-like) input to settle immediately after it

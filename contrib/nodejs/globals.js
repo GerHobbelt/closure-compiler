@@ -116,7 +116,7 @@ Process.prototype.abort = function () {};
 Process.prototype.arch;
 
 /**
- * @type {Array<string>}
+ * @type {!Array<string>}
  * @see http://nodejs.org/api/process.html#process_process_argv
  */
 Process.prototype.argv;

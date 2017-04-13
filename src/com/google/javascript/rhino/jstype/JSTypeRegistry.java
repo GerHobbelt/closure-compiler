@@ -1656,30 +1656,28 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
       // TODO(martinprobst): The new type syntax resolution should be separate.
       // Remove the NAME case then.
       case NAME:
-        JSType namedType = getType(scope, n.getString(), sourceName,
-            n.getLineno(), n.getCharno());
-        if ((namedType instanceof ObjectType) &&
-            !(namedType instanceof NamespaceType) &&
-            !(nonNullableTypeNames.contains(n.getString()))) {
+        JSType namedType = getType(scope, n.getString(), sourceName, n.getLineno(), n.getCharno());
+        if ((namedType instanceof ObjectType)
+            && !(namedType instanceof NamespaceType)
+            && !(nonNullableTypeNames.contains(n.getString()))) {
           Node typeList = n.getFirstChild();
-          int nAllowedTypes = namedType.getTemplateTypeMap().numUnfilledTemplateKeys();
           if (!namedType.isUnknownType() && typeList != null) {
             // Templatized types.
-            ImmutableList.Builder<JSType> templateTypes =
-                ImmutableList.builder();
+            ImmutableList.Builder<JSType> templateTypes = ImmutableList.builder();
 
-            // Special case for Object, where Object.<X> implies Object.<?,X>.
+            // Special case for Object, where Object<X> implies Object<?,X>.
             if ((n.getString().equals("Object") || n.getString().equals("window.Object"))
-                && typeList.getFirstChild() == typeList.getLastChild()) {
+                && typeList.hasZeroOrOneChild()) {
               templateTypes.add(getNativeType(UNKNOWN_TYPE));
             }
 
+            int nAllowedTypes = namedType.getTemplateTypeMap().numUnfilledTemplateKeys();
             int templateNodeIndex = 0;
-            for (Node templateNode : typeList.getFirstChild().siblings()) {
+            for (Node templateNode : typeList.children()) {
               // Don't parse more templatized type nodes than the type can
               // accommodate. This is because some existing clients have
               // template annotations on non-templatized classes, for instance:
-              //   goog.structs.Set.<SomeType>
+              //   goog.structs.Set<SomeType>
               // The problem in these cases is that the previously-unparsed
               // SomeType is not actually a valid type. To prevent these clients
               // from seeing unknown type errors, we explicitly don't parse
@@ -1692,11 +1690,9 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
                     sourceName, templateNode.getLineno(), templateNode.getCharno());
                 break;
               }
-              templateTypes.add(createFromTypeNodesInternal(
-                  templateNode, sourceName, scope));
+              templateTypes.add(createFromTypeNodesInternal(templateNode, sourceName, scope));
             }
-            namedType = createTemplatizedType(
-                (ObjectType) namedType, templateTypes.build());
+            namedType = createTemplatizedType((ObjectType) namedType, templateTypes.build());
             Preconditions.checkNotNull(namedType);
           }
           return createDefaultObjectUnion(namedType);
@@ -1708,7 +1704,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
         JSType thisType = null;
         boolean isConstructor = false;
         Node current = n.getFirstChild();
-        if (current.getToken() == Token.THIS || current.getToken() == Token.NEW) {
+        if (current.isThis() || current.isNew()) {
           Node contextNode = current.getFirstChild();
 
           JSType candidateThisType = createFromTypeNodesInternal(
@@ -1720,9 +1716,9 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
           if (candidateThisType.isNullType() ||
               candidateThisType.isVoidType()) {
             thisType = candidateThisType;
-          } else if (current.getToken() == Token.THIS) {
+          } else if (current.isThis()) {
             thisType = candidateThisType.restrictByNotNullOrUndefined();
-          } else if (current.getToken() == Token.NEW) {
+          } else if (current.isNew()) {
             thisType = ObjectType.cast(
                 candidateThisType.restrictByNotNullOrUndefined());
             if (thisType == null) {
@@ -1855,25 +1851,10 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     templateTypes.clear();
   }
 
-  private boolean isNonNullable(JSType type) {
-    // TODO(lpino): Verify that nonNullableTypeNames is correct
-    for (String s : nonNullableTypeNames) {
-      JSType that = getType(s);
-      if (that != null && type.isEquivalentTo(that)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /**
-   * Checks whether the input type can be templatized. It must be an
-   * {@code Object} type which is not a {@code NamespaceType} and is not a
-   * non-nullable type.
+   * @return Whether the type can be provided type arguements.
    */
   public boolean isTemplatizable(JSType type) {
-    return (type instanceof ObjectType)
-        && !(type instanceof NamespaceType)
-        && !isNonNullable(type);
+    return type.getTemplateTypeMap().hasUnfilledTemplateKeys();
   }
 }

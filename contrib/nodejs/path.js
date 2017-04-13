@@ -16,6 +16,7 @@
 
 /**
  * @fileoverview Definitions for node's path module.
+ * @externs
  * @see http://nodejs.org/api/path.html
  */
 

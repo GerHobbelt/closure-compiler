@@ -60,6 +60,8 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
+    // Enable missing override checks that are disabled by default.
+    compiler.getOptions().setWarningLevel(DiagnosticGroups.MISSING_OVERRIDE, CheckLevel.WARNING);
   }
 
   public void testInitialTypingScope() throws Exception {
@@ -3977,6 +3979,55 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "/** @param {A|B} x \n * @return {B|A} */ " +
         "function foo(x) { return x; }" +
         "/** @constructor */ function Base() {}");
+  }
+
+  public void testGoodSuperCall() throws Exception {
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    testTypes(
+        LINE_JOINER.join(
+            "class A {",
+            "  /**",
+            "   * @param {string} a",
+            "   */",
+            "  constructor(a) {",
+            "    this.a = a;",
+            "  }",
+            "}",
+            "class B extends A {",
+            "  constructor() {",
+            "    super('b');",
+            "  }",
+            "}",
+            ""));
+  }
+
+  public void testBadSuperCall() throws Exception {
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
+    testTypes(
+        LINE_JOINER.join(
+            "class A {",
+            "  /**",
+            "   * @param {string} a",
+            "   */",
+            "  constructor(a) {",
+            "    this.a = a;",
+            "  }",
+            "}",
+            "class B extends A {",
+            "  constructor() {",
+            "    super(5);",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "actual parameter 1 of function does not match formal parameter",
+            "found   : number",
+            "required: string"));
+  }
+
+  private void setLanguageInAndOut(LanguageMode languageIn, LanguageMode languageOut) {
+    CompilerOptions options = compiler.getOptions();
+    options.setLanguageIn(languageIn);
+    options.setLanguageOut(languageOut);
   }
 
   public void testDirectPrototypeAssignment1() throws Exception {
@@ -8058,6 +8109,17 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         INSTANTIATE_ABSTRACT_CLASS);
   }
 
+  public void testNew20() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @constructor @abstract */",
+        "function Bar() {};",
+        "/** @return {function(new:Bar)} */",
+        "function foo() {}",
+        "var Foo = foo();",
+        "var f = new Foo;"),
+        INSTANTIATE_ABSTRACT_CLASS);
+  }
+
   public void testName1() throws Exception {
     assertTypeEquals(VOID_TYPE, testNameNode("undefined"));
   }
@@ -11801,7 +11863,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     new TypeCheck(
         compiler,
         new SemanticReverseAbstractInterpreter(registry),
-        registry, topScope, scopeCreator, CheckLevel.WARNING)
+        registry, topScope, scopeCreator)
         .process(null, second);
 
     assertEquals(1, compiler.getWarningCount());
@@ -13988,6 +14050,13 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
         "/** @typedef {number|string} */\n" +
         "var PseudoId;");
+  }
+
+  public void testCheckObjectKeyRecursiveType() throws Exception {
+    testTypes(
+        "/** @typedef {!Object<string, !Predicate>} */ var Schema;\n" +
+        "/** @typedef {function(*): boolean|!Schema} */ var Predicate;\n" +
+        "/** @type {!Schema} */ var k;");
   }
 
   public void testDontOverrideNativeScalarTypes() throws Exception {
@@ -17141,8 +17210,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class() throws Exception {
-    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
-    compiler.getOptions().setLanguageOut(LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class Foo {}",
@@ -17151,8 +17219,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class_noWarning() throws Exception {
-    compiler.getOptions().setLanguageIn(LanguageMode.ECMASCRIPT6);
-    compiler.getOptions().setLanguageOut(LanguageMode.ECMASCRIPT5);
+    setLanguageInAndOut(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {}",
@@ -17214,8 +17281,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         0, compiler.getErrorCount());
 
     // For processing goog.addDependency for forward typedefs.
-    new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
-        .process(null, n);
+    new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false).process(externs, n);
 
     new TypeCheck(compiler,
         new ClosureReverseAbstractInterpreter(registry).append(
@@ -17363,6 +17429,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
       List<PassFactory> passes = new ArrayList<>();
       TranspilationPasses.addEs6EarlyPasses(passes);
       TranspilationPasses.addEs6LatePasses(passes);
+      TranspilationPasses.addRewritePolyfillPass(passes);
       PhaseOptimizer phaseopt = new PhaseOptimizer(compiler, null, null);
       phaseopt.consume(passes);
       phaseopt.process(externsNode, externAndJsRoot);

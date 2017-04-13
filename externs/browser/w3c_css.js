@@ -1969,6 +1969,15 @@ CSSProperties.prototype.justifyContent;
  */
 CSSProperties.prototype.order;
 
+// Externs for CSS Will Change Module Level 1
+// http://www.w3.org/TR/css-will-change/
+
+/**
+ * @type {string}
+ * @see http://www.w3.org/TR/css-will-change-1/#will-change
+ */
+CSSProperties.prototype.willChange;
+
 
 /**
  * TODO(dbeam): Put this in separate file named w3c_cssom.js.
@@ -2504,10 +2513,10 @@ var FontFaceDescriptors;
  * @constructor
  * @param {string} fontFamily
  * @param {(string|ArrayBuffer|ArrayBufferView)} source
- * @param {!FontFaceDescriptors} descriptors
+ * @param {!FontFaceDescriptors=} opt_descriptors
  * @see http://dev.w3.org/csswg/css-font-loading/#font-face-constructor
  */
-function FontFace(fontFamily, source, descriptors) {}
+function FontFace(fontFamily, source, opt_descriptors) {}
 
 /**
  * @type {string}
@@ -2574,6 +2583,7 @@ var FontFaceSetLoadStatus = {
 
 /**
  * @interface
+ * @extends {EventTarget}
  * @see http://dev.w3.org/csswg/css-font-loading/#FontFaceSet-interface
  */
 function FontFaceSet() {}

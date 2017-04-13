@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 The Closure Compiler Authors.
+ * Copyright 2016 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,25 @@
  * limitations under the License.
  */
 
-package com.google.javascript.jscomp.deps;
+/**
+ * @fileoverview Externs definitions for the Async library, 2.0 branch.
+ *
+ * Note that this file is far from complete.
+ *
+ * @externs
+ * @see http://caolan.github.io/async/
+ */
 
-/** GWT compatible no-op replacement for {@code SourceCodeEscapers} */
-public final class SourceCodeEscapers {}
+var async;
+
+/**
+ * @param {!Array<!Function>} tasks
+ * @param {!Function=} opt_callback
+ */
+async.series = function(tasks, opt_callback) {};
+
+/**
+ * @param {!Function} callback
+ * @return {!Function}
+ */
+async.wrapSync = function(callback) {};

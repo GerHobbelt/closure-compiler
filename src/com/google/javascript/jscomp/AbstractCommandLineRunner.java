@@ -777,7 +777,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     List<String> moduleNames = new ArrayList<>(specs.size());
     Map<String, JSModule> modulesByName = new LinkedHashMap<>();
     Map<String, Integer> modulesFileCountMap = new LinkedHashMap<>();
-    int numJsFilesExpected = 0, minJsFilesRequired = 0;
+    int numJsFilesExpected = 0;
+    int minJsFilesRequired = 0;
     for (JsModuleSpec spec : specs) {
       checkModuleName(spec.name);
       if (modulesByName.containsKey(spec.name)) {
@@ -831,7 +832,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       }
     }
 
-    int numJsFilesLeft = totalNumJsFiles, moduleIndex = 0;
+    int numJsFilesLeft = totalNumJsFiles;
+    int moduleIndex = 0;
     for (String moduleName : moduleNames) {
       // Parse module inputs.
       int numJsFiles = modulesFileCountMap.get(moduleName);
@@ -1056,7 +1058,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           String sourceMapPath = jsonFile.getPath() + ".map";
           SourceFile sourceMap = SourceFile.fromCode(sourceMapPath,
               jsonFile.getSourceMap());
-          inputSourceMaps.put(sourceMapPath, new SourceMapInput(sourceMap));
+          inputSourceMaps.put(jsonFile.getPath(), new SourceMapInput(sourceMap));
           foundJsonInputSourceMap = true;
         }
       }

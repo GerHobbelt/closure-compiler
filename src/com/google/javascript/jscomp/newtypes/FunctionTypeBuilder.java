@@ -46,6 +46,7 @@ public final class FunctionTypeBuilder {
   private JSType restFormals = null;
   private JSType returnType = null;
   private boolean loose = false;
+  private boolean isAbstract = false;
   private JSType nominalType;
   // Only used to build DeclaredFunctionType for prototype methods
   private JSType receiverType;
@@ -65,9 +66,9 @@ public final class FunctionTypeBuilder {
     if (restFormals != null) {
       // Nothing to do here, since there is no way to add a placeholder.
     } else if (!optionalFormals.isEmpty()) {
-      optionalFormals.add(JSType.UNKNOWN);
+      optionalFormals.add(this.commonTypes.UNKNOWN);
     } else {
-      requiredFormals.add(JSType.UNKNOWN);
+      requiredFormals.add(this.commonTypes.UNKNOWN);
     }
     return this;
   }
@@ -117,6 +118,11 @@ public final class FunctionTypeBuilder {
     return this;
   }
 
+  public FunctionTypeBuilder addAbstract(boolean isAbstract) {
+    this.isAbstract = isAbstract;
+    return this;
+  }
+
   public FunctionTypeBuilder addNominalType(JSType t) {
     Preconditions.checkState(this.nominalType == null);
     this.nominalType = t;
@@ -144,7 +150,7 @@ public final class FunctionTypeBuilder {
     return DeclaredFunctionType.make(
         this.commonTypes,
         requiredFormals, optionalFormals, restFormals, returnType,
-        nominalType, receiverType, typeParameters);
+        nominalType, receiverType, typeParameters, isAbstract);
   }
 
   public FunctionType buildFunction() {
@@ -163,7 +169,7 @@ public final class FunctionTypeBuilder {
     FunctionType result = FunctionType.normalized(
         this.commonTypes,
         requiredFormals, optionalFormals, restFormals, returnType,
-        nominalType, receiverType, outerVars, typeParameters, loose);
+        nominalType, receiverType, outerVars, typeParameters, loose, isAbstract);
     result.checkValid();
     return result;
   }

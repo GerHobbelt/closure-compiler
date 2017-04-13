@@ -34,8 +34,8 @@ import java.util.Set;
  */
 public abstract class PassConfig {
 
-  // Used by subclasses in this package.
-  final CompilerOptions options;
+  // Used by the subclasses.
+  protected final CompilerOptions options;
 
   /**
    * A memoized version of scopeCreator. It must be memoized so that
@@ -185,14 +185,13 @@ public abstract class PassConfig {
    */
   final TypeCheck makeTypeCheck(AbstractCompiler compiler) {
     return new TypeCheck(
-        compiler,
-        compiler.getReverseAbstractInterpreter(),
-        compiler.getTypeRegistry(),
-        topScope,
-        typedScopeCreator,
-        options.reportMissingOverride)
-        .reportMissingProperties(!options.disables(
-            DiagnosticGroup.forType(TypeCheck.INEXISTENT_PROPERTY)));
+            compiler,
+            compiler.getReverseAbstractInterpreter(),
+            compiler.getTypeRegistry(),
+            topScope,
+            typedScopeCreator)
+        .reportMissingProperties(
+            !options.disables(DiagnosticGroup.forType(TypeCheck.INEXISTENT_PROPERTY)));
   }
 
   /**

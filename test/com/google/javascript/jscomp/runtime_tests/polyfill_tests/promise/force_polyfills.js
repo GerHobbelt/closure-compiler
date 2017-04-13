@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 The Closure Compiler Authors.
+ * Copyright 2016 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-/**
- * @fileoverview Externs for CSS Will Change Module Level 1
- * @see http://www.w3.org/TR/css-will-change/
- * @externs
- */
+var CLOSURE_DEFINED = {
+  'jscomp.TRANSPILE': 'always',
+};
 
 /**
- * @type {string}
- * @see http://www.w3.org/TR/css-will-change-1/#will-change
+ * @fileoverview Deletes the browser's implementation of Promise,
+ * thus forcing the polyfill to be used unconditionally.
  */
-CSSProperties.prototype.willChange;
+
+delete Promise;

@@ -181,7 +181,7 @@ public final class ClosureCheckModule extends AbstractModuleCallback
       case VAR:
       case LET:
       case CONST:
-        if (t.inModuleHoistScope() && NodeUtil.getEnclosingClass(n) == null
+        if (t.inModuleHoistScope() && (n.isClass() || NodeUtil.getEnclosingClass(n) == null)
             && NodeUtil.getEnclosingType(n, Token.OBJECTLIT) == null) {
           JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(n);
           if (jsdoc != null && jsdoc.isExport()) {
@@ -271,7 +271,7 @@ public final class ClosureCheckModule extends AbstractModuleCallback
       if (declaration.isLet()) {
         t.report(declaration, LET_GOOG_REQUIRE);
       }
-      if (declaration.getChildCount() != 1) {
+      if (!declaration.hasOneChild()) {
         t.report(declaration, ONE_REQUIRE_PER_DECLARATION);
       }
       Node lhs = declaration.getFirstChild();

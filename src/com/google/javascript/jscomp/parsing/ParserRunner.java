@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.parsing.Config.JsDocParsing;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.Config.RunMode;
+import com.google.javascript.jscomp.parsing.Config.StrictMode;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.parsing.parser.Parser;
 import com.google.javascript.jscomp.parsing.parser.Parser.Config.Mode;
@@ -53,14 +54,21 @@ public final class ParserRunner {
   // Should never need to instantiate class of static methods.
   private ParserRunner() {}
 
-  public static Config createConfig(LanguageMode languageMode,
-                                    Set<String> extraAnnotationNames) {
+  // TODO(bradfordcsmith): Cleanup uses and remove this method.
+  @Deprecated
+  public static Config createConfig(LanguageMode languageMode, Set<String> extraAnnotationNames) {
+    return createConfig(languageMode, extraAnnotationNames, StrictMode.SLOPPY);
+  }
+
+  public static Config createConfig(
+      LanguageMode languageMode, Set<String> extraAnnotationNames, StrictMode strictMode) {
     return createConfig(
         languageMode,
         JsDocParsing.TYPES_ONLY,
         RunMode.STOP_AFTER_ERROR,
         extraAnnotationNames,
-        true);
+        true,
+        strictMode);
   }
 
   public static Config createConfig(
@@ -68,7 +76,8 @@ public final class ParserRunner {
       JsDocParsing jsdocParsingMode,
       RunMode runMode,
       Set<String> extraAnnotationNames,
-      boolean parseInlineSourceMaps) {
+      boolean parseInlineSourceMaps,
+      StrictMode strictMode) {
 
     initResourceConfig();
     Set<String> effectiveAnnotationNames;
@@ -84,7 +93,8 @@ public final class ParserRunner {
         runMode,
         suppressionNames,
         languageMode,
-        parseInlineSourceMaps);
+        parseInlineSourceMaps,
+        strictMode);
   }
 
   public static Set<String> getReservedVars() {
@@ -116,9 +126,7 @@ public final class ParserRunner {
     SourceFile file = new SourceFile(sourceFile.getName(), sourceString);
     boolean keepGoing = config.keepGoing == Config.RunMode.KEEP_GOING;
     Es6ErrorReporter es6ErrorReporter = new Es6ErrorReporter(errorReporter, keepGoing);
-    com.google.javascript.jscomp.parsing.parser.Parser.Config es6config =
-        new com.google.javascript.jscomp.parsing.parser.Parser.Config(mode(
-            config.languageMode));
+    com.google.javascript.jscomp.parsing.parser.Parser.Config es6config = newParserConfig(config);
     Parser p = new Parser(es6config, es6ErrorReporter, file);
     ProgramTree tree = p.parseProgram();
     Node root = null;
@@ -139,13 +147,43 @@ public final class ParserRunner {
     return new ParseResult(root, comments, features, p.getInlineSourceMap());
   }
 
+  private static com.google.javascript.jscomp.parsing.parser.Parser.Config newParserConfig(
+      Config config) {
+    LanguageMode languageMode = config.languageMode;
+    boolean isStrictMode = config.strictMode == StrictMode.STRICT;
+    Mode parserConfigLanguageMode;
+    switch (languageMode) {
+      case TYPESCRIPT:
+        parserConfigLanguageMode = Mode.TYPESCRIPT;
+        break;
+
+      case ECMASCRIPT3:
+        parserConfigLanguageMode = Mode.ES3;
+        break;
+
+      case ECMASCRIPT5:
+        parserConfigLanguageMode = Mode.ES5;
+        break;
+
+      case ECMASCRIPT6:
+      case ECMASCRIPT7:
+      case ECMASCRIPT8:
+        parserConfigLanguageMode = Mode.ES6_OR_GREATER;
+        break;
+
+      default:
+        throw new IllegalStateException("unexpected language mode: " + languageMode);
+    }
+    return new com.google.javascript.jscomp.parsing.parser.Parser.Config(
+        parserConfigLanguageMode, isStrictMode);
+  }
+
   // TODO(sdh): this is less useful if we end up needing the node for library version detection
   public static FeatureSet detectFeatures(String sourcePath, String sourceString) {
     SourceFile file = new SourceFile(sourcePath, sourceString);
     ErrorReporter reporter = IRFactory.NULL_REPORTER;
     com.google.javascript.jscomp.parsing.parser.Parser.Config config =
-        new com.google.javascript.jscomp.parsing.parser.Parser.Config(mode(
-            IRFactory.NULL_CONFIG.languageMode));
+        newParserConfig(IRFactory.NULL_CONFIG);
     Parser p = new Parser(config, new Es6ErrorReporter(reporter, false), file);
     ProgramTree tree = p.parseProgram();
     StaticSourceFile simpleSourceFile = new SimpleSourceFile(sourcePath, false);
@@ -182,29 +220,6 @@ public final class ParserRunner {
       this.reporter.warning(
           message, location.source.name,
           location.line + 1, location.column);
-    }
-  }
-
-  private static Mode mode(LanguageMode mode) {
-    switch (mode) {
-      case ECMASCRIPT3:
-        return Mode.ES3;
-      case ECMASCRIPT5:
-        return Mode.ES5;
-      case ECMASCRIPT5_STRICT:
-        return Mode.ES5_STRICT;
-      case ECMASCRIPT6:
-        return Mode.ES6;
-      case ECMASCRIPT6_STRICT:
-        return Mode.ES6_STRICT;
-      case ECMASCRIPT6_TYPED:
-        return Mode.ES6_TYPED;
-      case ECMASCRIPT7:
-        return Mode.ES7;
-      case ECMASCRIPT8:
-        return Mode.ES8;
-      default:
-        throw new IllegalStateException("unexpected language mode: " + mode);
     }
   }
 

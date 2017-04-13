@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CompilerOptions.DisposalCheckingPolicy;
-import com.google.javascript.jscomp.CompilerOptions.J2clPassMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CompilerOptions.Reach;
 import com.google.javascript.jscomp.deps.ModuleLoader;
@@ -119,6 +118,31 @@ public final class IntegrationTest extends IntegrationTestCase {
         "    { var x$0 = 5; break; }",
         "}");
     test(options, before, after);
+  }
+
+  public void testMultipleAliasesInlined_bug31437418() {
+    CompilerOptions options = createCompilerOptions();
+    options.setCollapseProperties(true);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6_STRICT);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
+    test(
+        options,
+        LINE_JOINER.join(
+            "class A { static z() {} }",
+            "const B = {};",
+            " B.A = A;",
+            " const C = {};",
+            " C.A = B.A; ",
+            "const D = {};",
+            " D.A = C.A;",
+            " D.A.z();"),
+        LINE_JOINER.join(
+            "var A = function(){};",
+            "var A$z = function(){};",
+            "var B$A = null;",
+            "var C$A = null;",
+            "var D$A = null;",
+            "A$z();"));
   }
 
   public void testBug1949424() {
@@ -1526,12 +1550,23 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testClassWithGettersIsRemoved() {
     CompilerOptions options = createCompilerOptions();
     String code =
-        "class Foo { get x() {}; set y(v) {}; static get init() {}; static set prop(v) {} }";
+        "class Foo { get xx() {}; set yy(v) {}; static get init() {}; static set prop(v) {} }";
+
+    // TODO(radokirov): The compiler should be removing statics too, but in this case they are
+    // kept. A similar unittest in RemoveUnusedClassPropertiesTest removes everything.
+    // Investigate why are they kept when ran together with other passes.
+    String expected =
+        LINE_JOINER.join(
+        "('undefined'!=typeof window&&window===this?this:'undefined'!=typeof ",
+        "global&&null!=global?global:this).",
+        "c.defineProperties(function() {},",
+        "{e:{a:!0,b:!0,d:function(){}},",  // renamed from init
+        "f:{a:!0,b:!0,g:function(){}}})");  // renamed from prop
 
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
-    test(options, code, "");
+    test(options, code, expected);
   }
 
   public void testSmartNamePassBug11163486() {
@@ -2252,38 +2287,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, code, optimized);
   }
 
-  public void testFoldJ2clClinits() {
-    testFoldJ2clClinits(J2clPassMode.ON);
-  }
-
-  public void testJ2clPassAuto() {
-    inputFileNamePrefix = "jar:file//foo.js.zip!";
-    inputFileNameSuffix = ".java.js";
-    testFoldJ2clClinits(J2clPassMode.AUTO);
-  }
-
-  private void testFoldJ2clClinits(J2clPassMode j2clPassMode) {
-    CompilerOptions options = createCompilerOptions();
-
-    String code =
-        LINE_JOINER.join(
-            "function InternalWidget(){}",
-            "InternalWidget.$clinit = function () {",
-            "  InternalWidget.$clinit = function() {};",
-            "  InternalWidget.$clinit();",
-            "};",
-            "InternalWidget.$clinit();");
-
-    options.setJ2clPass(j2clPassMode);
-    options.setFoldConstants(true);
-    options.setComputeFunctionSideEffects(true);
-    options.setCollapseProperties(true);
-    options.setRemoveUnusedVariables(Reach.ALL);
-    options.setInlineFunctions(true);
-
-    test(options, code, "");
-  }
-
   public void testVarDeclarationsIntoFor() {
     CompilerOptions options = createCompilerOptions();
 
@@ -2882,9 +2885,8 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testCheckProvidesWarning() {
     CompilerOptions options = createCompilerOptions();
-    options.setWarningLevel(DiagnosticGroups.MISSING_PROVIDE,
-        CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.MISSING_PROVIDE, CheckLevel.WARNING);
+    options.setWarningLevel(DiagnosticGroups.ES5_STRICT, CheckLevel.OFF);
     test(options,
         "goog.require('x'); /** @constructor */ function f() { var arguments; }",
         CheckProvides.MISSING_PROVIDE_WARNING);
@@ -3548,34 +3550,6 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, code, result);
   }
 
-  public void testClosureDefinesDuplicates2() {
-    CompilerOptions options = createCompilerOptions();
-    CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
-    level.setOptionsForCompilationLevel(options);
-    WarningLevel warnings = WarningLevel.DEFAULT;
-    warnings.setOptionsForWarningLevel(options);
-    options.setDefineToNumberLiteral("FOO", 3);
-
-    String code = "" +
-        "var CLOSURE_DEFINES = {\n" +
-        "  'FOO': 1,\n" +
-        "  'FOO': 2\n" +
-        "};\n" +
-        "\n" +
-        "/** @define {number} */ var FOO = 0;\n" +
-        "";
-
-    String result = "" +
-        "var CLOSURE_DEFINES = {\n" +
-        "  FOO: 1,\n" +
-        "  FOO: 2\n" +
-        "}," +
-        "FOO = 3" +
-        "";
-
-    test(options, code, result);
-  }
-
   public void testExports() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
@@ -3643,6 +3617,27 @@ public final class IntegrationTest extends IntegrationTestCase {
         "alert(new X() + new Y());",
         "alert((new function(){this.abc = 1}) + " +
             "(new function(){this.abc = 1}));");
+  }
+
+  public void testGatherExternPropsWithNTI() {
+    CompilerOptions options = new CompilerOptions();
+    options.setNewTypeInference(true);
+    options.setGenerateExports(true);
+    options.setExportLocalPropertyDefinitions(true);
+    options.setPropertyRenaming(PropertyRenamingPolicy.ALL_UNQUOTED);
+
+    testSame(options,
+        LINE_JOINER.join(
+            "(function exportedTokensFromTemplate() {",
+            "  function unusedFn(a) {}",
+            "  var UNUSED = 1;",
+            "  unusedFn({ /** @export */ foo: UNUSED });",
+            "})();",
+            "/** @constructor */",
+            "function Bar() {",
+            "  // Should not be renamed",
+            "  this.foo = 1;",
+            "}"));
   }
 
   public void testRmUnusedProtoPropsInExternsUsage() {
@@ -3722,6 +3717,21 @@ public final class IntegrationTest extends IntegrationTestCase {
             "  default : console.log('good');",
             "}"),
         "console.a('good');");
+  }
+
+  // GitHub issue #2079: https://github.com/google/closure-compiler/issues/2079
+  public void testStrictEqualityComparisonAgainstUndefined() {
+    CompilerOptions options = createCompilerOptions();
+    options.setFoldConstants(true);
+    options.setCheckTypes(true);
+    options.setUseTypesForLocalOptimization(true);
+    test(
+        options,
+        LINE_JOINER.join(
+            "if (/** @type {Array|undefined} */ (window['c']) === null) {",
+            "  window['d'] = 12;",
+            "}"),
+            "null===window['c']&&(window['d']=12)");
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

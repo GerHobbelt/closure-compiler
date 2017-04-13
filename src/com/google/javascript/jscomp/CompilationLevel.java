@@ -436,7 +436,7 @@ public enum CompilationLevel {
         options.setDisambiguateProperties(true);
         options.setAmbiguateProperties(true);
         options.setInlineProperties(true);
-        options.setUseTypesForOptimization(true);
+        options.setUseTypesForLocalOptimization(true);
         break;
       case SIMPLE_OPTIMIZATIONS:
       case WHITESPACE_ONLY:

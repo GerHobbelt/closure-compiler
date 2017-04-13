@@ -22,7 +22,6 @@ import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -46,7 +45,6 @@ public class CodeGenerator {
   private final boolean preserveTypeAnnotations;
   private final boolean trustedStrings;
   private final boolean quoteKeywordProperties;
-  private final boolean outputAsExterns;
   private final boolean useOriginalName;
   private final JSDocInfoPrinter jsDocInfoPrinter;
 
@@ -57,7 +55,6 @@ public class CodeGenerator {
     trustedStrings = true;
     preserveTypeAnnotations = false;
     quoteKeywordProperties = false;
-    outputAsExterns = false;
     useOriginalName = false;
     this.jsDocInfoPrinter = new JSDocInfoPrinter(false);
   }
@@ -76,15 +73,15 @@ public class CodeGenerator {
     this.trustedStrings = options.trustedStrings;
     this.preserveTypeAnnotations = options.preserveTypeAnnotations;
     this.quoteKeywordProperties = options.quoteKeywordProperties;
-    this.outputAsExterns = options.shouldGenerateTypedExterns();
     this.useOriginalName = options.getUseOriginalNamesInOutput();
     this.jsDocInfoPrinter = new JSDocInfoPrinter(useOriginalName);
   }
 
-  public void maybeTagAsExterns() {
-    if (this.outputAsExterns) {
-      add("/** @externs */\n");
-    }
+  /**
+   * Insert a top-level @externs comment.
+   */
+  public void tagAsExterns() {
+    add("/** @externs */\n");
   }
 
   /**
@@ -218,20 +215,27 @@ public class CodeGenerator {
         break;
 
       case VAR:
-        if (first != null) {
-          add("var ");
-          addList(first, false, getContextForNoInOperator(context), ",");
+        add("var ");
+        addList(first, false, getContextForNoInOperator(context), ",");
+        if (n.getParent() == null || NodeUtil.isStatement(n)) {
+          cc.endStatement();
         }
         break;
 
       case CONST:
         add("const ");
         addList(first, false, getContextForNoInOperator(context), ",");
+        if (n.getParent() == null || NodeUtil.isStatement(n)) {
+          cc.endStatement();
+        }
         break;
 
       case LET:
         add("let ");
         addList(first, false, getContextForNoInOperator(context), ",");
+        if (n.getParent() == null || NodeUtil.isStatement(n)) {
+          cc.endStatement();
+        }
         break;
 
       case LABEL_NAME:
@@ -630,11 +634,6 @@ public class CodeGenerator {
                       && n.getParent().isScript());
           for (Node c = first; c != null; c = c.getNext()) {
             add(c, Context.STATEMENT);
-
-            // VAR doesn't include ';' since it gets used in expressions
-            if (NodeUtil.isNameDeclaration(c)) {
-              cc.endStatement();
-            }
 
             if (c.isFunction() || c.isClass()) {
               cc.maybeLineBreak();
@@ -1504,12 +1503,6 @@ public class CodeGenerator {
       cc.endStatement(true);
     } else {
       add(nodeToProcess, context);
-
-      // VAR doesn't include ';' since it gets used in expressions - so any
-      // VAR in a statement context needs a call to endStatement() here.
-      if (nodeToProcess.isVar()) {
-        cc.endStatement();
-      }
     }
   }
 
@@ -1566,6 +1559,10 @@ public class CodeGenerator {
       // Unary operators are higher precedence than '**', but
       // ExponentiationExpression cannot expand to
       //     UnaryExpression ** ExponentiationExpression
+      return true;
+    } else if (n.isObjectLit() && n.getParent().isArrowFunction()) {
+      // If the body of an arrow function is an object literal, the braces are treated as a
+      // statement block with higher precedence, which we avoid with parentheses.
       return true;
     } else {
       return NodeUtil.precedence(n.getToken()) < minPrecedence;
@@ -1629,7 +1626,7 @@ public class CodeGenerator {
     add("{");
     for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {
       if (child != n.getFirstChild()) {
-        add(",");
+        cc.listSeparator();
       }
 
       add(child);
@@ -1689,7 +1686,8 @@ public class CodeGenerator {
   }
 
   private String jsString(String s, boolean useSlashV) {
-    int singleq = 0, doubleq = 0;
+    int singleq = 0;
+    int doubleq = 0;
 
     // could count the quotes and pick the optimal quote character
     for (int i = 0; i < s.length(); i++) {
@@ -1699,7 +1697,8 @@ public class CodeGenerator {
       }
     }
 
-    String doublequote, singlequote;
+    String doublequote;
+    String singlequote;
     char quote;
     if (preferSingleQuotes ?
         (singleq <= doubleq) : (singleq < doubleq)) {

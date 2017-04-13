@@ -326,11 +326,15 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     reconcileOptionsWithGuards();
 
+    // TODO(johnlenz): generally, the compiler should not be changing the options object
+    // provided by the user.  This should be handled a different way.
+
     // Turn off type-based optimizations when type checking is off
     if (!options.checkTypes) {
       options.setDisambiguateProperties(false);
       options.setAmbiguateProperties(false);
       options.setInlineProperties(false);
+      options.setUseTypesForLocalOptimization(false);
       options.setUseTypesForOptimization(false);
     }
 
@@ -405,7 +409,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           options.checkGlobalThisLevel);
     }
 
-    if (options.getLanguageIn().isStrict()) {
+    if (expectStrictModeInput()) {
       options.setWarningLevel(
           DiagnosticGroups.ES5_STRICT,
           CheckLevel.ERROR);
@@ -420,6 +424,21 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         !options.enables(DiagnosticGroups.CHECK_VARIABLES)) {
       options.setWarningLevel(
           DiagnosticGroups.CHECK_VARIABLES, CheckLevel.OFF);
+    }
+  }
+
+  private boolean expectStrictModeInput() {
+    switch (options.getLanguageIn()) {
+      case ECMASCRIPT3:
+      case ECMASCRIPT5:
+      case ECMASCRIPT6:
+        return false;
+      case ECMASCRIPT5_STRICT:
+      case ECMASCRIPT6_STRICT:
+      case ECMASCRIPT6_TYPED:
+        return true;
+      default:
+        return options.isStrictModeInput();
     }
   }
 
@@ -817,6 +836,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   public void whitespaceOnlyPasses() {
+    runCustomPasses(CustomPassExecutionTime.BEFORE_CHECKS);
+
     Tracer t = newTracer("runWhitespaceOnlyPasses");
     try {
       for (PassFactory pf : getPassConfig().getWhitespaceOnlyPasses()) {
@@ -983,12 +1004,19 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   final String getCurrentJsSource() {
-    String filename = options.fileToPrintAfterEachPass;
-    if (filename == null) {
+    List<String> filenames = options.filesToPrintAfterEachPass;
+    if (filenames.isEmpty()) {
       return toSource();
     } else {
-      Node script = getScriptNode(filename);
-      return script != null ? toSource(script) : ("File '" + filename + "' not found");
+      StringBuilder builder = new StringBuilder();
+      for (String filename : filenames) {
+        Node script = getScriptNode(filename);
+        String source = script != null
+            ? "// " + script.getSourceFileName() + "\n" + toSource(script)
+            : "File '" + filename + "' not found";
+        builder.append(source);
+      }
+      return builder.toString();
     }
   }
 
@@ -1599,7 +1627,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   void hoistExterns() {
     boolean staleInputs = false;
     for (CompilerInput input : inputs) {
-      if (options.dependencyOptions.needsManagement()) {
+      if (!options.allowGoogProvideInExterns() && options.dependencyOptions.needsManagement()) {
         // If we're doing scanning dependency info anyway, use that
         // information to skip sources that obviously aren't externs.
         if (!input.getProvides().isEmpty() || !input.getRequires().isEmpty()) {
@@ -1966,8 +1994,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     builder.setTypeRegistry(this.typeRegistry);
     builder.setCompilerOptions(options);
     builder.setSourceMap(sourceMap);
-    builder.setTagAsStrict(firstOutput && options.getLanguageOut().isStrict());
+    builder.setTagAsExterns(firstOutput && options.shouldGenerateTypedExterns());
+    builder.setTagAsStrict(firstOutput && shouldEmitUseStrict());
     return builder.build();
+  }
+
+  private boolean shouldEmitUseStrict() {
+    switch (options.getLanguageOut()) {
+      case ECMASCRIPT3:
+      case ECMASCRIPT5:
+      case ECMASCRIPT6:
+        return false;
+      default:
+        return options.isEmitUseStrict();
+    }
   }
 
   /**
@@ -2207,35 +2247,37 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     if (parserConfig == null) {
       switch (options.getLanguageIn()) {
         case ECMASCRIPT3:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT3);
-          externsParserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT3, Config.StrictMode.SLOPPY);
+          externsParserConfig =
+              createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.SLOPPY);
           break;
         case ECMASCRIPT5:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.SLOPPY);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT5_STRICT:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5_STRICT);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT5, Config.StrictMode.STRICT);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT6:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6, Config.StrictMode.SLOPPY);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT6_STRICT:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6_STRICT);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6, Config.StrictMode.STRICT);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT6_TYPED:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT6_TYPED);
+          parserConfig =
+              createConfig(Config.LanguageMode.TYPESCRIPT, Config.StrictMode.STRICT);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT7:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT7);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT7, Config.StrictMode.STRICT);
           externsParserConfig = parserConfig;
           break;
         case ECMASCRIPT8:
-          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT8);
+          parserConfig = createConfig(Config.LanguageMode.ECMASCRIPT8, Config.StrictMode.STRICT);
           externsParserConfig = parserConfig;
           break;
         default:
@@ -2251,7 +2293,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
   }
 
-  protected Config createConfig(Config.LanguageMode mode) {
+  protected Config createConfig(Config.LanguageMode mode, Config.StrictMode strictMode) {
     Config config =
         ParserRunner.createConfig(
             mode,
@@ -2260,7 +2302,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
                 ? Config.RunMode.KEEP_GOING
                 : Config.RunMode.STOP_AFTER_ERROR,
             options.extraAnnotationNames,
-            options.parseInlineSourceMaps);
+            options.parseInlineSourceMaps,
+            strictMode);
     return config;
   }
 

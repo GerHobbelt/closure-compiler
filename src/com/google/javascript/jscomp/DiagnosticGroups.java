@@ -34,7 +34,6 @@ import com.google.javascript.jscomp.lint.CheckRequiresAndProvidesSorted;
 import com.google.javascript.jscomp.lint.CheckUnusedLabels;
 import com.google.javascript.jscomp.lint.CheckUselessBlocks;
 import com.google.javascript.jscomp.newtypes.JSTypeCreatorFromJSDoc;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -96,19 +95,55 @@ public class DiagnosticGroups {
   // If a group is suppressible on a per-file basis, it should be added
   // to parser/ParserConfig.properties
   static final String DIAGNOSTIC_GROUP_NAMES =
-      "accessControls, ambiguousFunctionDecl, checkEventfulObjectDisposal, "
-      + "checkRegExp, checkTypes, checkVars, "
-      + "conformanceViolations, const, constantProperty, deprecated, "
-      + "deprecatedAnnotations, duplicateMessage, es3, "
-      + "es5Strict, externsValidation, fileoverviewTags, globalThis, "
-      + "internetExplorerChecks, invalidCasts, "
-      + "misplacedTypeAnnotation, missingGetCssName, missingProperties, "
-      + "missingProvide, missingRequire, missingReturn, msgDescriptions, "
-      + "newCheckTypes, nonStandardJsDocs, reportUnknownTypes, "
-      + "suspiciousCode, strictModuleDepCheck, typeInvalidation, "
-      + "undefinedNames, undefinedVars, unknownDefines, "
-      + "unusedLocalVariables, unusedPrivateMembers, uselessCode, "
-      + "useOfGoogBase, underscore, visibility";
+      "accessControls, "
+          + "ambiguousFunctionDecl, "
+          + "checkEventfulObjectDisposal, "
+          + "checkRegExp, "
+          + "checkTypes, "
+          + "checkVars, "
+          + "commonJsModuleLoad, "
+          + "conformanceViolations, "
+          + "const, "
+          + "constantProperty, "
+          + "deprecated, "
+          + "deprecatedAnnotations, "
+          + "duplicateMessage, "
+          + "es3, "
+          + "es5Strict, "
+          + "externsValidation, "
+          + "fileoverviewTags, "
+          + "functionParams, "
+          + "globalThis, "
+          + "internetExplorerChecks, "
+          + "invalidCasts, "
+          + "misplacedTypeAnnotation, "
+          + "missingGetCssName, "
+          + "missingOverride, "
+          + "missingPolyfill, "
+          + "missingProperties, "
+          + "missingProvide, "
+          + "missingRequire, "
+          + "missingReturn, "
+          + "msgDescriptions, "
+          + "newCheckTypes, "
+          + "nonStandardJsDocs, "
+          + "reportUnknownTypes, "
+          + "suspiciousCode, "
+          + "strictModuleDepCheck, "
+          + "typeInvalidation, "
+          + "undefinedNames, "
+          + "undefinedVars, "
+          + "unknownDefines, "
+          + "unusedLocalVariables, "
+          + "unusedPrivateMembers, "
+          + "uselessCode, "
+          + "useOfGoogBase, "
+          + "underscore, "
+          + "visibility";
+
+  public static final DiagnosticGroup COMMON_JS_MODULE_LOAD =
+      DiagnosticGroups.registerGroup(
+          "commonJsModuleLoad", ProcessCommonJSModules.COMMON_JS_MODULE_LOAD_ERROR);
 
   public static final DiagnosticGroup GLOBAL_THIS =
       DiagnosticGroups.registerGroup("globalThis",
@@ -189,11 +224,21 @@ public class DiagnosticGroups {
           ProcessTweaks.TWEAK_WRONG_GETTER_TYPE_WARNING,
           ProcessTweaks.UNKNOWN_TWEAK_WARNING);
 
+  public static final DiagnosticGroup MISSING_OVERRIDE =
+      DiagnosticGroups.registerGroup(
+          "missingOverride",
+          TypeCheck.HIDDEN_INTERFACE_PROPERTY,
+          TypeCheck.HIDDEN_SUPERCLASS_PROPERTY);
+
   public static final DiagnosticGroup MISSING_PROPERTIES =
       DiagnosticGroups.registerGroup("missingProperties",
           TypeCheck.INEXISTENT_PROPERTY,
           TypeCheck.INEXISTENT_PROPERTY_WITH_SUGGESTION,
           TypeCheck.POSSIBLE_INEXISTENT_PROPERTY);
+
+  public static final DiagnosticGroup J2CL_CHECKS =
+      DiagnosticGroups.registerGroup("j2clChecks",
+          J2clChecksPass.J2CL_REFERENCE_EQUALITY);
 
   public static final DiagnosticGroup MISSING_RETURN =
       DiagnosticGroups.registerGroup("missingReturn",
@@ -439,7 +484,6 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup EXTRA_REQUIRE =
       DiagnosticGroups.registerGroup("extraRequire",
-          CheckRequiresForConstructors.DUPLICATE_REQUIRE_WARNING,
           CheckRequiresForConstructors.EXTRA_REQUIRE_WARNING);
 
   @GwtIncompatible("java.util.regex")
@@ -491,7 +535,12 @@ public class DiagnosticGroups {
           CheckSuspiciousCode.SUSPICIOUS_IN_OPERATOR,
           CheckSuspiciousCode.SUSPICIOUS_INSTANCEOF_LEFT_OPERAND,
           CheckSuspiciousCode.SUSPICIOUS_NEGATED_LEFT_OPERAND_OF_IN_OPERATOR,
-          TypeCheck.DETERMINISTIC_TEST);
+          TypeCheck.DETERMINISTIC_TEST,
+          ProcessCommonJSModules.SUSPICIOUS_EXPORTS_ASSIGNMENT);
+
+  public static final DiagnosticGroup FUNCTION_PARAMS =
+      DiagnosticGroups.registerGroup(
+          "functionParams", FunctionTypeBuilder.OPTIONAL_ARG_AT_END);
 
   public static final DiagnosticGroup DEPRECATED_ANNOTATIONS =
       DiagnosticGroups.registerGroup("deprecatedAnnotations",
@@ -525,11 +574,11 @@ public class DiagnosticGroups {
 
               // TODO(tbreisacher): Make this an error once all Google projects are fixed.
               ClosureCheckModule.AT_EXPORT_IN_NON_LEGACY_GOOG_MODULE,
-
               CheckMissingSemicolon.MISSING_SEMICOLON,
               CheckPrimitiveAsObject.NEW_PRIMITIVE_OBJECT,
               CheckPrimitiveAsObject.PRIMITIVE_OBJECT_DECLARATION,
               CheckPrototypeProperties.ILLEGAL_PROTOTYPE_MEMBER,
+              CheckRequiresAndProvidesSorted.DUPLICATE_REQUIRE,
               CheckRequiresAndProvidesSorted.REQUIRES_NOT_SORTED,
               CheckRequiresAndProvidesSorted.PROVIDES_NOT_SORTED,
               CheckRequiresAndProvidesSorted.PROVIDES_AFTER_REQUIRES,
@@ -577,7 +626,6 @@ public class DiagnosticGroups {
     DiagnosticGroups.registerGroup("transitionalSuspiciousCodeWarnings",
         PeepholeFoldConstants.INDEX_OUT_OF_BOUNDS_ERROR,
         PeepholeFoldConstants.NEGATING_A_NON_NUMBER_ERROR,
-        PeepholeFoldConstants.BITWISE_OPERAND_OUT_OF_RANGE,
         PeepholeFoldConstants.SHIFT_AMOUNT_OUT_OF_BOUNDS,
         PeepholeFoldConstants.FRACTIONAL_BITWISE_OPERAND);
   }
@@ -593,6 +641,11 @@ public class DiagnosticGroups {
           "lateProvide", // undocumented
           ProcessClosurePrimitives.LATE_PROVIDE_ERROR,
           ClosureRewriteModule.LATE_PROVIDE_ERROR);
+
+  public static final DiagnosticGroup MISSING_POLYFILL =
+      DiagnosticGroups.registerGroup(
+          "missingPolyfill",
+          RewritePolyfills.INSUFFICIENT_OUTPUT_VERSION_ERROR);
 
   // For internal use only, so there are no constants for these groups.
   static {

@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
+var CLOSURE_DEFINED = {
+  'jscomp.TRANSPILE': 'always',
+};
+
 /**
- * @fileoverview Save the native versions of polyfilled symbols that may be
- * needed in testing.
+ * @fileoverview Deletes the browser's implementation of Reflect,
+ * thus forcing the polyfills to be used unconditionally.
  */
 
-var $native = {};
-// Referring directly to a non-existent global throws an exception.
-// Fortunately, 'this' is the global object here.
-$native.Symbol = this.Symbol;
-$native.Reflect = this.Reflect;
+delete Reflect;

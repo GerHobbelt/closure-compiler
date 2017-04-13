@@ -29,9 +29,10 @@ import com.google.javascript.jscomp.NodeTraversal;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
 import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.rhino.Node;
-
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Checks that goog.require() and goog.provide() calls are sorted alphabetically.
@@ -51,9 +52,11 @@ public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallbac
           "JSC_PROVIDES_AFTER_REQUIRES",
           "goog.provide() statements should be before goog.require() statements.");
 
-  private List<Node> requires;
-  private List<Node> provides;
-  private boolean containsShorthandRequire = false;
+  public static final DiagnosticType DUPLICATE_REQUIRE =
+      DiagnosticType.warning("JSC_DUPLICATE_REQUIRE", "''{0}'' required more than once.");
+
+  private final List<Node> requires;
+  private final List<Node> provides;
 
   private final AbstractCompiler compiler;
 
@@ -73,30 +76,58 @@ public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallbac
     NodeTraversal.traverseEs6(compiler, scriptRoot, this);
   }
 
-  private final Function<Node, String> getNamespace =
+  public static final Function<Node, String> getSortKey =
       new Function<Node, String>() {
         @Override
         public String apply(Node n) {
-          Preconditions.checkState(n.isCall(), n);
-          return n.getLastChild().getString();
+          if (NodeUtil.isNameDeclaration(n)) {
+            if (n.getFirstChild().isName()) {
+              // Case 1: var x = goog.require('w.x');
+              return n.getFirstChild().getString();
+            } else if (n.getFirstChild().isDestructuringLhs()) {
+              // Case 2: var {y} = goog.require('w.x');
+              // All case 2 nodes should come after all case 1 nodes.
+              Node pattern = n.getFirstFirstChild();
+              Preconditions.checkState(pattern.isObjectPattern(), pattern);
+              return "{" + pattern.getFirstChild().getString();
+            }
+          } else if (n.isExprResult()) {
+            // Case 3: goog.require('a.b.c');
+            // All case 3 nodes should come after case 1 and 2 nodes, so prepend
+            // '|' which sorts after '{'
+            return "|" + n.getFirstChild().getLastChild().getString();
+          }
+          throw new IllegalArgumentException("Unexpected node " + n);
         }
       };
 
-  private final Ordering<Node> alphabetical = Ordering.natural().onResultOf(getNamespace);
+  private static final String getNamespace(Node requireStatement) {
+    if (requireStatement.isExprResult()) {
+      // goog.require('a.b.c');
+      return requireStatement.getFirstChild().getLastChild().getString();
+    } else if (NodeUtil.isNameDeclaration(requireStatement)) {
+      if (requireStatement.getFirstChild().isName()) {
+        // const x = goog.require('a.b.c');
+        return requireStatement.getFirstFirstChild().getLastChild().getString();
+      } else if (requireStatement.getFirstChild().isDestructuringLhs()) {
+        // const {x} = goog.require('a.b.c');
+        return requireStatement.getFirstChild().getLastChild().getLastChild().getString();
+      }
+    }
+    throw new IllegalArgumentException("Unexpected node " + requireStatement);
+  }
+
+  private final Ordering<Node> alphabetical = Ordering.natural().onResultOf(getSortKey);
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
       case SCRIPT:
-        // For now, don't report for requires being out of order if there are
-        // "var x = goog.require('goog.x');" style requires.
-        if (!containsShorthandRequire) {
-          reportIfOutOfOrder(requires, REQUIRES_NOT_SORTED);
-        }
+        // Duplicate provides are already checked in ProcessClosurePrimitives.
+        checkForDuplicates(requires);
+        reportIfOutOfOrder(requires, REQUIRES_NOT_SORTED);
         reportIfOutOfOrder(provides, PROVIDES_NOT_SORTED);
-        requires.clear();
-        provides.clear();
-        containsShorthandRequire = false;
+        reset();
         break;
       case CALL:
         Node callee = n.getFirstChild();
@@ -112,18 +143,18 @@ public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallbac
             return;
           }
           if (callee.matchesQualifiedName("goog.require")) {
-            requires.add(n);
+            requires.add(parent);
           } else {
             if (!requires.isEmpty()) {
               t.report(n, PROVIDES_AFTER_REQUIRES);
             }
             if (callee.matchesQualifiedName("goog.provide")) {
-              provides.add(n);
+              provides.add(parent);
             }
           }
         } else if (NodeUtil.isNameDeclaration(parent.getParent())
             && callee.matchesQualifiedName("goog.require")) {
-          containsShorthandRequire = true;
+          requires.add(parent.getParent());
         }
         break;
       default:
@@ -138,11 +169,27 @@ public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallbac
         CodePrinter.Builder builder = new CodePrinter.Builder(require);
         CompilerOptions options = new CompilerOptions();
         options.setPreferSingleQuotes(true);
+        options.setPreserveTypeAnnotations(true);
         builder.setCompilerOptions(options);
         correctOrder.add(builder.build() + ";");
       }
       compiler.report(
           JSError.make(requiresOrProvides.get(0), warning, Joiner.on('\n').join(correctOrder)));
     }
+  }
+
+  private void checkForDuplicates(List<Node> requires) {
+    Set<String> namespaces = new HashSet<>();
+    for (Node require : requires) {
+      String namespace = getNamespace(require);
+      if (!namespaces.add(namespace)) {
+        compiler.report(JSError.make(require, DUPLICATE_REQUIRE, namespace));
+      }
+    }
+  }
+
+  private void reset() {
+    requires.clear();
+    provides.clear();
   }
 }

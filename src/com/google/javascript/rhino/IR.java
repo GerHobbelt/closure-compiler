@@ -39,7 +39,6 @@
 package com.google.javascript.rhino;
 
 import com.google.common.base.Preconditions;
-
 import java.util.List;
 
 /**
@@ -196,6 +195,11 @@ public class IR {
 
   public static Node yield() {
     return new Node(Token.YIELD);
+  }
+
+  public static Node await(Node expr) {
+    Preconditions.checkState(mayBeExpression(expr));
+    return new Node(Token.AWAIT, expr);
   }
 
   public static Node yield(Node expr) {
@@ -357,7 +361,7 @@ public class IR {
 
   public static Node name(String name) {
     Preconditions.checkState(name.indexOf('.') == -1,
-        "Invalid name. Did you mean to use NodeUtil.newQName?");
+        "Invalid name '%s'. Did you mean to use NodeUtil.newQName?", name);
     return Node.newString(Token.NAME, name);
   }
 

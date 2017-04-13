@@ -79,7 +79,7 @@ class ConvertToTypedInterface implements CompilerPass {
         case VAR:
         case CONST:
         case LET:
-          if (n.getChildCount() == 1) {
+          if (n.hasOneChild()) {
             propagateJsdocAtName(t, n.getFirstChild());
           }
           break;
@@ -217,7 +217,6 @@ class ConvertToTypedInterface implements CompilerPass {
             case CALL:
               Node callee = expr.getFirstChild();
               Preconditions.checkState(!callee.matchesQualifiedName("goog.scope"), n);
-              Preconditions.checkState(!callee.matchesQualifiedName("goog.forwardDeclare"), n);
               if (callee.matchesQualifiedName("goog.provide")) {
                 Node childBefore;
                 while (null != (childBefore = n.getPrevious())
@@ -252,7 +251,7 @@ class ConvertToTypedInterface implements CompilerPass {
         case VAR:
         case CONST:
         case LET:
-          if (n.getChildCount() == 1 && NodeUtil.isStatement(n)) {
+          if (n.hasOneChild() && NodeUtil.isStatement(n)) {
             processName(n.getFirstChild(), n);
           }
           break;
@@ -295,7 +294,7 @@ class ConvertToTypedInterface implements CompilerPass {
           parent.addChildAfter(body.detach(), n);
           NodeUtil.removeChild(parent, n);
           Node initializer = n.isFor() ? n.getFirstChild() : IR.empty();
-          if (initializer.isVar() && initializer.getChildCount() == 1) {
+          if (initializer.isVar() && initializer.hasOneChild()) {
             parent.addChildBefore(initializer.detach(), body);
             processName(initializer.getFirstChild(), initializer);
           }
@@ -376,12 +375,29 @@ class ConvertToTypedInterface implements CompilerPass {
       REMOVE_ALL,
     }
 
+    private static boolean isImportRhs(Node rhs) {
+      if (!rhs.isCall()) {
+        return false;
+      }
+      Node callee = rhs.getFirstChild();
+      return callee.matchesQualifiedName("goog.require")
+          || callee.matchesQualifiedName("goog.forwardDeclare");
+    }
+
+    private static boolean isExportLhs(Node lhs) {
+      return (lhs.isName() && lhs.matchesQualifiedName("exports"))
+          || (lhs.isGetProp() && lhs.getFirstChild().matchesQualifiedName("exports"));
+    }
+
     private RemovalType shouldRemove(Node nameNode) {
       Node jsdocNode = NodeUtil.getBestJSDocInfoNode(nameNode);
       JSDocInfo jsdoc = jsdocNode.getJSDocInfo();
       Node rhs = NodeUtil.getRValueOfLValue(nameNode);
       if (rhs == null
           || rhs.isFunction()
+          || rhs.isClass()
+          || isImportRhs(rhs)
+          || isExportLhs(nameNode)
           || (rhs.isQualifiedName() && rhs.matchesQualifiedName("goog.abstractMethod"))
           || (rhs.isQualifiedName() && rhs.matchesQualifiedName("goog.nullFunction"))
           || (rhs.isObjectLit()

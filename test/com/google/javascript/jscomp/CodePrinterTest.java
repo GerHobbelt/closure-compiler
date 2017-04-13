@@ -22,7 +22,6 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -335,6 +334,11 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("[[[[a]]]]=[[[[1]]]]");
   }
 
+  public void testPrettyPrintArrayPattern() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrettyPrint("let [a,b,c]=foo();", "let [a, b, c] = foo();\n");
+  }
+
   public void testPrintObjectPatternVar() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("var {a}=foo()");
@@ -376,6 +380,11 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("({a:b=2}=foo())");
     assertPrintSame("({a,b:{c=2}}=foo())");
     assertPrintSame("({a:{b=2},c}=foo())");
+  }
+
+  public void testPrettyPrintObjectPattern() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrettyPrint("const {a,b,c}=foo();", "const {a, b, c} = foo();\n");
   }
 
   public void testPrintMixedDestructuring() {
@@ -824,7 +833,7 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrettyPrint("function foo() { return \"foo\"; }",
         "function foo() {\n  return \"foo\";\n}\n");
     assertPrettyPrint("throw \"foo\";",
-        "throw \"foo\";");
+        "throw \"foo\";\n");
 
     // Test that loops properly have spaces inserted.
     assertPrettyPrint("do{ alert(); } while(true);",
@@ -979,6 +988,15 @@ public final class CodePrinterTest extends CodePrinterTestBase {
         "var f = function() {\n" +
             "  return --b;\n" +
             "};\n");
+  }
+
+  public void testPrettyPrinter_varLetConst() throws Exception {
+    assertPrettyPrint("var x=0;", "var x = 0;\n");
+
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrettyPrint("const x=0;", "const x = 0;\n");
+    assertPrettyPrint("let x=0;", "let x = 0;\n");
   }
 
   public void testTypeAnnotations() {
@@ -1711,8 +1729,8 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrint("var x = - (2);", "var x=-2");
   }
 
-  public void testStrict() {
-    String result = new CodePrinter.Builder(parse("var x", true))
+  private CodePrinter.Builder defaultBuilder(Node jsRoot) {
+    return new CodePrinter.Builder(jsRoot)
         .setCompilerOptions(newCompilerOptions(new CompilerOptionBuilder() {
           @Override
           void setOptions(CompilerOptions options) {
@@ -1722,10 +1740,17 @@ public final class CodePrinterTest extends CodePrinterTestBase {
           }
         }))
         .setOutputTypes(false)
-        .setTypeRegistry(lastCompiler.getTypeIRegistry())
-        .setTagAsStrict(true)
-        .build();
+        .setTypeRegistry(lastCompiler.getTypeIRegistry());
+  }
+
+  public void testStrict() {
+    String result = defaultBuilder(parse("var x", true)).setTagAsStrict(true).build();
     assertEquals("'use strict';var x", result);
+  }
+
+  public void testExterns() {
+    String result = defaultBuilder(parse("var x", true)).setTagAsExterns(true).build();
+    assertEquals("/** @externs */\nvar x", result);
   }
 
   public void testArrayLiteral() {
@@ -2118,6 +2143,8 @@ public final class CodePrinterTest extends CodePrinterTestBase {
     assertPrint("(()=>a),b", "()=>a,b");
     assertPrint("()=>(a=b)", "()=>a=b");
     assertPrintSame("[1,2].forEach((x)=>y)");
+    assertPrintSame("()=>({a:1})");
+    assertPrintSame("()=>{return 1}");
   }
 
   public void testAsyncFunction() {
@@ -2197,7 +2224,21 @@ public final class CodePrinterTest extends CodePrinterTestBase {
             "  var f = () => {",
             "    alert(1);",
             "    alert(2);",
-            "  }",
+            "  };",
+            "}",
+            ""));
+  }
+
+  public void testPrettyPrint_switch() throws Exception {
+    assertPrettyPrint("switch(something){case 0:alert(0);break;case 1:alert(1);break}",
+        LINE_JOINER.join(
+            "switch(something) {",
+            "  case 0:",
+            "    alert(0);",
+            "    break;",
+            "  case 1:",
+            "    alert(1);",
+            "    break;",
             "}",
             ""));
   }

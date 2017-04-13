@@ -206,6 +206,10 @@ public final class DefaultPassConfig extends PassConfig {
     if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
       TranspilationPasses.addEs6EarlyPasses(passes);
       TranspilationPasses.addEs6LatePasses(passes);
+      TranspilationPasses.addPostCheckPasses(passes);
+      if (options.rewritePolyfills) {
+        TranspilationPasses.addRewritePolyfillPass(passes);
+      }
       passes.add(markTranspilationDone);
     }
 
@@ -371,6 +375,11 @@ public final class DefaultPassConfig extends PassConfig {
 
     if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
       TranspilationPasses.addEs6LatePasses(checks);
+      if (options.rewritePolyfills) {
+        TranspilationPasses.addRewritePolyfillPass(checks);
+      }
+      // TODO(bradfordcsmith): This marking is really about how variable scoping is handled during
+      //     type checking. It should really be handled in a more direct fashion.
       checks.add(markTranspilationDone);
     }
 
@@ -382,10 +391,37 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(injectRuntimeLibraries);
     }
 
-    if (options.skipNonTranspilationPasses) {
-      return checks;
+    if (!options.skipNonTranspilationPasses) {
+      addNonTranspilationCheckPasses(checks);
     }
 
+    if (options.getLanguageIn().isEs6OrHigher() && !options.skipTranspilationAndCrash) {
+      TranspilationPasses.addPostCheckPasses(checks);
+    }
+
+
+    // NOTE(dimvar): Tried to move this into the optimizations, but had to back off
+    // because the very first pass, normalization, rewrites the code in a way that
+    // causes loss of type information.
+    // So, I will convert the remaining optimizations to use TypeI and test that only
+    // in unit tests, not full builds. Once all passes are converted, then
+    // drop the OTI-after-NTI altogether.
+    // In addition, I will probably have a local edit of the repo that retains both
+    // types on Nodes, so I can test full builds on my machine. We can't check in such
+    // a change because it would greatly increase memory usage.
+    if (options.getNewTypeInference()) {
+      addOldTypeCheckerPasses(checks, options);
+    }
+
+    checks.add(createEmptyPass("afterStandardChecks"));
+
+    assertAllOneTimePasses(checks);
+    assertValidOrder(checks);
+
+    return checks;
+  }
+
+  private void addNonTranspilationCheckPasses(List<PassFactory> checks) {
     checks.add(convertStaticInheritance);
 
     // End of ES6 transpilation passes.
@@ -443,15 +479,7 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(checkGlobalNames);
     }
 
-    if (options.enables(DiagnosticGroups.ES5_STRICT)) {
-      checks.add(checkStrictMode);
-    }
-
-    // NOTE(dimvar): This will move later into the checks as we convert checks
-    // to handle types from the new type inference
-    if (options.getNewTypeInference()) {
-      addOldTypeCheckerPasses(checks, options);
-    }
+    checks.add(checkStrictMode);
 
     if (!options.getConformanceConfigs().isEmpty()) {
       checks.add(checkConformance);
@@ -491,11 +519,9 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(computeFunctionNames);
     }
 
-    checks.add(createEmptyPass("afterStandardChecks"));
-
-    assertAllOneTimePasses(checks);
-    assertValidOrder(checks);
-    return checks;
+    if (options.j2clPassMode.shouldAddJ2clPasses()) {
+      checks.add(j2clChecksPass);
+    }
   }
 
   @Override
@@ -507,30 +533,26 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     // Gather property names in externs so they can be queried by the
-    // optimising passes.
+    // optimizing passes.
     passes.add(gatherExternProperties);
 
     passes.add(garbageCollectChecks);
-
-    // TODO(nicksantos): The order of these passes makes no sense, and needs
-    // to be re-arranged.
 
     if (options.instrumentForCoverage) {
       passes.add(instrumentForCodeCoverage);
     }
 
-    if (options.runtimeTypeCheck) {
+    // TODO(dimvar): convert this pass to use NTI. Low priority since it's
+    // mostly unused. Converting it shouldn't block switching to NTI.
+    if (options.runtimeTypeCheck && !options.getNewTypeInference()) {
       passes.add(runtimeTypeCheck);
     }
 
     // Inlines functions that perform dynamic accesses to static properties of parameters that are
-    // typed as {Function}.
-    //
-    // Inlining these functions turns a dynamic access to a static property of a class definition
+    // typed as {Function}. This turns a dynamic access to a static property of a class definition
     // into a fully qualified access and in so doing enables better dead code stripping.
     if (options.j2clPassMode.shouldAddJ2clPasses()) {
       passes.add(j2clPass);
-      passes.add(j2clPropertyInlinerPass);
     }
 
     passes.add(createEmptyPass("beforeStandardOptimizations"));
@@ -557,6 +579,20 @@ public final class DefaultPassConfig extends PassConfig {
     // properties.
     if (options.disambiguatePrivateProperties) {
       passes.add(disambiguatePrivateProperties);
+    }
+
+    assertAllOneTimePasses(passes);
+
+    // Inline aliases so that following optimizations don't have to understand alias chains.
+    if (options.collapseProperties) {
+      passes.add(aggressiveInlineAliases);
+    }
+
+    // Inline getters/setters in J2CL classes so that Object.defineProperties() calls (resulting
+    // from desugaring) don't block class stripping.
+    if (options.j2clPassMode.shouldAddJ2clPasses() && options.collapseProperties) {
+      // Relies on collapseProperties-triggered aggressive alias inlining.
+      passes.add(j2clPropertyInlinerPass);
     }
 
     // Collapsing properties can undo constant inlining, so we do this before
@@ -633,8 +669,6 @@ public final class DefaultPassConfig extends PassConfig {
     if (options.chainCalls) {
       passes.add(chainCalls);
     }
-
-    assertAllOneTimePasses(passes);
 
     if (options.smartNameRemoval || options.reportPath != null) {
       passes.addAll(getCodeRemovingPasses());
@@ -1343,6 +1377,15 @@ public final class DefaultPassConfig extends PassConfig {
     }
   };
 
+  /** Inlines type aliases if they are explicitly or effectively const. */
+  private final PassFactory aggressiveInlineAliases =
+      new PassFactory("aggressiveInlineAliases", false) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new AggressiveInlineAliases(compiler);
+        }
+      };
+
   private final PassFactory convertToTypedES6 =
       new PassFactory("ConvertToTypedES6", true) {
     @Override
@@ -1482,7 +1525,7 @@ public final class DefaultPassConfig extends PassConfig {
   /** Various peephole optimizations. */
   private static CompilerPass createPeepholeOptimizationsPass(AbstractCompiler compiler) {
     final boolean late = false;
-    final boolean useTypesForOptimization =  compiler.getOptions().useTypesForOptimization;
+    final boolean useTypesForOptimization =  compiler.getOptions().useTypesForLocalOptimization;
     return new PeepholeOptimizationsPass(compiler,
           new MinimizeExitPoints(compiler),
           new PeepholeMinimizeConditions(late, useTypesForOptimization),
@@ -1520,10 +1563,10 @@ public final class DefaultPassConfig extends PassConfig {
       return new PeepholeOptimizationsPass(compiler,
             new StatementFusion(options.aggressiveFusion),
             new PeepholeRemoveDeadCode(),
-            new PeepholeMinimizeConditions(late, options.useTypesForOptimization),
+            new PeepholeMinimizeConditions(late, options.useTypesForLocalOptimization),
             new PeepholeSubstituteAlternateSyntax(late),
             new PeepholeReplaceKnownMethods(late),
-            new PeepholeFoldConstants(late, options.useTypesForOptimization),
+            new PeepholeFoldConstants(late, options.useTypesForLocalOptimization),
             new ReorderConstantExpression());
     }
   };
@@ -2774,6 +2817,14 @@ public final class DefaultPassConfig extends PassConfig {
         @Override
         protected CompilerPass create(final AbstractCompiler compiler) {
           return new J2clSourceFileChecker(compiler);
+        }
+      };
+
+  private final PassFactory j2clChecksPass =
+      new PassFactory("j2clChecksPass", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new J2clChecksPass(compiler);
         }
       };
 

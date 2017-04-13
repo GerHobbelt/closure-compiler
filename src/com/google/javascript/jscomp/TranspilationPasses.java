@@ -36,6 +36,7 @@ public class TranspilationPasses {
    * transpile them, even if the output language is also ES6.
    */
   public static void addEs6EarlyPasses(List<PassFactory> passes) {
+    passes.add(rewriteAsyncFunctions);
     passes.add(es6SuperCheck);
     passes.add(es6ConvertSuper);
     passes.add(es6RewriteArrowFunction);
@@ -57,8 +58,22 @@ public class TranspilationPasses {
     passes.add(convertEs6ToEs3);
     passes.add(rewriteBlockScopedDeclaration);
     passes.add(rewriteGenerators);
+  }
+
+  /**
+   * Adds the pass to inject ES6 polyfills, which goes after the late ES6 passes.
+   */
+  public static void addRewritePolyfillPass(List<PassFactory> passes) {
     passes.add(rewritePolyfills);
   }
+
+  private static final PassFactory rewriteAsyncFunctions =
+      new PassFactory("rewriteAsyncFunctions", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new RewriteAsyncFunctions(compiler);
+        }
+      };
 
   private static final PassFactory es6SuperCheck =
       new PassFactory("es6SuperCheck", true) {
@@ -113,6 +128,14 @@ public class TranspilationPasses {
         @Override
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6SplitVariableDeclarations(compiler);
+        }
+      };
+
+  static final HotSwapPassFactory es6ConvertSuperConstructorCalls =
+      new HotSwapPassFactory("es6ConvertSuperConstructorCalls", true) {
+        @Override
+        protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
+          return new Es6ConvertSuperConstructorCalls(compiler);
         }
       };
 
@@ -238,5 +261,9 @@ public class TranspilationPasses {
         }
       }
     }
+  }
+
+  public static void addPostCheckPasses(List<PassFactory> passes) {
+    passes.add(es6ConvertSuperConstructorCalls);
   }
 }

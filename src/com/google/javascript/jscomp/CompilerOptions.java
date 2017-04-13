@@ -59,6 +59,13 @@ public class CompilerOptions {
   // package-private, and have a public setter.
 
   /**
+   * Should the compiled output start with "'use strict';"?
+   *
+   * <p>Ignored for non-strict output language modes.
+   */
+  private boolean emitUseStrict = true;
+
+  /**
    * The JavaScript language version accepted.
    */
   private LanguageMode languageIn;
@@ -138,6 +145,7 @@ public class CompilerOptions {
 
   public void setIncrementalTypeChecking(boolean value) {
     generateTypedExterns = value;
+    allowGoogProvideInExterns = value;
     if (value) {
       setPreserveTypeAnnotations(value);
       setOutputJs(OutputJs.NORMAL);
@@ -190,6 +198,14 @@ public class CompilerOptions {
 
   DependencyOptions dependencyOptions = new DependencyOptions();
 
+  // TODO(tbreisacher): When this is false, report an error if there's a goog.provide
+  // in an externs file.
+  private boolean allowGoogProvideInExterns = false;
+
+  boolean allowGoogProvideInExterns() {
+    return allowGoogProvideInExterns;
+  }
+
   /** Returns localized replacement for MSG_* variables */
   public MessageBundle messageBundle = null;
 
@@ -206,16 +222,6 @@ public class CompilerOptions {
 
   /** Checks types on expressions */
   public boolean checkTypes;
-
-  public CheckLevel reportMissingOverride;
-
-  /**
-   * Flags a warning if a property is missing the @override annotation, but it
-   * overrides a base class property.
-   */
-  public void setReportMissingOverride(CheckLevel level) {
-    reportMissingOverride = level;
-  }
 
   public CheckLevel checkGlobalNamesLevel;
 
@@ -501,7 +507,7 @@ public class CompilerOptions {
   boolean chainCalls;
 
   /** Use type information to enable additional optimization opportunities. */
-  boolean useTypesForOptimization;
+  boolean useTypesForLocalOptimization;
 
   //--------------------------------
   // Renaming
@@ -892,15 +898,16 @@ public class CompilerOptions {
 
   // Should only be used when debugging compiler bugs.
   boolean printSourceAfterEachPass;
-  // Used to narrow down the printed source when overall input size is large.
-  String fileToPrintAfterEachPass;
+  // Used to narrow down the printed source when overall input size is large. If this is empty,
+  // the entire source is printed.
+  List<String> filesToPrintAfterEachPass = ImmutableList.of();
 
   public void setPrintSourceAfterEachPass(boolean printSource) {
     this.printSourceAfterEachPass = printSource;
   }
 
-  public void setFileToPrintAfterEachPass(String filename) {
-    this.fileToPrintAfterEachPass = filename;
+  public void setFilesToPrintAfterEachPass(List<String> filenames) {
+    this.filesToPrintAfterEachPass = filenames;
   }
 
   String reportPath;
@@ -1049,6 +1056,13 @@ public class CompilerOptions {
   boolean printConfig = false;
 
   /**
+   * Are the input files written for strict mode?
+   *
+   * <p>Ignored for language modes that do not support strict mode.
+   */
+  private boolean isStrictModeInput = true;
+
+  /**
    * Should the compiler print its configuration options to stderr when they are initialized?
    *
    * <p> Default {@code false}.
@@ -1078,7 +1092,6 @@ public class CompilerOptions {
     checkSymbols = false;
     checkSuspiciousCode = false;
     checkTypes = false;
-    reportMissingOverride = CheckLevel.OFF;
     checkGlobalNamesLevel = CheckLevel.OFF;
     brokenClosureRequiresLevel = CheckLevel.ERROR;
     checkGlobalThisLevel = CheckLevel.OFF;
@@ -1529,7 +1542,7 @@ public class CompilerOptions {
   }
 
   boolean shouldInlineProperties() {
-    return useTypesForOptimization || inlineProperties;
+    return inlineProperties;
   }
 
   /**
@@ -2158,8 +2171,18 @@ public class CompilerOptions {
     this.convertToDottedProperties = convertToDottedProperties;
   }
 
+  public void setUseTypesForLocalOptimization(boolean useTypesForLocalOptimization) {
+    this.useTypesForLocalOptimization = useTypesForLocalOptimization;
+  }
+
+  @Deprecated
   public void setUseTypesForOptimization(boolean useTypesForOptimization) {
-    this.useTypesForOptimization = useTypesForOptimization;
+    if (useTypesForOptimization) {
+      this.disambiguateProperties = useTypesForOptimization;
+      this.ambiguateProperties = useTypesForOptimization;
+      this.inlineProperties = useTypesForOptimization;
+      this.useTypesForLocalOptimization = useTypesForOptimization;
+    }
   }
 
   public void setRewriteFunctionExpressions(boolean rewriteFunctionExpressions) {
@@ -2254,7 +2277,7 @@ public class CompilerOptions {
   }
 
   boolean shouldDisambiguateProperties() {
-    return this.useTypesForOptimization || this.disambiguateProperties;
+    return this.disambiguateProperties;
   }
 
   public void setAmbiguateProperties(boolean ambiguateProperties) {
@@ -2262,7 +2285,7 @@ public class CompilerOptions {
   }
 
   boolean shouldAmbiguateProperties() {
-    return this.useTypesForOptimization || this.ambiguateProperties;
+    return this.ambiguateProperties;
   }
 
   public void setAnonymousFunctionNaming(
@@ -2540,6 +2563,10 @@ public class CompilerOptions {
     this.rewritePolyfills = rewritePolyfills;
   }
 
+  public boolean getRewritePolyfills() {
+    return this.rewritePolyfills;
+  }
+
   /**
    * Sets list of libraries to always inject, even if not needed.
    */
@@ -2590,6 +2617,15 @@ public class CompilerOptions {
   @GwtIncompatible("Conformance")
   public void setConformanceConfigs(List<ConformanceConfig> configs) {
     this.conformanceConfigs = ImmutableList.copyOf(configs);
+  }
+
+  public boolean isEmitUseStrict() {
+    return emitUseStrict;
+  }
+
+  public CompilerOptions setEmitUseStrict(boolean emitUseStrict) {
+    this.emitUseStrict = emitUseStrict;
+    return this;
   }
 
   @Override
@@ -2757,7 +2793,6 @@ public class CompilerOptions {
             .add("replaceStringsInputMap", replaceStringsInputMap)
             .add("replaceStringsPlaceholderToken", replaceStringsPlaceholderToken)
             .add("replaceStringsReservedStrings", replaceStringsReservedStrings)
-            .add("reportMissingOverride", reportMissingOverride)
             .add("reportOTIErrorsUnderNTI", reportOTIErrorsUnderNTI)
             .add("reportPath", reportPath)
             .add("reserveRawExports", reserveRawExports)
@@ -2788,7 +2823,8 @@ public class CompilerOptions {
             .add("tweakReplacements", getTweakReplacements())
             .add("useDebugLog", useDebugLog)
             .add("useNewTypeInference", getNewTypeInference())
-            .add("useTypesForOptimization", useTypesForOptimization)
+            .add("emitUseStrict", emitUseStrict)
+            .add("useTypesForLocalOptimization", useTypesForLocalOptimization)
             .add("variableRenaming", variableRenaming)
             .add("warningsGuard", getWarningsGuard())
             .add("wrapGoogModulesForWhitespaceOnly", wrapGoogModulesForWhitespaceOnly)
@@ -2851,21 +2887,6 @@ public class CompilerOptions {
      * For languageOut only. The same language mode as the input.
      */
     NO_TRANSPILE;
-
-    /** Whether this is a "strict mode" language. */
-    public boolean isStrict() {
-      Preconditions.checkState(this != NO_TRANSPILE);
-      switch (this) {
-        case ECMASCRIPT7:
-        case ECMASCRIPT8:
-        case ECMASCRIPT5_STRICT:
-        case ECMASCRIPT6_STRICT:
-        case ECMASCRIPT6_TYPED:
-          return true;
-        default:
-          return false;
-      }
-    }
 
     /** Whether this is ECMAScript 5 or higher. */
     public boolean isEs5OrHigher() {
@@ -2947,8 +2968,9 @@ public class CompilerOptions {
 
   /** How much tracing we want to do */
   public static enum TracerMode {
-    ALL,  // Collect all timing and size metrics.
-    RAW_SIZE, // Collect all timing and size metrics, except gzipped size.
+    ALL, // Collect all timing and size metrics. Very slow.
+    RAW_SIZE, // Collect all timing and size metrics, except gzipped size. Slow.
+    AST_SIZE, // For size data, don't serialize the AST, just count the number of nodes.
     TIMING_ONLY, // Collect timing metrics only.
     OFF;  // Collect no timing and size metrics.
 
@@ -3143,5 +3165,14 @@ public class CompilerOptions {
     boolean isExplicitlyOn() {
       return this == TRUE || this == ON;
     }
+  }
+
+  public boolean isStrictModeInput() {
+    return isStrictModeInput;
+  }
+
+  public CompilerOptions setStrictModeInput(boolean isStrictModeInput) {
+    this.isStrictModeInput = isStrictModeInput;
+    return this;
   }
 }

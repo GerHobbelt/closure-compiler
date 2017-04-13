@@ -36,7 +36,7 @@ md.$bottomSheet = function() {};
 
 /**
  * @typedef {{
- *   templateUrl: (string|undefined),
+ *   templateUrl: (string|!Object|undefined),
  *   template: (string|undefined),
  *   scope: (!Object|undefined),
  *   preserveScope: (boolean|undefined),
@@ -83,21 +83,30 @@ md.$dialog = function() {};
 
 /**
  * @typedef {{
- *   templateUrl: (string|undefined),
+ *   templateUrl: (string|!Object|undefined),
  *   template: (string|undefined),
+ *   contentElement: (string|Element|undefined),
+ *   autoWrap: (boolean|undefined),
  *   targetEvent: (Object|undefined),
+ *   openFrom: (string|!Element|!Object|undefined),
+ *   closeTo: (string|!Element|!Object|undefined),
+ *   scope: (!angular.Scope|undefined),
+ *   preserveScope: (boolean|undefined),
+ *   disableParentScroll: (boolean|undefined),
  *   hasBackdrop: (boolean|undefined),
  *   clickOutsideToClose: (boolean|undefined),
  *   escapeToClose: (boolean|undefined),
+ *   focusOnOpen: (boolean|undefined),
  *   controller: (Function|string|undefined),
  *   locals: (Object|undefined),
+ *   bindToController: (boolean|undefined),
  *   resolve: (Object|undefined),
  *   controllerAs: (string|undefined),
  *   parent: (angular.JQLite|Element|undefined),
  *   onShowing: (Function|undefined),
  *   onComplete: (Function|undefined),
  *   onRemoving: (Function|undefined),
- *   contentElement: string
+ *   fullscreen: (boolean|undefined)
  * }}
  */
 md.$dialog.options;
@@ -408,7 +417,7 @@ md.$toast = function() {};
 
 /**
  * @typedef {{
- *   templateUrl: (string|undefined),
+ *   templateUrl: (string|!Object|undefined),
  *   template: (string|undefined),
  *   hideDelay: (number|undefined),
  *   position: (string|undefined),
@@ -508,6 +517,18 @@ md.$toast.preset.prototype.parent = function(parent) {};
  * @return {!md.$toast.preset}
  */
 md.$toast.preset.prototype.position = function(position) {};
+
+/**
+ * @param {string} className
+ * @return {!md.$toast.preset}
+ */
+md.$toast.preset.prototype.highlightClass = function(className) {};
+
+/**
+ * @param {string} className
+ * @return {!md.$toast.preset}
+ */
+md.$toast.preset.prototype.toastClass = function(className) {};
 
 
 /**
@@ -662,7 +683,7 @@ md.$mdIconProvider = function() {};
 
 /**
  * @param {string} id
- * @param {string} url
+ * @param {string|!Object} url
  * @param {number=} opt_iconSize
  * @return {!md.$mdIconProvider}
  */
@@ -670,14 +691,14 @@ md.$mdIconProvider.prototype.icon = function(id, url, opt_iconSize) {};
 
 /**
  * @param {string} id
- * @param {string} url
+ * @param {string|!Object} url
  * @param {number=} opt_iconSize
  * @return {!md.$mdIconProvider}
  */
 md.$mdIconProvider.prototype.iconSet = function(id, url, opt_iconSize) {};
 
 /**
- * @param {string} url
+ * @param {string|!Object} url
  * @param {number=} opt_iconSize
  * @return {!md.$mdIconProvider}
  */
@@ -860,7 +881,7 @@ md.$panel = function() {};
 /**
  * @typedef {{
  *   template: (string|undefined),
- *   templateUrl: (string|undefined),
+ *   templateUrl: (string|!Object|undefined),
  *   controller: (Function|string|undefined),
  *   controllerAs: (string|undefined),
  *   locals: (!Object|undefined),
@@ -913,7 +934,7 @@ md.$panel.prototype.xPosition = {
   ALIGN_START: 'align-start',
   ALIGN_END: 'align-end',
   OFFSET_START: 'offset-start',
-  OFFSET_END: 'offset-end'
+  OFFSET_END: 'offset-end',
 };
 
 /**
@@ -925,7 +946,7 @@ md.$panel.prototype.yPosition = {
   ALIGN_TOPS: 'align-tops',
   ALIGN_BOTTOMS: 'align-bottoms',
   ABOVE: 'above',
-  BELOW: 'below'
+  BELOW: 'below',
 };
 
 /**
@@ -935,7 +956,15 @@ md.$panel.prototype.yPosition = {
 md.$panel.prototype.animation = {
   SLIDE: 'md-panel-animate-slide',
   SCALE: 'md-panel-animate-scale',
-  FADE: 'md-panel-animate-fade'
+  FADE: 'md-panel-animate-fade',
+};
+
+/**
+ * Possible types of interceptors.
+ * @enum {string}
+ */
+md.$panel.prototype.interceptorTypes = {
+  CLOSE: 'onClose',
 };
 
 
@@ -971,6 +1000,27 @@ md.$panel.MdPanelRef.prototype.show = function() {};
 md.$panel.MdPanelRef.prototype.hide = function() {};
 
 md.$panel.MdPanelRef.prototype.destroy = function() {};
+
+/**
+ * @param {string} type
+ * @param {function(): !angular.$q.Promise<*>} callback
+ * @return {!md.$panel.MdPanelRef}
+ */
+md.$panel.MdPanelRef.prototype.registerInterceptor =
+    function(type, callback) {};
+
+/**
+ * @param {string} type
+ * @param {function(): !angular.$q.Promise<*>} callback
+ * @return {!md.$panel.MdPanelRef}
+ */
+md.$panel.MdPanelRef.prototype.removeInterceptor = function(type, callback) {};
+
+/**
+ * @param {string=} opt_type
+ * @return {!md.$panel.MdPanelRef}
+ */
+md.$panel.MdPanelRef.prototype.removeAllInterceptors = function(opt_type) {};
 
 /**
  * @param {string} classToAdd
@@ -1053,13 +1103,13 @@ md.$panel.MdPanelPosition.prototype.addPanelPosition =
     function(xPosition, yPosition) {};
 
 /**
- * @param {string=} offsetX
+ * @param {string|function(md.$panel.MdPanelPosition): string} offsetX
  * @return {!md.$panel.MdPanelPosition}
  */
 md.$panel.MdPanelPosition.prototype.withOffsetX = function(offsetX) {};
 
 /**
- * @param {string} offsetY
+ * @param {string|function(md.$panel.MdPanelPosition): string} offsetY
  * @return {!md.$panel.MdPanelPosition}
  */
 md.$panel.MdPanelPosition.prototype.withOffsetY = function(offsetY) {};

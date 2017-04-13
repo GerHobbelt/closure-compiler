@@ -444,4 +444,38 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
 
     test("var x = 4; x = 7;", "/** @type {*} */ var x;");
   }
+
+  public void testDontRemoveGoogModuleContents() {
+    testSame("goog.module('x.y.z'); var C = goog.require('a.b.C'); exports = new C;");
+
+    testSameEs6("goog.module('x.y.z.Foo'); exports = class {};");
+
+    testSameEs6("goog.module('x.y.z'); exports.Foo = class {};");
+
+    testSameEs6("goog.module('x.y.z.Foo'); class Foo {}; exports = Foo;");
+
+    testSameEs6("goog.module('x.y.z'); class Foo {}; exports.Foo = Foo;");
+
+    testSameEs6("goog.module('x.y.z'); class Foo {}; exports = {Foo};");
+
+    testSameEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "const C = goog.require('a.b.C');",
+            "class Foo extends C {}",
+            "exports = Foo;"));
+  }
+
+  public void testDontPreserveUnknownTypeDeclarations() {
+    test(
+        "goog.forwardDeclare('MyType'); /** @type {MyType} */ var x;",
+        "/** @type {MyType} */ var x;");
+
+    test(
+        "goog.addDependency('zzz.js', ['MyType'], []); /** @type {MyType} */ var x;",
+        "/** @type {MyType} */ var x;");
+
+    // This is OK, because short-import goog.forwardDeclares don't declare a type.
+    testSame("goog.module('x.y.z'); var C = goog.forwardDeclare('a.b.C'); /** @type {C} */ var c;");
+  }
 }

@@ -58,6 +58,15 @@ HTMLCanvasElement.prototype.width;
 HTMLCanvasElement.prototype.height;
 
 /**
+ * @see https://www.w3.org/TR/html5/scripting-1.html#dom-canvas-toblob
+ * @param {function(!Blob)} callback
+ * @param {string=} opt_type
+ * @param {...*} var_args
+ * @throws {Error}
+ */
+HTMLCanvasElement.prototype.toBlob = function(callback, opt_type, var_args) {};
+
+/**
  * @param {string=} opt_type
  * @param {...*} var_args
  * @return {string}
@@ -529,7 +538,8 @@ CanvasRenderingContext2D.prototype.setLineDash;
 CanvasRenderingContext2D.prototype.fillColor;
 
 /**
- * @type {string}
+ * @type {string|!CanvasGradient|!CanvasPattern}
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#fill-and-stroke-styles:dom-context-2d-fillstyle
  * @implicitCast
  */
 CanvasRenderingContext2D.prototype.fillStyle;
@@ -568,7 +578,8 @@ CanvasRenderingContext2D.prototype.shadowOffsetX;
 CanvasRenderingContext2D.prototype.shadowOffsetY;
 
 /**
- * @type {string}
+ * @type {string|!CanvasGradient|!CanvasPattern}
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#fill-and-stroke-styles:dom-context-2d-strokestyle
  * @implicitCast
  */
 CanvasRenderingContext2D.prototype.strokeStyle;
@@ -1272,6 +1283,21 @@ HTMLElement.prototype.hidden;
 
 /** @type {boolean} */
 HTMLElement.prototype.spellcheck;
+
+/**
+ * @see https://dom.spec.whatwg.org/#dictdef-getrootnodeoptions
+ * @typedef {{
+ *   composed: boolean
+ * }}
+ */
+var GetRootNodeOptions;
+
+/**
+ * @see https://dom.spec.whatwg.org/#dom-node-getrootnode
+ * @param {GetRootNodeOptions=} opt_options
+ * @return {?Node}
+ */
+Node.prototype.getRootNode = function(opt_options) {};
 
 /**
  * @see http://www.w3.org/TR/components-intro/
@@ -2606,9 +2632,39 @@ XMLHttpRequest.prototype.withCredentials;
 
 /**
  * @type {?function(!ProgressEvent): void}
+ * @see https://xhr.spec.whatwg.org/#handler-xhr-onloadstart
+ */
+XMLHttpRequest.prototype.onloadstart;
+
+/**
+ * @type {?function(!ProgressEvent): void}
  * @see https://dvcs.w3.org/hg/xhr/raw-file/tip/Overview.html#handler-xhr-onprogress
  */
 XMLHttpRequest.prototype.onprogress;
+
+/**
+ * @type {?function(!ProgressEvent): void}
+ * @see https://xhr.spec.whatwg.org/#handler-xhr-onabort
+ */
+XMLHttpRequest.prototype.onabort;
+
+/**
+ * @type {?function(!ProgressEvent): void}
+ * @see https://xhr.spec.whatwg.org/#handler-xhr-onload
+ */
+XMLHttpRequest.prototype.onload;
+
+/**
+ * @type {?function(!ProgressEvent): void}
+ * @see https://xhr.spec.whatwg.org/#handler-xhr-ontimeout
+ */
+XMLHttpRequest.prototype.ontimeout;
+
+/**
+ * @type {?function(!ProgressEvent): void}
+ * @see https://xhr.spec.whatwg.org/#handler-xhr-onloadend
+ */
+XMLHttpRequest.prototype.onloadend;
 
 /**
  * @type {XMLHttpRequestUpload}
@@ -3195,6 +3251,11 @@ MutationObserver.prototype.observe = function(target, options) {};
 MutationObserver.prototype.disconnect = function() {};
 
 /**
+ * @return {!Array<!MutationRecord>}
+ */
+MutationObserver.prototype.takeRecords = function() {};
+
+/**
  * @type {function(new:MutationObserver, function(Array<MutationRecord>))}
  */
 Window.prototype.WebKitMutationObserver;
@@ -3750,8 +3811,7 @@ HTMLDataListElement.prototype.options;
 function HTMLOutputElement() {}
 
 /**
- * @const
- * @type {!DOMTokenList}
+ * @const {!DOMTokenList}
  */
 HTMLOutputElement.prototype.htmlFor;
 
@@ -3766,8 +3826,7 @@ HTMLOutputElement.prototype.form;
 HTMLOutputElement.prototype.name;
 
 /**
- * @const
- * @type {!string}
+ * @const {string}
  */
 HTMLOutputElement.prototype.type;
 
@@ -3782,8 +3841,7 @@ HTMLOutputElement.prototype.defaultValue;
 HTMLOutputElement.prototype.value;
 
 /**
- * @const
- * @type {NodeList<!HTMLLabelElement>}
+ * @const {NodeList<!HTMLLabelElement>}
  */
 HTMLOutputElement.prototype.labels;
 
@@ -3791,8 +3849,7 @@ HTMLOutputElement.prototype.labels;
 HTMLOutputElement.prototype.validationMessage;
 
 /**
- * @const
- * @type {ValidityState}
+ * @const {ValidityState}
  */
 HTMLOutputElement.prototype.validity;
 

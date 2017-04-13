@@ -162,6 +162,13 @@ public class CommandLineRunner extends
         + " and exits")
     private boolean printPassGraph = false;
 
+    @Option(
+      name = "--emit_use_strict",
+      handler = BooleanOptionHandler.class,
+      usage = "Start output with \"'use strict';\"."
+    )
+    private boolean emitUseStrict = true;
+
     // Turn on (very slow) extra sanity checks for use when modifying the
     // compiler.
     @Option(
@@ -319,7 +326,7 @@ public class CommandLineRunner extends
         hidden = true,
         usage = "Whether to apply input source maps to the output source map, "
         + "i.e. have the result map back to original inputs")
-    private boolean applyInputSourceMaps = false;
+    private boolean applyInputSourceMaps = true;
 
     // Used to define the flag, values are stored by the handler.
     @SuppressWarnings("unused")
@@ -588,7 +595,8 @@ public class CommandLineRunner extends
     @Option(name = "--tracer_mode",
         hidden = true,
         usage = "Shows the duration of each compiler pass and the impact to "
-        + "the compiled output size. Options: ALL, RAW_SIZE, TIMING_ONLY, OFF")
+        + "the compiled output size. "
+        + "Options: ALL, AST_SIZE, RAW_SIZE, TIMING_ONLY, OFF")
     private CompilerOptions.TracerMode tracerMode =
         CompilerOptions.TracerMode.OFF;
 
@@ -1173,7 +1181,7 @@ public class CommandLineRunner extends
     // Args4j has a different format that the old command-line parser.
     // So we use some voodoo to get the args into the format that args4j
     // expects.
-    Pattern argPattern = Pattern.compile("(--?[a-zA-Z_]+)=(.*)");
+    Pattern argPattern = Pattern.compile("(--?[a-zA-Z_]+)=(.*)", Pattern.DOTALL);
     Pattern quotesPattern = Pattern.compile("^['\"](.*)['\"]$");
     List<String> processedArgs = new ArrayList<>();
 
@@ -1592,7 +1600,7 @@ public class CommandLineRunner extends
 
     options.setPreventLibraryInjection(!flags.injectLibraries);
 
-    options.rewritePolyfills = flags.rewritePolyfills;
+    options.rewritePolyfills = flags.rewritePolyfills && options.getLanguageIn().isEs6OrHigher();
 
     if (!flags.translationsFile.isEmpty()) {
       try {
@@ -1642,6 +1650,7 @@ public class CommandLineRunner extends
     }
 
     options.setPrintSourceAfterEachPass(flags.printSourceAfterEachPass);
+    options.setEmitUseStrict(flags.emitUseStrict);
 
     return options;
   }

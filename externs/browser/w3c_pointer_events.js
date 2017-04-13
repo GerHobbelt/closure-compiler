@@ -103,3 +103,13 @@ PointerEvent.prototype.pointerType;
 
 /** @type {boolean} */
 PointerEvent.prototype.isPrimary;
+
+// Microsoft pointerType values
+/** @type {string} */
+PointerEvent.prototype.MSPOINTER_TYPE_TOUCH;
+
+/** @type {string} */
+PointerEvent.prototype.MSPOINTER_TYPE_PEN;
+
+/** @type {string} */
+PointerEvent.prototype.MSPOINTER_TYPE_MOUSE;

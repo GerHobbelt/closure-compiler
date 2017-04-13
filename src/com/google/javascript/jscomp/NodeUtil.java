@@ -334,7 +334,7 @@ public final class NodeUtil {
         return null;
 
       case NEG:
-        if (n.getChildCount() == 1 && n.getFirstChild().isName()
+        if (n.hasOneChild() && n.getFirstChild().isName()
             && n.getFirstChild().getString().equals("Infinity")) {
           return Double.NEGATIVE_INFINITY;
         }
@@ -696,7 +696,7 @@ public final class NodeUtil {
    * or a concatenation thereof.
    */
   static boolean isStringLiteralValue(Node node) {
-    if (node.getToken() == Token.STRING) {
+    if (node.isString()) {
       return true;
     } else if (node.getToken() == Token.ADD) {
       Preconditions.checkState(node.getChildCount() == 2);
@@ -922,8 +922,8 @@ public final class NodeUtil {
 
   static boolean isTypedefDecl(Node n) {
     if (n.isVar()
-        || n.isName() && n.getParent().isVar()
-        || n.isGetProp() && n.getParent().isExprResult()) {
+        || (n.isName() && n.getParent().isVar())
+        || (n.isGetProp() && n.getParent().isExprResult())) {
       JSDocInfo jsdoc = getBestJSDocInfo(n);
       return jsdoc != null && jsdoc.hasTypedefType();
     }
@@ -932,9 +932,8 @@ public final class NodeUtil {
 
   static boolean isEnumDecl(Node n) {
     if (n.isVar()
-        || n.isName() && n.getParent().isVar()
-        || (n.isGetProp() && n.getParent().isAssign()
-            && n.getGrandparent().isExprResult())
+        || (n.isName() && n.getParent().isVar())
+        || (n.isGetProp() && n.getParent().isAssign() && n.getGrandparent().isExprResult())
         || (n.isAssign() && n.getParent().isExprResult())) {
       JSDocInfo jsdoc = getBestJSDocInfo(n);
       return jsdoc != null && jsdoc.hasEnumParameterType();
@@ -1372,7 +1371,7 @@ public final class NodeUtil {
       return true;
     }
 
-    if (compiler.getOptions().useTypesForOptimization) {
+    if (compiler.getOptions().useTypesForLocalOptimization) {
       TypeI type = n.getTypeI();
       if (type != null) {
         TypeI nativeStringType = compiler.getTypeIRegistry()
@@ -1582,6 +1581,7 @@ public final class NodeUtil {
       case FALSE:
       case FUNCTION:
       case CLASS:
+      case INTERFACE:
       case NAME:
       case NULL:
       case NUMBER:
@@ -2125,7 +2125,7 @@ public final class NodeUtil {
   /**
    * Gets the closest ancestor to the given node of the provided type.
    */
-  static Node getEnclosingType(Node n, final Token type) {
+  public static Node getEnclosingType(Node n, final Token type) {
     return getEnclosingNode(
         n,
         new Predicate<Node>() {
@@ -2291,7 +2291,7 @@ public final class NodeUtil {
    * @return True if {@code n} is VAR, LET or CONST
    */
   public static boolean isNameDeclaration(Node n) {
-    return n.isVar() || n.isLet() || n.isConst();
+    return n != null && (n.isVar() || n.isLet() || n.isConst());
   }
 
   /**
@@ -2345,7 +2345,7 @@ public final class NodeUtil {
    * @return True if {@code n} is EXPR_RESULT and {@code n}'s
    *     first child is CALL
    */
-  static boolean isExprCall(Node n) {
+  public static boolean isExprCall(Node n) {
     return n.isExprResult()
         && n.getFirstChild().isCall();
   }
@@ -2679,6 +2679,40 @@ public final class NodeUtil {
   }
 
   /**
+   * Replace the child of a var/let/const declaration (usually a name) with a new statement.
+   * Preserves the order of side effects for all the other declaration children.
+   *
+   * @param declChild The name node to be replaced.
+   * @param newStatement The statement to replace with.
+   */
+  public static void replaceDeclarationChild(Node declChild, Node newStatement) {
+    Preconditions.checkArgument(isNameDeclaration(declChild.getParent()));
+    Preconditions.checkArgument(null == newStatement.getParent());
+
+    Node decl = declChild.getParent();
+    Node declParent = decl.getParent();
+    if (decl.hasOneChild()) {
+      declParent.replaceChild(decl, newStatement);
+    } else if (declChild.getNext() == null) {
+      decl.removeChild(declChild);
+      declParent.addChildAfter(newStatement, decl);
+    } else if (declChild.getPrevious() == null) {
+      decl.removeChild(declChild);
+      declParent.addChildBefore(newStatement, decl);
+    } else {
+      Preconditions.checkState(decl.hasMoreThanOneChild());
+      Node newDecl = new Node(decl.getToken()).srcref(decl);
+      for (Node after = declChild.getNext(), next; after != null; after = next) {
+        next = after.getNext();
+        newDecl.addChildToBack(after.detach());
+      }
+      decl.removeChild(declChild);
+      declParent.addChildAfter(newStatement, decl);
+      declParent.addChildAfter(newDecl, newStatement);
+    }
+  }
+
+  /**
    * Add a finally block if one does not exist.
    */
   static void maybeAddFinally(Node tryNode) {
@@ -2784,7 +2818,7 @@ public final class NodeUtil {
   }
 
   /**
-   * Is a FUNCTION node an function expression? An function expression is one
+   * Is a FUNCTION node a function expression? A function expression is one
    * that has either no name or a name that is not added to the current scope.
    *
    * <p>Some examples of function expressions:
@@ -2965,8 +2999,7 @@ public final class NodeUtil {
 
   public static boolean isImportedName(Node n) {
     Node parent = n.getParent();
-    return parent.isImport()
-        || parent.isImportSpec() && parent.getLastChild() == n;
+    return parent.isImport() || (parent.isImportSpec() && parent.getLastChild() == n);
   }
 
   public static boolean isLhsByDestructuring(Node n) {
@@ -4542,7 +4575,8 @@ public final class NodeUtil {
     if (main.isFunction()) {
       map.put(main, clone);
     }
-    Node mchild = main.getFirstChild(), cchild = clone.getFirstChild();
+    Node mchild = main.getFirstChild();
+    Node cchild = clone.getFirstChild();
     while (mchild != null) {
       mtocHelper(map, mchild, cchild);
       mchild = mchild.getNext();
@@ -4601,11 +4635,15 @@ public final class NodeUtil {
         },
         new Predicate<Node>() {
           @Override
-            public boolean apply(Node n) {
+          public boolean apply(Node n) {
             return wrappedSize[0] < limit;
           }
         });
     return wrappedSize[0];
+  }
+
+  static int countAstSize(Node n) {
+    return countAstSizeUpToLimit(n, Integer.MAX_VALUE);
   }
 
   /**

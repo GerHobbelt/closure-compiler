@@ -232,10 +232,12 @@ public final class JsDocInfoParser {
   }
 
   private static JsDocInfoParser getParser(String toParse) {
-    Config config = new Config(
-        new HashSet<String>(),
-        new HashSet<String>(),
-        LanguageMode.ECMASCRIPT3);
+    Config config =
+        new Config(
+            new HashSet<String>(),
+            new HashSet<String>(),
+            LanguageMode.ECMASCRIPT3,
+            Config.StrictMode.SLOPPY);
     JsDocInfoParser parser = new JsDocInfoParser(
         new JsDocTokenStream(toParse),
         toParse,
@@ -547,7 +549,7 @@ public final class JsDocInfoParser {
           type = null;
           if (token != JsDocToken.EOL && token != JsDocToken.EOC) {
             Node typeNode = parseAndRecordTypeNode(token);
-            if (typeNode != null && typeNode.getToken() == Token.STRING) {
+            if (typeNode != null && typeNode.isString()) {
               String typeName = typeNode.getString();
               if (!typeName.equals("number") && !typeName.equals("string")
                   && !typeName.equals("boolean")) {
@@ -2374,7 +2376,7 @@ public final class JsDocInfoParser {
       }
       next();
     }
-    if (union.getChildCount() == 1) {
+    if (union.hasOneChild()) {
       Node firstChild = union.getFirstChild();
       union.removeChild(firstChild);
       return firstChild;

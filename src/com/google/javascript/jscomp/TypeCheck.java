@@ -52,10 +52,12 @@ import com.google.javascript.rhino.jstype.TemplateTypeMapReplacer;
 import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.TernaryValue;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -183,17 +185,17 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "JSC_IMPLEMENTS_NON_INTERFACE",
           "can only implement interfaces");
 
+  // disabled by default.
   static final DiagnosticType HIDDEN_SUPERCLASS_PROPERTY =
-      DiagnosticType.warning(
+      DiagnosticType.disabled(
           "JSC_HIDDEN_SUPERCLASS_PROPERTY",
-          "property {0} already defined on superclass {1}; " +
-          "use @override to override it");
+          "property {0} already defined on superclass {1}; " + "use @override to override it");
 
+  // disabled by default.
   static final DiagnosticType HIDDEN_INTERFACE_PROPERTY =
-      DiagnosticType.warning(
+      DiagnosticType.disabled(
           "JSC_HIDDEN_INTERFACE_PROPERTY",
-          "property {0} already defined on interface {1}; " +
-          "use @override to override it");
+          "property {0} already defined on interface {1}; " + "use @override to override it");
 
   static final DiagnosticType HIDDEN_SUPERCLASS_PROPERTY_MISMATCH =
       DiagnosticType.warning("JSC_HIDDEN_SUPERCLASS_PROPERTY_MISMATCH",
@@ -292,8 +294,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           CONFLICTING_EXTENDED_TYPE,
           CONFLICTING_IMPLEMENTED_TYPE,
           BAD_IMPLEMENTED_TYPE,
-          HIDDEN_SUPERCLASS_PROPERTY,
-          HIDDEN_INTERFACE_PROPERTY,
           HIDDEN_SUPERCLASS_PROPERTY_MISMATCH,
           UNKNOWN_OVERRIDE,
           INTERFACE_METHOD_OVERRIDE,
@@ -307,6 +307,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           ILLEGAL_OBJLIT_KEY,
           NON_STRINGIFIABLE_OBJECT_KEY,
           ABSTRACT_METHOD_IN_CONCRETE_CLASS,
+          ABSTRACT_METHOD_NOT_CALLABLE,
           ES5_CLASS_EXTENDING_ES6_CLASS,
           RhinoErrorReporter.TYPE_PARSE_ERROR,
           TypedScopeCreator.UNKNOWN_LENDS,
@@ -325,7 +326,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   private MemoizedScopeCreator scopeCreator;
 
-  private final CheckLevel reportMissingOverride;
   private final boolean reportUnknownTypes;
   private SubtypingMode subtypingMode = SubtypingMode.NORMAL;
 
@@ -352,19 +352,18 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
   }
 
-  public TypeCheck(AbstractCompiler compiler,
+  public TypeCheck(
+      AbstractCompiler compiler,
       ReverseAbstractInterpreter reverseInterpreter,
       JSTypeRegistry typeRegistry,
       TypedScope topScope,
-      MemoizedScopeCreator scopeCreator,
-      CheckLevel reportMissingOverride) {
+      MemoizedScopeCreator scopeCreator) {
     this.compiler = compiler;
     this.validator = compiler.getTypeValidator();
     this.reverseInterpreter = reverseInterpreter;
     this.typeRegistry = typeRegistry;
     this.topScope = topScope;
     this.scopeCreator = scopeCreator;
-    this.reportMissingOverride = reportMissingOverride;
     this.reportUnknownTypes = ((Compiler) compiler).getOptions().enables(
         DiagnosticGroups.REPORT_UNKNOWN_TYPES);
     this.inferJSDocInfo = new InferJSDocInfo(compiler);
@@ -372,17 +371,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   public TypeCheck(AbstractCompiler compiler,
       ReverseAbstractInterpreter reverseInterpreter,
-      JSTypeRegistry typeRegistry,
-      CheckLevel reportMissingOverride) {
-    this(compiler, reverseInterpreter, typeRegistry, null, null,
-        reportMissingOverride);
-  }
-
-  TypeCheck(AbstractCompiler compiler,
-      ReverseAbstractInterpreter reverseInterpreter,
       JSTypeRegistry typeRegistry) {
-    this(compiler, reverseInterpreter, typeRegistry, null, null,
-         CheckLevel.WARNING);
+    this(compiler, reverseInterpreter, typeRegistry, null, null);
   }
 
   /** Turn on the missing property check. Returns this for easy chaining. */
@@ -505,8 +495,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     JSType childType;
-    JSType leftType, rightType;
-    Node left, right;
+    JSType leftType;
+    JSType rightType;
+    Node left;
+    Node right;
     // To be explicitly set to false if the node is not typeable.
     boolean typeable = true;
 
@@ -539,6 +531,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
       case THIS:
         ensureTyped(t, n, t.getTypedScope().getTypeOfThis());
+        break;
+
+      case SUPER:
+        ensureTyped(t, n);
         break;
 
       case NULL:
@@ -1238,15 +1234,15 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
             interfaceType.getPrototype().hasProperty(propertyName);
         foundInterfaceProperty = foundInterfaceProperty ||
             interfaceHasProperty;
-        if (reportMissingOverride.isOn()
-            && !declaredOverride
-            && interfaceHasProperty
-            && !"__proto__".equals(propertyName)) {
+        if (!declaredOverride && interfaceHasProperty && !"__proto__".equals(propertyName)) {
           // @override not present, but the property does override an interface
           // property
-          compiler.report(t.makeError(n, reportMissingOverride,
-              HIDDEN_INTERFACE_PROPERTY, propertyName,
-              interfaceType.getTopMostDefiningType(propertyName).toString()));
+          compiler.report(
+              t.makeError(
+                  n,
+                  HIDDEN_INTERFACE_PROPERTY,
+                  propertyName,
+                  interfaceType.getTopMostDefiningType(propertyName).toString()));
         }
       }
     }
@@ -1264,16 +1260,14 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         ctorType.isConstructor() &&
         (ctorType.getPrototype().hasOwnProperty(propertyName) ||
          ctorType.getInstanceType().hasOwnProperty(propertyName));
-    if (reportMissingOverride.isOn()
-        && !declaredOverride
+    if (!declaredOverride
         && superClassHasDeclaredProperty
         && declaredLocally
         && !"__proto__".equals(propertyName)) {
       // @override not present, but the property does override a superclass
       // property
-      compiler.report(t.makeError(n, reportMissingOverride,
-          HIDDEN_SUPERCLASS_PROPERTY, propertyName,
-          topInstanceType.toString()));
+      compiler.report(
+          t.makeError(n, HIDDEN_SUPERCLASS_PROPERTY, propertyName, topInstanceType.toString()));
     }
 
     // @override is present and we have to check that it is ok
@@ -1630,10 +1624,11 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
 
     FunctionType fnType = type.toMaybeFunctionType();
-    if (fnType != null && fnType.isAbstract()) {
-      report(t, n, INSTANTIATE_ABSTRACT_CLASS);
-    }
     if (fnType != null && fnType.hasInstanceType()) {
+      FunctionType ctorType = fnType.getInstanceType().getConstructor();
+      if (ctorType != null && ctorType.isAbstract()) {
+        report(t, n, INSTANTIATE_ABSTRACT_CLASS);
+      }
       visitParameterList(t, n, fnType);
       ensureTyped(t, n, fnType.getInstanceType());
     } else {
@@ -1678,9 +1673,11 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         JSType oPropType = oType.getPropertyType(name);
         if (thisPropType.isSubtype(oPropType, this.subtypingMode)
             || oPropType.isSubtype(thisPropType, this.subtypingMode)
-            || thisPropType.isFunctionType() && oPropType.isFunctionType()
-               && thisPropType.toMaybeFunctionType().hasEqualCallType(
-                  oPropType.toMaybeFunctionType())) {
+            || (thisPropType.isFunctionType()
+                && oPropType.isFunctionType()
+                && thisPropType
+                    .toMaybeFunctionType()
+                    .hasEqualCallType(oPropType.toMaybeFunctionType()))) {
           continue;
         }
         compiler.report(
@@ -1707,9 +1704,9 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     String functionPrivateName = n.getFirstChild().getString();
     if (functionType.isConstructor()) {
       FunctionType baseConstructor = functionType.getSuperClassConstructor();
-      if (baseConstructor != getNativeType(OBJECT_FUNCTION_TYPE) &&
-          baseConstructor != null &&
-          baseConstructor.isInterface()) {
+      if (!Objects.equals(baseConstructor, getNativeType(OBJECT_FUNCTION_TYPE))
+          && baseConstructor != null
+          && baseConstructor.isInterface()) {
         compiler.report(
             t.makeError(n, CONFLICTING_EXTENDED_TYPE,
                         "constructor", functionPrivateName));
@@ -1889,9 +1886,8 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     int ordinal = 0;
     Node parameter = null;
     Node argument = null;
-    while (arguments.hasNext() &&
-           (parameters.hasNext() ||
-            parameter != null && parameter.isVarArgs())) {
+    while (arguments.hasNext()
+        && (parameters.hasNext() || (parameter != null && parameter.isVarArgs()))) {
       // If there are no parameters left in the list, then the while loop
       // above implies that this must be a var_args function.
       if (parameters.hasNext()) {
@@ -2154,7 +2150,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   private void checkTypeContainsObjectWithBadKey(NodeTraversal t, Node n, JSTypeExpression type) {
     if (type != null && type.getRoot().getJSType() != null) {
       JSType realType = type.getRoot().getJSType();
-      JSType objectWithBadKey = findObjectWithNonStringifiableKey(realType);
+      JSType objectWithBadKey = findObjectWithNonStringifiableKey(realType, new HashSet<JSType>());
       if (objectWithBadKey != null){
         compiler.report(t.makeError(n, NON_STRINGIFIABLE_OBJECT_KEY, objectWithBadKey.toString()));
       }
@@ -2249,13 +2245,20 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
    *
    * @return non-stringifiable type which is used as key or null if all there are no such types.
    */
-  private JSType findObjectWithNonStringifiableKey(JSType type) {
+  private JSType findObjectWithNonStringifiableKey(JSType type, Set<JSType> alreadyCheckedTypes) {
+    if (alreadyCheckedTypes.contains(type)) {
+      // This can happen in recursive types. Current type already being checked earlier in
+      // stacktrace so now we just skip it.
+      return null;
+    } else {
+      alreadyCheckedTypes.add(type);
+    }
     if (isObjectTypeWithNonStringifiableKey(type)) {
       return type;
     }
     if (type.isUnionType()) {
       for (JSType alternateType : type.toMaybeUnionType().getAlternates()) {
-        JSType result = findObjectWithNonStringifiableKey(alternateType);
+        JSType result = findObjectWithNonStringifiableKey(alternateType, alreadyCheckedTypes);
         if (result != null) {
           return result;
         }
@@ -2263,7 +2266,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
     if (type.isTemplatizedType()) {
       for (JSType templateType : type.toMaybeTemplatizedType().getTemplateTypes()) {
-        JSType result = findObjectWithNonStringifiableKey(templateType);
+        JSType result = findObjectWithNonStringifiableKey(templateType, alreadyCheckedTypes);
         if (result != null) {
           return result;
         }
@@ -2272,12 +2275,13 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (type.isOrdinaryFunction()) {
       FunctionType function = type.toMaybeFunctionType();
       for (Node parameter : function.getParameters()) {
-        JSType result = findObjectWithNonStringifiableKey(parameter.getJSType());
+        JSType result =
+            findObjectWithNonStringifiableKey(parameter.getJSType(), alreadyCheckedTypes);
         if (result != null) {
           return result;
         }
       }
-      return findObjectWithNonStringifiableKey(function.getReturnType());
+      return findObjectWithNonStringifiableKey(function.getReturnType(), alreadyCheckedTypes);
     }
     return null;
   }
