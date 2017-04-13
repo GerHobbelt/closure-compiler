@@ -15,6 +15,8 @@
  */
 package com.google.javascript.refactoring;
 
+import static com.google.javascript.refactoring.SuggestedFix.getShortNameForRequire;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -84,8 +86,9 @@ public final class ErrorToFixMapper {
       case "JSC_PROVIDES_NOT_SORTED":
         return getFixForUnsortedRequiresOrProvides("goog.provide", error, compiler);
       case "JSC_DEBUGGER_STATEMENT_PRESENT":
-      case "JSC_USELESS_EMPTY_STATEMENT":
         return removeNode(error, compiler);
+      case "JSC_USELESS_EMPTY_STATEMENT":
+        return removeEmptyStatement(error, compiler);
       case "JSC_INEXISTENT_PROPERTY":
         return getFixForInexistentProperty(error, compiler);
       case "JSC_MISSING_CALL_TO_SUPER":
@@ -93,7 +96,7 @@ public final class ErrorToFixMapper {
       case "JSC_INVALID_SUPER_CALL_WITH_SUGGESTION":
         return getFixForInvalidSuper(error, compiler);
       case "JSC_MISSING_REQUIRE_WARNING":
-      case "JSC_MISSING_REQUIRE_CALL_WARNING":
+      case "JSC_MISSING_REQUIRE_STRICT_WARNING":
         return getFixForMissingRequire(error, compiler);
       case "JSC_DUPLICATE_REQUIRE":
         return getFixForDuplicateRequire(error, compiler);
@@ -237,6 +240,13 @@ public final class ErrorToFixMapper {
         .build();
   }
 
+  private static SuggestedFix removeEmptyStatement(JSError error, AbstractCompiler compiler) {
+    return new SuggestedFix.Builder()
+        .attachMatchedNodeInfo(error.node, compiler)
+        .deleteWithoutRemovingWhitespace(error.node)
+        .build();
+  }
+
   private static SuggestedFix getFixForMissingSemicolon(JSError error, AbstractCompiler compiler) {
     return new SuggestedFix.Builder()
         .attachMatchedNodeInfo(error.node, compiler)
@@ -297,7 +307,7 @@ public final class ErrorToFixMapper {
       }
 
       if (nodeToReplace != null) {
-        String shortName = namespaceToRequire.substring(namespaceToRequire.lastIndexOf('.') + 1);
+        String shortName = getShortNameForRequire(namespaceToRequire);
         fix.replace(nodeToReplace, IR.name(shortName), compiler);
       }
     }

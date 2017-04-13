@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import com.google.common.base.Preconditions;
 import com.google.javascript.jscomp.SyntacticScopeCreator.DefaultRedeclarationHandler;
 import com.google.javascript.jscomp.SyntacticScopeCreator.RedeclarationHandler;
@@ -89,8 +91,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
       }
 
       // Args: Declare function variables
-      Preconditions.checkState(args.isParamList());
-      declareLHS(scope, args);
+      checkState(args.isParamList());
+      declareLHS(args);
       // Since we create a separate scope for body, stop scanning here
 
     } else if (n.isClass()) {
@@ -106,23 +108,26 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
           declareVar(classNameNode);
         }
       }
-    } else if (n.isBlock() || n.isFor() || n.isForOf() || n.isSwitch() || n.isModuleBody()) {
+    } else if (n.isBlock()
+        || NodeUtil.isAnyFor(n)
+        || n.isSwitch()
+        || n.isModuleBody()) {
       if (scope.getParent() != null) {
         inputId = NodeUtil.getInputId(n);
       }
       boolean scanInnerBlocks =
-          n.isSyntheticBlock() || NodeUtil.isFunctionBlock(n) || n.isModuleBody();
+          n.isRoot() || NodeUtil.isFunctionBlock(n) || n.isModuleBody();
       scanVars(n, scanInnerBlocks, true);
     } else {
       // n is the global SCRIPT node
-      Preconditions.checkState(scope.getParent() == null);
+      checkState(scope.getParent() == null);
       scanVars(n, true, true);
     }
   }
 
-  private void declareLHS(Scope declarationScope, Node n) {
+  private void declareLHS(Node n) {
     for (Node lhs : NodeUtil.getLhsNodesOfDeclaration(n)) {
-      declareVar(declarationScope, lhs);
+      declareVar(lhs);
     }
   }
 
@@ -136,7 +141,9 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
   private void scanVars(Node n, boolean scanInnerBlockScopes, boolean firstScan) {
     switch (n.getToken()) {
       case VAR:
-        declareLHS(scope.getClosestHoistScope(), n);
+        if (scope.getClosestHoistScope() == scope) {
+          declareLHS(n);
+        }
         return;
 
       case LET:
@@ -145,7 +152,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         if (!isNodeAtCurrentLexicalScope(n)) {
           return;
         }
-        declareLHS(scope, n);
+        declareLHS(n);
         return;
 
       case FUNCTION:
@@ -174,17 +181,17 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         return;  // should not examine class's children
 
       case CATCH:
-        Preconditions.checkState(n.getChildCount() == 2, n);
+        checkState(n.hasTwoChildren(), n);
         // the first child is the catch var and the second child
         // is the code block
         if (isNodeAtCurrentLexicalScope(n)) {
-          declareLHS(scope, n);
+          declareLHS(n);
         }
         // A new scope is not created for this BLOCK because there is a scope
         // created for the BLOCK above the CATCH
         final Node block = n.getSecondChild();
         scanVars(block, scanInnerBlockScopes, false);
-        return;  // only one child to scan
+        return; // only one child to scan
 
       case SCRIPT:
         inputId = n.getInputId();
@@ -210,18 +217,14 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     }
   }
 
-  private void declareVar(Node n) {
-    declareVar(scope, n);
-  }
-
   /**
    * Declares a variable.
    *
    * @param s The scope to declare the variable in.
    * @param n The node corresponding to the variable name.
    */
-  private void declareVar(Scope s, Node n) {
-    Preconditions.checkState(n.isName() || n.isStringKey(),
+  private void declareVar(Node n) {
+    checkState(n.isName() || n.isStringKey(),
         "Invalid node for declareVar: %s", n);
 
     String name = n.getString();
@@ -230,24 +233,26 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     // TODO(johnlenz): hash lookups are not free and
     // building scopes are already expensive
     // restructure the scope building to avoid this check.
-    Var v = s.getOwnSlot(name);
+    Var v = scope.getOwnSlot(name);
     if (v != null && v.getNode() == n) {
       return;
     }
 
     CompilerInput input = compiler.getInput(inputId);
-    if (v != null || isShadowingDisallowed(s, name) || (s.isLocal() && name.equals(ARGUMENTS))) {
-      redeclarationHandler.onRedeclaration(s, name, n, input);
+    if (v != null
+        || isShadowingDisallowed(name)
+        || (scope.isLocal() && name.equals(ARGUMENTS))) {
+      redeclarationHandler.onRedeclaration(scope, name, n, input);
     } else {
-      s.declare(name, n, input);
+      scope.declare(name, n, input);
     }
   }
 
   // Function body declarations are not allowed to shadow
   // function parameters.
-  private static boolean isShadowingDisallowed(Scope s, String name) {
-    if (s.isFunctionBlockScope()) {
-      return s.getParent().getOwnSlot(name) != null;
+  private boolean isShadowingDisallowed(String name) {
+    if (scope.isFunctionBlockScope()) {
+      return scope.getParent().getOwnSlot(name) != null;
     }
     return false;
   }
@@ -262,28 +267,31 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
   private boolean isNodeAtCurrentLexicalScope(Node n) {
     Node parent = n.getParent();
     Node grandparent = parent.getParent();
-    Preconditions.checkState(parent.isBlock() || parent.isFor() || parent.isForOf()
-        || parent.isScript() || parent.isModuleBody() || parent.isLabel(), parent);
 
-    if (parent.isSyntheticBlock()
-        && grandparent != null && (grandparent.isCase() || grandparent.isDefaultCase())) {
-      Node switchNode = grandparent.getParent();
-      return scope.getRootNode() == switchNode;
-    }
-
-    if (parent == scope.getRootNode() || parent.isScript()
-        || (grandparent.isCatch()
-            && parent.getGrandparent() == scope.getRootNode())) {
-      return true;
-    }
-
-    while (parent.isLabel()) {
-      if (parent.getParent() == scope.getRootNode()) {
+    switch (parent.getToken()) {
+      case SCRIPT:
         return true;
-      }
-      parent = parent.getParent();
+      case BLOCK:
+        if (grandparent.isCase() || grandparent.isDefaultCase() || grandparent.isCatch()) {
+          return scope.getRootNode() == grandparent.getParent();
+        }
+        // Fall through
+      case FOR:
+      case FOR_IN:
+      case FOR_OF:
+      case MODULE_BODY:
+        return parent == scope.getRootNode();
+      case LABEL:
+        while (parent.isLabel()) {
+          if (parent.getParent() == scope.getRootNode()) {
+            return true;
+          }
+          parent = parent.getParent();
+        }
+        return false;
+      default:
+        throw new RuntimeException("Unsupported node parent: " + parent);
     }
-    return false;
   }
 
   @Override

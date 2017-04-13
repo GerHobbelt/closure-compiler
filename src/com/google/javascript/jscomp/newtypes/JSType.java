@@ -1208,7 +1208,7 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     ObjectType otherObj = Iterables.getOnlyElement(other.getObjs());
     ImmutableSet.Builder<ObjectType> objsBuilder = ImmutableSet.builder();
     for (ObjectType obj : getObjs()) {
-      if (!obj.isSubtypeOf(otherObj, SubtypeCache.create())) {
+      if (obj.isLoose() || !obj.isSubtypeOf(otherObj, SubtypeCache.create())) {
         objsBuilder.add(obj);
       }
     }
@@ -1280,6 +1280,11 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   public boolean isNonClassyObject() {
     NominalType nt = getNominalTypeIfSingletonObj();
     return nt != null && !nt.isClassy();
+  }
+
+  public boolean isIObject() {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    return nt != null && nt.isIObject();
   }
 
   public boolean isInterfaceDefinition() {

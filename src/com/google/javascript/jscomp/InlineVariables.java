@@ -80,8 +80,12 @@ class InlineVariables implements CompilerPass {
 
   @Override
   public void process(Node externs, Node root) {
-    ReferenceCollectingCallback callback = new ReferenceCollectingCallback(
-        compiler, new InliningBehavior(), getFilterForMode());
+    ReferenceCollectingCallback callback =
+        new ReferenceCollectingCallback(
+            compiler,
+            new InliningBehavior(),
+            SyntacticScopeCreator.makeUntyped(compiler),
+            getFilterForMode());
     callback.process(externs, root);
   }
 
@@ -638,7 +642,7 @@ class InlineVariables implements CompilerPass {
      */
     private boolean isValidDeclaration(Reference declaration) {
       return (declaration.getParent().isVar()
-          && !declaration.getGrandparent().isFor())
+              && !NodeUtil.isLoopStructure(declaration.getGrandparent()))
           || NodeUtil.isFunctionDeclaration(declaration.getParent());
     }
 

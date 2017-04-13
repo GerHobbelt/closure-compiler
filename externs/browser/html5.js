@@ -3317,7 +3317,7 @@ Document.prototype.msHidden;
  *     can do here as it allows the return value to be annotated properly
  *     at the call site.
  */
-Document.prototype.registerElement;
+Document.prototype.registerElement = function(type, options) {};
 
 /**
  * This method is deprecated and should be removed by the end of 2014.
@@ -3326,7 +3326,7 @@ Document.prototype.registerElement;
  * @param {string} type
  * @param {{extends: (string|undefined), prototype: (Object|undefined)}} options
  */
-Document.prototype.register;
+Document.prototype.register = function(type, options) {};
 
 /**
  * @type {!FontFaceSet}
@@ -4076,6 +4076,7 @@ Navigator.prototype.plugins;
  * @nosideeffects
  */
 Navigator.prototype.javaEnabled = function() {};
+
 
 /**
  * @constructor

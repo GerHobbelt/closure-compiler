@@ -672,9 +672,10 @@ class ExpressionDecomposer {
           return parent;
         // Any of these indicate an unsupported expression:
         case FOR:
-          if (!NodeUtil.isForIn(parent) && child == parent.getFirstChild()) {
+          if (child == parent.getFirstChild()) {
             return parent;
           }
+        case FOR_IN:
         case SCRIPT:
         case BLOCK:
         case LABEL:

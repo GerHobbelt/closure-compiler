@@ -153,6 +153,7 @@ public class JSDocInfo implements Serializable {
           .toString();
     }
 
+    @SuppressWarnings("MissingOverride")  // Adding @Override breaks the GWT compilation.
     protected LazilyInitializedInfo clone() {
       return clone(false);
     }
@@ -538,6 +539,7 @@ public class JSDocInfo implements Serializable {
   // Visible for testing.
   JSDocInfo() {}
 
+  @SuppressWarnings("MissingOverride")  // Adding @Override breaks the GWT compilation.
   public JSDocInfo clone() {
     return clone(false);
   }
@@ -1412,6 +1414,9 @@ public class JSDocInfo implements Serializable {
    */
   public String getParameterNameAt(int index) {
     if (info == null || info.parameters == null) {
+      return null;
+    }
+    if (index >= info.parameters.size()) {
       return null;
     }
     return Iterables.get(info.parameters.keySet(), index);

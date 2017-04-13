@@ -87,6 +87,15 @@ public class IR {
     return paramList;
   }
 
+  public static Node root(Node ... rootChildren) {
+    Node root = new Node(Token.ROOT);
+    for (Node child : rootChildren) {
+      Preconditions.checkState(child.getToken() == Token.ROOT || child.getToken() == Token.SCRIPT);
+      root.addChildToBack(child);
+    }
+    return root;
+  }
+
   public static Node block() {
     Node block = new Node(Token.BLOCK);
     return block;
@@ -213,7 +222,7 @@ public class IR {
   }
 
   public static Node exprResult(Node expr) {
-    Preconditions.checkState(mayBeExpression(expr));
+    Preconditions.checkState(mayBeExpression(expr), expr);
     return new Node(Token.EXPR_RESULT, expr);
   }
 
@@ -246,7 +255,7 @@ public class IR {
     Preconditions.checkState(target.isVar() || mayBeExpression(target));
     Preconditions.checkState(mayBeExpression(cond));
     Preconditions.checkState(body.isBlock());
-    return new Node(Token.FOR, target, cond, body);
+    return new Node(Token.FOR_IN, target, cond, body);
   }
 
   public static Node forNode(Node init, Node cond, Node incr, Node body) {
@@ -270,13 +279,13 @@ public class IR {
   public static Node caseNode(Node expr, Node body) {
     Preconditions.checkState(mayBeExpression(expr));
     Preconditions.checkState(body.isBlock());
-    body.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
+    body.setIsAddedBlock(true);
     return new Node(Token.CASE, expr, body);
   }
 
   public static Node defaultCase(Node body) {
     Preconditions.checkState(body.isBlock());
-    body.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
+    body.setIsAddedBlock(true);
     return new Node(Token.DEFAULT_CASE, body);
   }
 

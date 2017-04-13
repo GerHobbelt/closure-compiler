@@ -705,11 +705,11 @@ final class NewTypeInference implements CompilerPass {
       case DO:
       case WHILE:
       case FOR:
+      case FOR_IN:
         // Do the loop body first, then the loop follow.
         // For DO loops, we do BODY-CONDT-CONDF-FOLLOW
         // Since CONDT is currently unused, this could be optimized.
-        List<DiGraphEdge<Node, ControlFlowGraph.Branch>> outEdges =
-            dn.getOutEdges();
+        List<DiGraphEdge<Node, ControlFlowGraph.Branch>> outEdges = dn.getOutEdges();
         seen.add(dn);
         workset.add(dn);
         for (DiGraphEdge<Node, ControlFlowGraph.Branch> outEdge : outEdges) {
@@ -898,6 +898,7 @@ final class NewTypeInference implements CompilerPass {
           break;
         }
         case BLOCK:
+        case ROOT:
         case BREAK:
         case CATCH:
         case CONTINUE:
@@ -911,10 +912,10 @@ final class NewTypeInference implements CompilerPass {
           break;
         case DO:
         case FOR:
+        case FOR_IN:
         case IF:
         case WHILE:
-          Node expr = NodeUtil.isForIn(n) ?
-              n.getFirstChild() : NodeUtil.getConditionExpression(n);
+          Node expr = n.isForIn() ? n.getFirstChild() : NodeUtil.getConditionExpression(n);
           inEnv = analyzeExprBwd(expr, outEnv).env;
           break;
         case THROW:
@@ -957,6 +958,7 @@ final class NewTypeInference implements CompilerPass {
       boolean conditional = false;
       switch (n.getToken()) {
         case BLOCK:
+        case ROOT:
         case BREAK:
         case CONTINUE:
         case DEFAULT_CASE:
@@ -1007,24 +1009,22 @@ final class NewTypeInference implements CompilerPass {
         case DO:
         case IF:
         case FOR:
+        case FOR_IN:
         case WHILE:
-          if (NodeUtil.isForIn(n)) {
+          if (n.isForIn()) {
             Node obj = n.getSecondChild();
             EnvTypePair pair = analyzeExprFwd(obj, inEnv, pickReqObjType(n));
             pair = mayWarnAboutNullableReferenceAndTighten(n, pair.type, null, inEnv);
             JSType objType = pair.type;
             if (!objType.isSubtypeOf(TOP_OBJECT)) {
-              warnings.add(JSError.make(
-                  obj, FORIN_EXPECTS_OBJECT, objType.toString()));
+              warnings.add(JSError.make(obj, FORIN_EXPECTS_OBJECT, objType.toString()));
             } else if (objType.isStruct()) {
               warnings.add(JSError.make(obj, IN_USED_WITH_STRUCT));
             }
             Node lhs = n.getFirstChild();
             LValueResultFwd lval = analyzeLValueFwd(lhs, inEnv, STRING);
-            if (lval.declType != null &&
-                !commonTypes.isStringScalarOrObj(lval.declType)) {
-              warnings.add(JSError.make(lhs, FORIN_EXPECTS_STRING_KEY,
-                  lval.declType.toString()));
+            if (lval.declType != null && !commonTypes.isStringScalarOrObj(lval.declType)) {
+              warnings.add(JSError.make(lhs, FORIN_EXPECTS_STRING_KEY, lval.declType.toString()));
               outEnv = lval.env;
             } else {
               outEnv = updateLvalueTypeInEnv(lval.env, lhs, lval.ptr, STRING);
@@ -2978,7 +2978,8 @@ final class NewTypeInference implements CompilerPass {
     }
 
     if (recvType.isUnknown() || recvType.isTrueOrTruthy() || recvType.isLoose()
-        || allowPropertyOnSubtypes && recvType.mayContainUnknownObject()) {
+        || (allowPropertyOnSubtypes
+            && (recvType.mayContainUnknownObject() || recvType.isIObject()))) {
       if (symbolTable.isPropertyDefined(pname)) {
         return false;
       }
@@ -3200,7 +3201,7 @@ final class NewTypeInference implements CompilerPass {
         return t == null ? env : envPutType(env, THIS_ID, type);
       }
       case VAR: // Can happen iff its parent is a for/in.
-        Preconditions.checkState(NodeUtil.isForIn(lvalue.getParent()));
+        Preconditions.checkState(lvalue.getParent().isForIn());
         return envPutType(env, lvalue.getFirstChild().getString(), type);
       case GETPROP:
       case GETELEM: {
@@ -3686,6 +3687,9 @@ final class NewTypeInference implements CompilerPass {
     JSType recvType = pair.type;
     JSType indexType = recvType.getIndexType();
     if (indexType != null) {
+      if (indexType.isBottom()) {
+        indexType = UNKNOWN;
+      }
       pair = analyzeExprBwd(index, pair.env, indexType);
       pair.type = getIndexedTypeOrUnknown(recvType);
       return pair;
@@ -4062,14 +4066,15 @@ final class NewTypeInference implements CompilerPass {
         lvalResult = new LValueResultFwd(pair.env, pair.type, null, null);
         break;
       }
-      case VAR: { // Can happen iff its parent is a for/in.
-        Preconditions.checkState(NodeUtil.isForIn(expr.getParent()));
-        Node vdecl = expr.getFirstChild();
-        String name = vdecl.getString();
-        // For/in can never have rhs of its VAR
-        Preconditions.checkState(!vdecl.hasChildren());
-        return new LValueResultFwd(inEnv, STRING, null, new QualifiedName(name));
-      }
+      case VAR:
+        { // Can happen iff its parent is a for/in.
+          Preconditions.checkState(expr.getParent().isForIn());
+          Node vdecl = expr.getFirstChild();
+          String name = vdecl.getString();
+          // For/in can never have rhs of its VAR
+          Preconditions.checkState(!vdecl.hasChildren());
+          return new LValueResultFwd(inEnv, STRING, null, new QualifiedName(name));
+        }
       default: {
         // Expressions that aren't lvalues should be handled because they may
         // be, e.g., the left child of a getprop.
@@ -4306,7 +4311,8 @@ final class NewTypeInference implements CompilerPass {
         return this.commonTypes.getEmptyObjectLiteral();
       }
       case FOR:
-        Preconditions.checkState(NodeUtil.isForIn(expr));
+      case FOR_IN:
+        Preconditions.checkState(expr.isForIn());
         return TOP_OBJECT;
       case GETPROP:
       case GETELEM:

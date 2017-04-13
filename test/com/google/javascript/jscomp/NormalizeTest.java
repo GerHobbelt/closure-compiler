@@ -18,9 +18,9 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -29,9 +29,9 @@ import java.util.Set;
  * @author johnlenz@google.com (John Lenz)
  *
  */
-public final class NormalizeTest extends CompilerTestCase {
+public final class NormalizeTest extends Es6CompilerTestCase {
 
-  private static final String EXTERNS = "var window;";
+  private static final String EXTERNS = "var window; var Arguments;";
 
   public NormalizeTest() {
     super(EXTERNS);
@@ -62,16 +62,6 @@ public final class NormalizeTest extends CompilerTestCase {
     test("var a = foo(1), b = foo(2), c = foo(3)",
          "var a = foo(1); var b = foo(2); var c = foo(3)");
 
-    // Verify vars extracted from FOR nodes are split.
-    test("for(var a = 0, b = foo(1), c = 1; c < b; c++) foo(2)",
-         "var a = 0; var b = foo(1); var c = 1; for(; c < b; c++) foo(2)");
-
-    // Verify split vars properly introduce blocks when needed.
-    test("for(;;) var b = foo(1), c = foo(2);",
-        "for(;;){var b = foo(1); var c = foo(2)}");
-    test("for(;;){var b = foo(1), c = foo(2);}",
-         "for(;;){var b = foo(1); var c = foo(2)}");
-
     test("try{var b = foo(1), c = foo(2);} finally { foo(3) }",
          "try{var b = foo(1); var c = foo(2)} finally { foo(3); }");
     test("try{var b = foo(1),c = foo(2);} finally {}",
@@ -86,10 +76,100 @@ public final class NormalizeTest extends CompilerTestCase {
          "do{var a = foo(1); var b} while(false);");
     test("a:var a,b,c;",
          "a:{ var a;var b; var c; }");
-    test("a:for(var a,b,c;;);",
-         "var a;var b; var c;a:for(;;);");
     test("if (true) a:var a,b;",
          "if (true)a:{ var a; var b; }");
+  }
+
+  public void testSplitVar_forLoop() {
+    // Verify vars extracted from FOR nodes are split.
+    test(
+        "for(var a = 0, b = foo(1), c = 1; c < b; c++) foo(2)",
+        "var a = 0; var b = foo(1); var c = 1; for(; c < b; c++) foo(2)");
+
+    // Verify split vars properly introduce blocks when needed.
+    test("for(;;) var b = foo(1), c = foo(2);", "for(;;){var b = foo(1); var c = foo(2)}");
+    test("for(;;){var b = foo(1), c = foo(2);}", "for(;;){var b = foo(1); var c = foo(2)}");
+
+    test("a:for(var a,b,c;;);", "var a;var b; var c;a:for(;;);");
+  }
+
+  public void testSplitLet() {
+    testSameEs6("let a");
+    testEs6("let a, b", "let a; let b");
+    testEs6("let a, b, c", "let a; let b; let c");
+    testSameEs6("let a = 0 ");
+    testEs6("let a = 0 , b = foo()", "let a = 0; let b = foo()");
+    testEs6("let a = 0, b = 1, c = 2", "let a = 0; let b = 1; let c = 2");
+    testEs6(
+        "let a = foo(1), b = foo(2), c = foo(3)", "let a = foo(1); let b = foo(2); let c = foo(3)");
+    testEs6("for (let a = 0, b = 1;;) {}", "for (let a$jscomp$1 = 0, b$jscomp$1 = 1;;) {}");
+  }
+
+  public void testLetOutsideAndInsideForLoop() {
+    testEs6(
+        "let a = 'outer'; for (let a = 'inner';;) { break; } alert(a);",
+        "let a = 'outer'; for (let a$jscomp$1 = 'inner';;) { break; } alert(a);");
+  }
+
+  public void testClassInForLoop() {
+    // TODO(tbreisacher): Can we avoid renaming this, like we do for testFunctionInForLoop below?
+    testEs6("for (class a {};;) { break; }", "for (class a$jscomp$2 {};;) { break; }");
+  }
+
+  public void testFunctionInForLoop() {
+    testSameEs6("for (function a() {};;) { break; }");
+  }
+
+  public void testLetInGlobalHoistScope() {
+    testEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  let x = 1; alert(x);",
+            "}"),
+        LINE_JOINER.join(
+            "if (true) {",
+            "  let x$jscomp$1 = 1; alert(x$jscomp$1);",
+            "}"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  let x = 1; alert(x);",
+            "} else {",
+            "  let x = 1; alert(x);",
+            "}"),
+        LINE_JOINER.join(
+            "if (true) {",
+            "  let x$jscomp$1 = 1; alert(x$jscomp$1);",
+            "} else {",
+            "  let x$jscomp$2 = 1; alert(x$jscomp$2);",
+            "}"));
+  }
+
+  public void testConstInGlobalHoistScope() {
+    testEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x = 1; alert(x);",
+            "}"),
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x$jscomp$1 = 1; alert(x$jscomp$1);",
+            "}"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x = 1; alert(x);",
+            "} else {",
+            "  const x = 1; alert(x);",
+            "}"),
+        LINE_JOINER.join(
+            "if (true) {",
+            "  const x$jscomp$1 = 1; alert(x$jscomp$1);",
+            "} else {",
+            "  const x$jscomp$2 = 1; alert(x$jscomp$2);",
+            "}"));
   }
 
   public void testAssignShorthand() {
@@ -167,7 +247,8 @@ public final class NormalizeTest extends CompilerTestCase {
     setExpectParseWarningsThisTest();
     // Verify vars are extracted from the FOR-IN node.
     test("for(var a = foo() in b) foo()",
-         "var a = foo(); for(a in b) foo()");
+        "var a = foo(); for(a in b) foo()",
+        LanguageMode.ECMASCRIPT5);
   }
 
   public void testWhile() {
@@ -176,28 +257,30 @@ public final class NormalizeTest extends CompilerTestCase {
          "for(; c < b;) foo()");
   }
 
-  public void testMoveFunctions1() throws Exception {
+  public void testMoveFunctions1() {
     test("function f() { if (x) return; foo(); function foo() {} }",
          "function f() {function foo() {} if (x) return; foo(); }");
-    test("function f() { " +
-            "function foo() {} " +
-            "if (x) return;" +
-            "foo(); " +
-            "function bar() {} " +
-         "}",
-         "function f() {" +
-           "function foo() {}" +
-           "function bar() {}" +
-           "if (x) return;" +
-           "foo();" +
-         "}");
+    test(
+        LINE_JOINER.join(
+            "function f() { ",
+            "function foo() {} ",
+            "if (x) return;",
+            "foo(); ",
+            "function bar() {} ",
+            "}"),
+        LINE_JOINER.join(
+            "function f() {",
+            "function foo() {}",
+            "function bar() {}",
+            "if (x) return;",
+            "foo();",
+            "}"));
   }
 
-  public void testMoveFunctions2() throws Exception {
+  public void testMoveFunctions2() {
     testSame("function f() { function foo() {} }");
     test("function f() { f(); a:function bar() {} }",
          "function f() { f(); a:{ var bar = function () {} }}");
-    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     test("function f() { f(); {function bar() {}}}",
          "function f() { f(); {var bar = function () {}}}");
     test("function f() { f(); if (true) {function bar() {}}}",
@@ -216,8 +299,7 @@ public final class NormalizeTest extends CompilerTestCase {
     test(inFunction(code), inFunction(expected));
   }
 
-  public void testNormalizeFunctionDeclarations() throws Exception {
-    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
+  public void testNormalizeFunctionDeclarations() {
     testSame("function f() {}");
     testSame("var f = function () {}");
     test("var f = function f() {}",
@@ -252,10 +334,6 @@ public final class NormalizeTest extends CompilerTestCase {
 
 
   public void testMakeLocalNamesUnique() {
-    if (!Normalize.MAKE_LOCAL_NAMES_UNIQUE) {
-      return;
-    }
-
     // Verify global names are untouched.
     testSame("var a;");
 
@@ -267,18 +345,15 @@ public final class NormalizeTest extends CompilerTestCase {
          "var a;function foo(a$jscomp$1){var b;a$jscomp$1}");
     test("var a;function foo(){var b;a}function boo(){var b;a}",
          "var a;function foo(){var b;a}function boo(){var b$jscomp$1;a}");
-    test("function foo(a){var b}" +
-         "function boo(a){var b}",
-         "function foo(a){var b}" +
-         "function boo(a$jscomp$1){var b$jscomp$1}");
+    test("function foo(a){var b} function boo(a){var b}",
+         "function foo(a){var b} function boo(a$jscomp$1){var b$jscomp$1}");
 
     // Verify function expressions are renamed.
     test("var a = function foo(){foo()};var b = function foo(){foo()};",
          "var a = function foo(){foo()};var b = function foo$jscomp$1(){foo$jscomp$1()};");
 
     // Verify catch exceptions names are made unique
-    test("try { } catch(e) {e;}",
-         "try { } catch(e) {e;}");
+    testSame("try { } catch(e) {e;}");
     test("try { } catch(e) {e;}; try { } catch(e) {e;}",
          "try { } catch(e) {e;}; try { } catch(e$jscomp$1) {e$jscomp$1;}");
     test("try { } catch(e) {e; try { } catch(e) {e;}};",
@@ -317,7 +392,6 @@ public final class NormalizeTest extends CompilerTestCase {
   }
 
   public void testRemoveDuplicateVarDeclarations3() {
-    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     test("var f = 1; function f(){}",
          "f = 1; function f(){}");
     test("var f; function f(){}",
@@ -334,58 +408,38 @@ public final class NormalizeTest extends CompilerTestCase {
 
     // TODO(johnlenz): Do we need to handle this differently for "third_party"
     // mode? Remove the previous function definitions?
-    test("function f(){} function f(){}",
-         "function f(){} function f(){}");
+    testSame("function f(){} function f(){}");
     test("if (a) { function f(){} } else { function f(){} }",
          "if (a) { var f = function (){} } else { f = function (){} }");
   }
 
+  // It's important that we not remove this var completely. See
+  // http://blickly.github.io/closure-compiler-issues/#290
+  public void testRemoveDuplicateVarDeclarations4() {
+    testSame("if (!Arguments) { /** @suppress {duplicate} */ var Arguments = {}; }");
+  }
+
+  // If there are multiple duplicates, it's okay to remove all but the first.
+  public void testRemoveDuplicateVarDeclarations5() {
+    test("var Arguments = {}; var Arguments = {};", "var Arguments = {}; Arguments = {};");
+  }
+
   public void testRenamingConstants() {
-    test("var ACONST = 4;var b = ACONST;",
-         "var ACONST = 4; var b = ACONST;");
+    testSame("var ACONST = 4; var b = ACONST;");
 
     test("var a, ACONST = 4;var b = ACONST;",
          "var a; var ACONST = 4; var b = ACONST;");
 
-    test("var ACONST; ACONST = 4; var b = ACONST;",
-         "var ACONST; ACONST = 4;" +
-         "var b = ACONST;");
+    testSame("var ACONST; ACONST = 4; var b = ACONST;");
 
-    test("var ACONST = new Foo(); var b = ACONST;",
-         "var ACONST = new Foo(); var b = ACONST;");
+    testSame("var ACONST = new Foo(); var b = ACONST;");
 
-    test("/** @const */ var aa; aa = 1;", "/** @const */ var aa; aa = 1");
+    testSame("/** @const */ var aa; aa = 1;");
   }
 
   public void testSkipRenamingExterns() {
     test("var EXTERN; var ext; ext.FOO;", "var b = EXTERN; var c = ext.FOO",
          "var b = EXTERN; var c = ext.FOO", null, null);
-  }
-
-  public void testIssue166a() {
-    testError("try { throw 1 } catch(e) { /** @suppress {duplicate} */ var e=2 }",
-         Normalize.CATCH_BLOCK_VAR_ERROR);
-  }
-
-  public void testIssue166b() {
-    testError("function a() {" +
-         "try { throw 1 } catch(e) { /** @suppress {duplicate} */ var e=2 }" +
-         "};",
-         Normalize.CATCH_BLOCK_VAR_ERROR);
-  }
-
-  public void testIssue166c() {
-    testError("var e = 0; try { throw 1 } catch(e) {" +
-        "/** @suppress {duplicate} */ var e=2 }",
-        Normalize.CATCH_BLOCK_VAR_ERROR);
-  }
-
-  public void testIssue166d() {
-    testError("function a() {" +
-        "var e = 0; try { throw 1 } catch(e) {" +
-            "/** @suppress {duplicate} */ var e=2 }" +
-        "};",
-        Normalize.CATCH_BLOCK_VAR_ERROR);
   }
 
   public void testIssue166e() {
@@ -394,12 +448,73 @@ public final class NormalizeTest extends CompilerTestCase {
   }
 
   public void testIssue166f() {
-    test("function a() {" +
-         "var e = 2; try { throw 1 } catch(e) {}" +
-         "}",
-         "function a() {" +
-         "var e = 2; try { throw 1 } catch(e$jscomp$1) {}" +
-         "}");
+    test(
+        LINE_JOINER.join(
+            "function a() {",
+            "  var e = 2;",
+            "  try { throw 1 } catch(e) {}",
+            "}"),
+        LINE_JOINER.join(
+             "function a() {",
+             "  var e = 2;",
+             "  try { throw 1 } catch(e$jscomp$1) {}",
+             "}"));
+  }
+
+  public void testLetsInSeparateBlocks() {
+    testEs6(
+        LINE_JOINER.join(
+            "if (x) {",
+            "  let e;",
+            "  alert(e);",
+            "}",
+            "if (y) {",
+            "  let e;",
+            "  alert(e);",
+            "}"),
+        LINE_JOINER.join(
+            "if (x) {",
+            "  let e$jscomp$1;",
+            "  alert(e$jscomp$1);",
+            "}",
+            "if (y) {",
+            "  let e$jscomp$2;",
+            "  alert(e$jscomp$2);",
+            "}"));
+  }
+
+  public void testCatchesInSeparateBlocks() {
+    test(
+        LINE_JOINER.join(
+            "if (x) {",
+            "  try {",
+            "    throw 1;",
+            "  } catch (e) {",
+            "    alert(e);",
+            "  }",
+            "}",
+            "if (y) {",
+            "  try {",
+            "    throw 2;",
+            "  } catch (e) {",
+            "    alert(e);",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "if (x) {",
+            "  try {",
+            "    throw 1;",
+            "  } catch (e) {",
+            "    alert(e);",
+            "  }",
+            "}",
+            "if (y) {",
+            "  try {",
+            "    throw 2;",
+            "  } catch (e$jscomp$1) {",
+            "    alert(e$jscomp$1);",
+            "  }",
+            "}"));
   }
 
   public void testIssue() {
@@ -420,7 +535,7 @@ public final class NormalizeTest extends CompilerTestCase {
         compiler.toSource(ast));
   }
 
-  public void testIsConstant() throws Exception {
+  public void testIsConstant() {
     testSame("var CONST = 3; var b = CONST;");
     Node n = getLastCompiler().getRoot();
 
@@ -431,7 +546,7 @@ public final class NormalizeTest extends CompilerTestCase {
     }
   }
 
-  public void testPropertyIsConstant1() throws Exception {
+  public void testPropertyIsConstant1() {
     testSame("var a = {};a.CONST = 3; var b = a.CONST;");
     Node n = getLastCompiler().getRoot();
 
@@ -442,7 +557,7 @@ public final class NormalizeTest extends CompilerTestCase {
     }
   }
 
-  public void testPropertyIsConstant2() throws Exception {
+  public void testPropertyIsConstant2() {
     testSame("var a = {CONST: 3}; var b = a.CONST;");
     Node n = getLastCompiler().getRoot();
 
@@ -453,9 +568,8 @@ public final class NormalizeTest extends CompilerTestCase {
     }
   }
 
-  public void testGetterPropertyIsConstant() throws Exception {
-    testSame("var a = { get CONST() {return 3} }; " +
-             "var b = a.CONST;");
+  public void testGetterPropertyIsConstant() {
+    testSame("var a = { get CONST() {return 3} }; var b = a.CONST;");
     Node n = getLastCompiler().getRoot();
 
     Set<Node> constantNodes = findNodesWithProperty(n, Node.IS_CONSTANT_NAME);
@@ -465,10 +579,9 @@ public final class NormalizeTest extends CompilerTestCase {
     }
   }
 
-  public void testSetterPropertyIsConstant() throws Exception {
+  public void testSetterPropertyIsConstant() {
     // Verifying that a SET is properly annotated.
-    testSame("var a = { set CONST(b) {throw 'invalid'} }; " +
-             "var c = a.CONST;");
+    testSame("var a = { set CONST(b) {throw 'invalid'} }; var c = a.CONST;");
     Node n = getLastCompiler().getRoot();
 
     Set<Node> constantNodes = findNodesWithProperty(n, Node.IS_CONSTANT_NAME);

@@ -37,14 +37,12 @@ ServiceWorker.prototype.state;
 /** @type {?function(!Event)} */
 ServiceWorker.prototype.onstatechange;
 
-/** @enum {string} */
-var ServiceWorkerState = {
-  INSTALLING: 'installing',
-  INSTALLED: 'installed',
-  ACTIVATING: 'activating',
-  ACTIVATED: 'activated',
-  REDUNDANT: 'redundant'
-};
+/**
+ *  Set of possible string values: 'installing', 'installed', 'activating',
+ * 'activated', 'redundant'.
+ *  @typedef {string}
+ */
+var ServiceWorkerState ;
 
 /**
  * @see https://w3c.github.io/push-api/
@@ -238,7 +236,7 @@ ServiceWorkerContainer.prototype.oncontrollerchange;
 ServiceWorkerContainer.prototype.onerror;
 
 /**
- * @typedef {{scope: string}}
+ * @typedef {{scope: (string|undefined), useCache: (boolean|undefined)}}
  */
 var RegistrationOptions;
 
@@ -297,7 +295,7 @@ ServiceWorkerGlobalScope.prototype.onevicted;
 /** @type {?function(!ExtendableMessageEvent)} */
 ServiceWorkerGlobalScope.prototype.onmessage;
 
-/** @type {IDBFactory} */
+/** @type {!IDBFactory|undefined} */
 ServiceWorkerGlobalScope.prototype.indexedDB;
 
 /**

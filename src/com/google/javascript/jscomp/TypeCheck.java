@@ -803,6 +803,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case SCRIPT:
       case EXPR_RESULT:
       case BLOCK:
+      case ROOT:
       case EMPTY:
       case DEFAULT_CASE:
       case CONTINUE:
@@ -811,15 +812,14 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case DO:
       case IF:
       case WHILE:
+      case FOR:
         typeable = false;
         break;
 
-      case FOR:
-        if (NodeUtil.isForIn(n)) {
-          Node obj = n.getSecondChild();
-          if (getJSType(obj).isStruct()) {
-            report(t, obj, IN_USED_WITH_STRUCT);
-          }
+      case FOR_IN:
+        Node obj = n.getSecondChild();
+        if (getJSType(obj).isStruct()) {
+          report(t, obj, IN_USED_WITH_STRUCT);
         }
         typeable = false;
         break;
@@ -1452,7 +1452,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
 
     // Not need to type first key in for in.
-    if (NodeUtil.isForIn(parent) && parent.getFirstChild() == n) {
+    if (parent.isForIn() && parent.getFirstChild() == n) {
       return false;
     }
 
@@ -1534,10 +1534,19 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
   }
 
+  private boolean allowLoosePropertyAccessOnNode(Node n) {
+    Node parent = n.getParent();
+    return NodeUtil.isPropertyTest(compiler, n)
+        // Property declaration
+        || (n.isQualifiedName() && parent.isExprResult())
+        // Property creation
+        || (n.isQualifiedName() && parent.isAssign() && parent.getFirstChild() == n);
+  }
+
   private void checkPropertyAccessHelper(JSType objectType, String propName,
       NodeTraversal t, Node n) {
     if (!objectType.isEmptyType() && reportMissingProperties
-        && (!NodeUtil.isPropertyTest(compiler, n) || objectType.isStruct())
+        && (!allowLoosePropertyAccessOnNode(n) || objectType.isStruct())
         && !typeRegistry.canPropertyBeDefined(objectType, propName)) {
       boolean lowConfidence =
           objectType.isUnknownType() || objectType.isEquivalentTo(getNativeType(OBJECT_TYPE));

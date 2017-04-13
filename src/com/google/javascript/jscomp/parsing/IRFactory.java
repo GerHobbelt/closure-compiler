@@ -252,6 +252,9 @@ class IRFactory {
           "implements", "interface", "let", "package", "private", "protected",
           "public", "static", "yield");
 
+  private static final Pattern COMMENT_PATTERN =
+      Pattern.compile("(/|(\n[ \t]*))\\*[ \t]*@[a-zA-Z]+[ \t\n{]");
+
   /**
    * If non-null, use this set of keywords instead of TokenStream.isKeyword().
    */
@@ -504,6 +507,7 @@ class IRFactory {
   private static boolean isBreakTarget(Node n) {
     switch (n.getToken()) {
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case WHILE:
       case DO:
@@ -517,6 +521,7 @@ class IRFactory {
   private static boolean isContinueTarget(Node n) {
     switch (n.getToken()) {
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case WHILE:
       case DO:
@@ -624,8 +629,7 @@ class IRFactory {
    * Check to see if the given block comment looks like it should be JSDoc.
    */
   private void handleBlockComment(Comment comment) {
-    Pattern p = Pattern.compile("(/|(\n[ \t]*))\\*[ \t]*@[a-zA-Z]+[ \t\n{]");
-    if (p.matcher(comment.value).find()) {
+    if (COMMENT_PATTERN.matcher(comment.value).find()) {
       errorReporter.warning(
           SUSPICIOUS_COMMENT_WARNING,
           sourceName,
@@ -1166,10 +1170,7 @@ class IRFactory {
             lineno(loopNode.initializer), charno(loopNode.initializer));
       }
       return newNode(
-          Token.FOR,
-          initializer,
-          transform(loopNode.collection),
-          transformBlock(loopNode.body));
+          Token.FOR_IN, initializer, transform(loopNode.collection), transformBlock(loopNode.body));
     }
 
     Node processForOf(ForOfStatementTree loopNode) {
@@ -1825,7 +1826,7 @@ class IRFactory {
       ParseTree expr = caseNode.expression;
       Node node = newNode(Token.CASE, transform(expr));
       Node block = newNode(Token.BLOCK);
-      block.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
+      block.setIsAddedBlock(true);
       setSourceInfo(block, caseNode);
       if (caseNode.statements != null) {
         for (ParseTree child : caseNode.statements) {
@@ -1839,7 +1840,7 @@ class IRFactory {
     Node processSwitchDefault(DefaultClauseTree caseNode) {
       Node node = newNode(Token.DEFAULT_CASE);
       Node block = newNode(Token.BLOCK);
-      block.putBooleanProp(Node.SYNTHETIC_BLOCK_PROP, true);
+      block.setIsAddedBlock(true);
       setSourceInfo(block, caseNode);
       if (caseNode.statements != null) {
         for (ParseTree child : caseNode.statements) {

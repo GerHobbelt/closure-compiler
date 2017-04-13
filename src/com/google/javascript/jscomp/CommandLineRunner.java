@@ -22,7 +22,6 @@ import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -248,6 +247,12 @@ public class CommandLineRunner extends
         + "or property_renaming_report")
     private boolean createNameMapFiles = false;
 
+    @Option(name = "--source_map_include_content",
+        handler = BooleanOptionHandler.class,
+        usage = "Includes sources content into source map. Greatly increases "
+        + "the size of source maps but offers greater portability")
+    private boolean sourceMapIncludeSourcesContent = false;
+
     @Option(name = "--property_renaming_report",
         usage = "File where the serialized version of the property "
         + "renaming map produced should be saved")
@@ -324,10 +329,13 @@ public class CommandLineRunner extends
         + "(i.e. filesystem-path|webserver-path)")
     private List<String> sourceMapLocationMapping = new ArrayList<>();
 
-    @Option(name = "--source_map_input",
-        hidden = true,
-        usage = "Source map locations for input files, separated by a '|', "
-        + "(i.e. input-file-path|input-source-map)")
+    @Option(
+      name = "--source_map_input",
+      hidden = false,
+      usage =
+          "Source map locations for input files, separated by a '|', "
+              + "(i.e. input-file-path|input-source-map)"
+    )
     private List<String> sourceMapInputs = new ArrayList<>();
 
     @Option(name = "--parse_inline_source_maps",
@@ -404,6 +412,11 @@ public class CommandLineRunner extends
         handler = BooleanOptionHandler.class,
         usage = "Don't generate output. Run checks, but no optimization passes.")
     private boolean checksOnly = false;
+
+    @Option(name = "--continue_after_errors",
+        handler = BooleanOptionHandler.class,
+        usage = "Continue trying to compile after an error is encountered.")
+    private boolean continueAfterErrors = false;
 
     @Option(name = "--use_types_for_optimization",
         handler = BooleanOptionHandler.class,
@@ -525,6 +538,12 @@ public class CommandLineRunner extends
         usage = "Rewrite Polymer classes to be compiler-friendly.")
     private boolean polymerPass = false;
 
+    @Option(name = "--chrome_pass",
+        handler = BooleanOptionHandler.class,
+        usage = "Enable Chrome-specific options for handling cr.* functions.",
+        hidden = true)
+    private boolean chromePass = false;
+
     @Option(name = "--dart_pass",
         handler = BooleanOptionHandler.class,
         usage = "Rewrite Dart Dev Compiler output to be compiler-friendly.")
@@ -619,6 +638,10 @@ public class CommandLineRunner extends
         handler = BooleanOptionHandler.class,
         usage = "Checks for type errors using the new type inference algorithm.")
     private boolean useNewTypeInference = false;
+
+    @Option(name = "--rename_variable_prefix",
+        usage = "Specifies a prefix that will be prepended to all variables.")
+    private String renamePrefix = null;
 
     @Option(name = "--rename_prefix_namespace",
         usage = "Specifies the name of an object that will be used to store all "
@@ -793,6 +816,8 @@ public class CommandLineRunner extends
                     "output_manifest",
                     "output_module_dependencies",
                     "property_renaming_report",
+                    "source_map_input",
+                    "source_map_include_content",
                     "source_map_location_mapping",
                     "variable_renaming_report"))
             .putAll(
@@ -1397,6 +1422,8 @@ public class CommandLineRunner extends
         conv = CodingConventions.getDefault();
       } else if (flags.processJqueryPrimitives) {
         conv = new JqueryCodingConvention();
+      } else if (flags.chromePass) {
+        conv = new ChromeCodingConvention();
       } else {
         conv = new ClosureCodingConvention();
       }
@@ -1575,6 +1602,8 @@ public class CommandLineRunner extends
       options.setOutputJs(CompilerOptions.OutputJs.NONE);
     }
 
+    options.setContinueAfterErrors(flags.continueAfterErrors);
+
     if (flags.useTypesForOptimization) {
       level.setTypeBasedOptimizationOptions(options);
     }
@@ -1606,6 +1635,8 @@ public class CommandLineRunner extends
 
     options.polymerPass = flags.polymerPass;
 
+    options.chromePass = flags.chromePass;
+
     options.setDartPass(flags.dartPass);
 
     if (!flags.j2clPassMode.isEmpty()) {
@@ -1618,6 +1649,8 @@ public class CommandLineRunner extends
             "Unknown J2clPassMode `" + flags.j2clPassMode + "' specified.");
       }
     }
+
+    options.renamePrefix = flags.renamePrefix;
 
     options.renamePrefixNamespace = flags.renamePrefixNamespace;
 
@@ -1677,6 +1710,7 @@ public class CommandLineRunner extends
     options.setPrintSourceAfterEachPass(flags.printSourceAfterEachPass);
     options.setStrictModeInput(flags.strictModeInput);
     options.setEmitUseStrict(flags.emitUseStrict);
+    options.setSourceMapIncludeSourcesContent(flags.sourceMapIncludeSourcesContent);
 
     return options;
   }
@@ -1728,7 +1762,7 @@ public class CommandLineRunner extends
     try {
       TextFormat.merge(textProto, builder);
     } catch (Exception e) {
-      throw Throwables.propagate(e);
+      throw new RuntimeException(e);
     }
     return builder.build();
   }

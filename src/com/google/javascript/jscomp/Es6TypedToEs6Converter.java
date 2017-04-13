@@ -879,11 +879,10 @@ public final class Es6TypedToEs6Converter implements NodeTraversal.Callback, Hot
     @Override
     public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
+        case ROOT:
         case SCRIPT:
         case NAMESPACE_ELEMENTS:
           return true;
-        case BLOCK:
-          return n.getFirstChild() != null && n.getFirstChild().isScript();
         case DECLARE:
           return n.getFirstChild().getToken() == Token.NAMESPACE;
         case EXPORT:

@@ -329,11 +329,10 @@ public final class Es6RewriteGenerators
         case WHILE:
         case DO:
         case FOR:
-          if (NodeUtil.isForIn(currentStatement)) {
-            visitForIn();
-            return false;
-          }
           visitLoop(null);
+          return false;
+        case FOR_IN:
+          visitForIn();
           return false;
         case LABEL:
           visitLabel();
@@ -766,7 +765,7 @@ public final class Es6RewriteGenerators
       body = currentStatement.removeFirstChild();
       initializer = IR.empty();
       incr = IR.empty();
-    } else if (currentStatement.isFor()) {
+    } else if (currentStatement.isVanillaFor()) {
       initializer = currentStatement.removeFirstChild();
       if (initializer.isAssign()) {
         initializer = IR.exprResult(initializer);
@@ -1013,7 +1012,7 @@ public final class Es6RewriteGenerators
 
     private void visitLoop(Node n) {
       Node enclosingFunc = NodeUtil.getEnclosingFunction(n);
-      if (enclosingFunc == null || !enclosingFunc.isGeneratorFunction() || NodeUtil.isForIn(n)) {
+      if (enclosingFunc == null || !enclosingFunc.isGeneratorFunction() || n.isForIn()) {
         return;
       }
       Node enclosingBlock = NodeUtil.getEnclosingBlock(n);
@@ -1098,6 +1097,7 @@ public final class Es6RewriteGenerators
         case DO:
         case WHILE:
         case FOR:
+        case FOR_IN:
           continueCatchers++;
           breakCatchers++;
           break;
@@ -1164,6 +1164,7 @@ public final class Es6RewriteGenerators
         case DO:
         case WHILE:
         case FOR:
+        case FOR_IN:
           continueCatchers--;
           breakCatchers--;
           break;

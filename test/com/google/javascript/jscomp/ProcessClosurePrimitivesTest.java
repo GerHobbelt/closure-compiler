@@ -1179,7 +1179,7 @@ public final class ProcessClosurePrimitivesTest extends Es6CompilerTestCase {
 
   public void testProvideInIndependentModules4() {
     // Regression test for bug 261:
-    // http://code.google.com/p/closure-compiler/issues/detail?id=261
+    // http://blickly.github.io/closure-compiler-issues/#261
     testModule(
         new String[] {
             "goog.provide('apps');",
@@ -1255,6 +1255,21 @@ public final class ProcessClosurePrimitivesTest extends Es6CompilerTestCase {
 
     testErrorEs6(jsdoc + "goog.define(`templateName`, 1);", INVALID_ARGUMENT_ERROR);
     testErrorEs6(jsdoc + "goog.define(`${template}Name`, 1);", INVALID_ARGUMENT_ERROR);
+  }
+
+  public void testDefineInExterns() {
+    String jsdoc = "/** @define {number} */\n";
+    allowExternsChanges(true);
+    testErrorExterns(jsdoc + "goog.define('value');", null);
+
+    testErrorExterns("goog.define('name');", MISSING_DEFINE_ANNOTATION);
+    testErrorExterns(jsdoc + "goog.define('name.2');", INVALID_DEFINE_NAME_ERROR);
+    testErrorExterns(jsdoc + "goog.define();", NULL_ARGUMENT_ERROR);
+    testErrorExterns(jsdoc + "goog.define(5);", INVALID_ARGUMENT_ERROR);
+  }
+
+  private void testErrorExterns(String externs, DiagnosticType error) {
+    test(externs, "", null, error, null, null);
   }
 
   public void testDefineValues() {

@@ -62,6 +62,7 @@ function MediaStreamTrack() {}
 /**
  * @param {!function(!Array<!SourceInfo>)} callback
  * @return {undefined}
+ * @deprecated Use MediaDevices.enumerateDevices().
  */
 MediaStreamTrack.getSources = function(callback) {};
 
@@ -93,6 +94,13 @@ MediaStreamTrack.prototype.enabled;
  * @const
  */
 MediaStreamTrack.prototype.muted;
+
+/**
+ * @type {string}
+ * @see https://crbug.com/653531
+ * @see https://wicg.github.io/mst-content-hint/
+ */
+MediaStreamTrack.prototype.contentHint;
 
 /**
  * @type {boolean}
@@ -851,6 +859,7 @@ var MediaConstraints;
 
 /**
  * @interface
+ * @extends {EventTarget}
  */
 function RTCDataChannel() {}
 
@@ -948,6 +957,11 @@ RTCDataChannelInitInterface_.prototype.reliable;
 var RTCDataChannelInit;
 
 /**
+ * @typedef {{expires: number}}
+ */
+var RTCCertificate;
+
+/**
  * @param {RTCConfiguration} configuration
  * @param {!MediaConstraints=} constraints
  * @constructor
@@ -955,15 +969,32 @@ var RTCDataChannelInit;
  */
 function RTCPeerConnection(configuration, constraints) {}
 
-/** @inheritDoc */
+/**
+ * @param {Object} keygenAlgorithm
+ * @return {Promise<RTCCertificate>}
+ */
+RTCPeerConnection.generateCertificate = function (keygenAlgorithm) {};
+
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ * @return {undefined}
+ */
 RTCPeerConnection.prototype.addEventListener = function(
-    type, listener, opt_options) {};
+    type, listener, opt_useCapture) {};
 
-/** @inheritDoc */
+/**
+ * @param {boolean=} opt_useCapture
+ * @override
+ * @return {undefined}
+ */
 RTCPeerConnection.prototype.removeEventListener = function(
-    type, listener, opt_options) {};
+    type, listener, opt_useCapture) {};
 
-/** @inheritDoc */
+/**
+ * @override
+ * @return {boolean}
+ */
 RTCPeerConnection.prototype.dispatchEvent = function(evt) {};
 
 

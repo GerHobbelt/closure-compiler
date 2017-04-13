@@ -828,7 +828,6 @@ public final class NodeUtilTest extends TestCase {
 
     Node outerBlockNode = actual.getFirstChild();
     Node innerBlockNode = outerBlockNode.getFirstChild();
-    innerBlockNode.setIsSyntheticBlock(true);
 
     NodeUtil.removeChild(outerBlockNode, innerBlockNode);
     String expected = "{{}}";
@@ -1369,6 +1368,7 @@ public final class NodeUtilTest extends TestCase {
     return NodeUtil.isValidDefineValue(value, defines);
   }
 
+  @SuppressWarnings("JUnit3FloatingPointComparisonWithoutDelta")
   public void testGetNumberValue() {
     // Strings
     assertEquals(1.0, NodeUtil.getNumberValue(getNode("'\\uFEFF1'")));

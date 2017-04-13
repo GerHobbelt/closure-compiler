@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
 import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -33,7 +34,6 @@ import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.ObjectType;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -68,7 +68,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   public void testInitialTypingScope() throws Exception {
     TypedScope s = new TypedScopeCreator(compiler,
         CodingConventions.getDefault()).createInitialScope(
-            new Node(Token.BLOCK));
+            new Node(Token.ROOT));
 
     assertTypeEquals(ARRAY_FUNCTION_TYPE, s.getVar("Array").getType());
     assertTypeEquals(BOOLEAN_OBJECT_FUNCTION_TYPE,
@@ -1783,6 +1783,67 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     // checking that a has the correct assigned type
     assertEquals("function (): undefined",
         p.scope.getVar("a").getType().toString());
+  }
+
+  public void testDontDropPropertiesInUnion1() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a:number, b:string}} x */",
+        "function f(x) {",
+        "  var /** null */ n = x.b;",
+        "}"));
+  }
+
+  public void testDontDropPropertiesInUnion2() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a:number, b:string}|{a: number}} x */",
+        "function f(x) {",
+        "  var /** null */ n = x.b;",
+        "}"));
+  }
+
+  public void testDontDropPropertiesInUnion3() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a:number, b:string}} x */",
+        "function f(x) {}",
+        "/** @param {{a: number}} x */",
+        "function g(x) { return x.b; }"));
+  }
+
+  public void testDontDropPropertiesInUnion4() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a:number, b:string}} x */",
+        "function f(x) {}",
+        "/** @param {{c: number}} x */",
+        "function g(x) { return x.b; }"),
+        "Property b never defined on x");
+  }
+
+  public void testDontDropPropertiesInUnion5() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a: number, b: string}} x */",
+        "function f(x) {}",
+        "f({a: 123});"));
+  }
+
+  public void testDontDropPropertiesInUnion6() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a: number, b: string}} x */",
+        "function f(x) {",
+        "  var /** null */ n = x;",
+        "}"),
+        LINE_JOINER.join(
+            "initializing variable",
+            "found   : {a: number}",
+            "required: null"));
+  }
+
+  public void testDontDropPropertiesInUnion7() throws Exception {
+    // Missed warning because in the registry we map {a, c} to {b, d}
+    testTypes(LINE_JOINER.join(
+        "/** @param {{a: number}|{a:number, b:string}} x */",
+        "function f(x) {}",
+        "/** @param {{c: number}|{c:number, d:string}} x */",
+        "function g(x) { return x.b; }"));
   }
 
   public void testScoping11() throws Exception {
@@ -4924,6 +4985,25 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
               "Bar.prototype = new Foo();\n" +
               "Bar.prototype['someprop'] = 123;\n",
               "Cannot do '[]' access on a struct");
+  }
+
+  public void testGetelemStruct_noErrorForSettingWellKnownSymbol() throws Exception {
+    testTypes("/**\n" +
+              " * @constructor\n" +
+              " * @struct\n" +
+              " */\n" +
+              "function Foo() {}\n" +
+              "Foo.prototype[Symbol.iterator] = 123;\n");
+  }
+
+  public void testGetelemStruct_noErrorForGettingWellKnownSymbol() throws Exception {
+    testTypes("/**\n" +
+              " * @constructor\n" +
+              " * @struct\n" +
+              " */\n" +
+              "function Foo() {}\n" +
+              "/** @param {!Foo} foo */\n" +
+              "function getIterator(foo) { return foo[Symbol.iterator](); }\n");
   }
 
   public void testInOnStruct() throws Exception {
@@ -8152,8 +8232,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     Node externs = new Node(Token.SCRIPT);
     externs.setInputId(new InputId("externs"));
 
-    Node externAndJsRoot = new Node(Token.BLOCK, externs, parent);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externAndJsRoot = IR.root(externs, parent);
 
     makeTypeCheck().processForTesting(null, parent);
     return node.getJSType();
@@ -11268,9 +11347,8 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   private double getTypedPercent(String js) {
     Node n = compiler.parseTestCode(js);
 
-    Node externs = new Node(Token.BLOCK);
-    Node externAndJsRoot = new Node(Token.BLOCK, externs, n);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externs = IR.root();
+    Node externAndJsRoot = IR.root(externs, n);
 
     TypeCheck t = makeTypeCheck();
     t.processForTesting(null, n);
@@ -11857,9 +11935,8 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
     Node second = compiler.parseTestCode("new Foo");
 
-    Node externs = new Node(Token.BLOCK);
-    Node externAndJsRoot = new Node(Token.BLOCK, externs, second);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externs = IR.root();
+    Node externAndJsRoot = IR.root(externs, second);
 
     new TypeCheck(
         compiler,
@@ -16698,6 +16775,131 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
             "var x = b.prop2"));
   }
 
+  public void testOptimizePropertyMap1() throws Exception {
+    // For non object-literal types such as Function, the behavior doesn't change.
+    // The stray property is added as unknown.
+    testTypes(LINE_JOINER.join(
+        "/** @return {!Function} */",
+        "function f() {",
+        "  var x = function() {};",
+        "  /** @type {number} */",
+        "  x.prop = 123;",
+        "  return x;",
+        "}",
+        "function g(/** !Function */ x) {",
+        "  var /** null */ n = x.prop;",
+        "}"));
+  }
+
+  public void testOptimizePropertyMap2() throws Exception {
+    // Don't add the inferred property to all Foo values.
+    testTypes(LINE_JOINER.join(
+        "/** @typedef {{a:number}} */",
+        "var Foo;",
+        "function f(/** !Foo */ x) {",
+        "  var y = x;",
+        "  /** @type {number} */",
+        "  y.b = 123;",
+        "}",
+        "function g(/** !Foo */ x) {",
+        "  var /** null */ n = x.b;",
+        "}"),
+        "Property b never defined on x");
+  }
+
+  public void testOptimizePropertyMap3() throws Exception {
+    // For @record types, add the stray property to the index as before.
+    testTypes(LINE_JOINER.join(
+        "/** @record */",
+        "function Foo() {}",
+        "/** @type {number} */",
+        "Foo.prototype.a;",
+        "function f(/** !Foo */ x) {",
+        "  var y = x;",
+        "  /** @type {number} */",
+        "  y.b = 123;",
+        "}",
+        "function g(/** !Foo */ x) {",
+        "  var /** null */ n = x.b;",
+        "}"));
+  }
+
+  public void testOptimizePropertyMap4() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "function f(x) {",
+        "  var y = { a: 1, b: 2 };",
+        "}",
+        "function g(x) {",
+        "  return x.b + 1;",
+        "}"));
+  }
+
+  public void testOptimizePropertyMap5() throws Exception {
+    // Tests that we don't declare the properties on Object (so they don't appear on
+    // all object types).
+    testTypes(LINE_JOINER.join(
+        "function f(x) {",
+        "  var y = { a: 1, b: 2 };",
+        "}",
+        "function g() {",
+        "  var x = { c: 123 };",
+        "  return x.a + 1;",
+        "}"),
+        "Property a never defined on x");
+  }
+
+  public void testOptimizePropertyMap6() throws Exception {
+    // The stray property doesn't appear on other inline record types.
+    testTypes(LINE_JOINER.join(
+        "function f(/** {a:number} */ x) {",
+        "  var y = x;",
+        "  /** @type {number} */",
+        "  y.b = 123;",
+        "}",
+        "function g(/** {c:number} */ x) {",
+        "  var /** null */ n = x.b;",
+        "}"),
+        "Property b never defined on x");
+  }
+
+  public void testOptimizePropertyMap7() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "function f() {",
+        "  var x = {a:1};",
+        "  x.b = 2;",
+        "}",
+        "function g() {",
+        "  var y = {a:1};",
+        "  return y.b + 1;",
+        "}"),
+        "Property b never defined on y");
+  }
+
+  public void testOptimizePropertyMap8() throws Exception {
+    testTypes(LINE_JOINER.join(
+        "function f(/** {a:number, b:number} */ x) {}",
+        "function g(/** {c:number} */ x) {",
+        "  var /** null */ n = x.b;",
+        "}"),
+        "Property b never defined on x");
+  }
+
+  public void testOptimizePropertyMap9() throws Exception {
+    // Don't add the stray property to all types that meet with {a: number, c: string}.
+    testTypes(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {",
+        "  this.a = 123;",
+        "}",
+        "function f(/** {a: number, c: string} */ x) {",
+        "  x.b = 234;",
+        "}",
+        "function g(/** !Foo */ x) {",
+        "  return x.b + 5;",
+        "}"),
+        "Property b never defined on Foo");
+  }
+
   public void testCovarianceForRecordType21() throws Exception {
     testTypesWithExtraExterns(
         "",
@@ -17252,6 +17454,15 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
        "required: string");
   }
 
+  // Github issue #2222: https://github.com/google/closure-compiler/issues/2222
+  public void testSetPrototypeToNewInstance() throws Exception {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function C() {}",
+            "C.prototype = new C;"));
+  }
+
   private void testTypes(String js) {
     testTypes(js, (String) null);
   }
@@ -17273,9 +17484,8 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
       String js, List<String> descriptions) {
     compiler.initOptions(compiler.getOptions());
     Node n = compiler.parseTestCode(js);
-    Node externs = new Node(Token.BLOCK);
-    Node externAndJsRoot = new Node(Token.BLOCK, externs, n);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externs = IR.root();
+    Node externAndJsRoot = IR.root(externs, n);
 
     assertEquals("parsing error: " +
         Joiner.on(", ").join(compiler.getErrors()),
@@ -17419,8 +17629,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     Node n = compiler.getInput(new InputId("[testcode]")).getAstRoot(compiler);
     Node externsNode = compiler.getInput(new InputId("[externs]"))
         .getAstRoot(compiler);
-    Node externAndJsRoot = new Node(Token.BLOCK, externsNode, n);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externAndJsRoot = IR.root(externsNode, n);
 
     assertEquals("parsing error: " +
         Joiner.on(", ").join(compiler.getErrors()),
@@ -17441,9 +17650,9 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   private Node typeCheck(Node n) {
-    Node externsNode = new Node(Token.BLOCK);
-    Node externAndJsRoot = new Node(Token.BLOCK, externsNode, n);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    Node externsNode = IR.root();
+    Node externAndJsRoot = IR.root(externsNode);
+    externAndJsRoot.addChildToBack(n);
 
     makeTypeCheck().processForTesting(null, n);
     return n;
@@ -17456,9 +17665,9 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   void testTypes(String js, String[] warnings) {
     Node n = compiler.parseTestCode(js);
     assertEquals(0, compiler.getErrorCount());
-    Node externsNode = new Node(Token.BLOCK);
+    Node externsNode = IR.root();
     // create a parent node for the extern and source blocks
-    new Node(Token.BLOCK, externsNode, n);
+    IR.root(externsNode, n);
 
     makeTypeCheck().processForTesting(null, n);
     assertEquals(0, compiler.getErrorCount());

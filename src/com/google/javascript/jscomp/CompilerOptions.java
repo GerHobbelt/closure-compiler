@@ -732,6 +732,9 @@ public class CompilerOptions {
   /** Processes Polymer calls */
   boolean polymerPass;
 
+  /** Processes cr.* functions */
+  boolean chromePass;
+
   /** Processes the output of the Dart Dev Compiler */
   boolean dartPass;
 
@@ -943,7 +946,7 @@ public class CompilerOptions {
     this.reportPath = reportPath;
   }
 
-  TracerMode tracer;
+  private TracerMode tracer;
 
   public TracerMode getTracerMode() {
     return tracer;
@@ -1035,13 +1038,21 @@ public class CompilerOptions {
   /**
    * When set, assume that apparently side-effect free code is meaningful.
    */
-  boolean protectHiddenSideEffects;
+  private boolean protectHiddenSideEffects;
 
   /**
    * When enabled, assume that apparently side-effect free code is meaningful.
    */
   public void setProtectHiddenSideEffects(boolean enable) {
     this.protectHiddenSideEffects = enable;
+  }
+
+  /**
+   * Whether or not the compiler should wrap apparently side-effect free code
+   * to prevent it from being removed
+   */
+  public boolean shouldProtectHiddenSideEffects() {
+    return protectHiddenSideEffects && !checksOnly && !allowHotswapReplaceScript;
   }
 
   /**

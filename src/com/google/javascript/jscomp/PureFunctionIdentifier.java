@@ -34,16 +34,15 @@ import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
+import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import com.google.javascript.rhino.jstype.FunctionType;
-import com.google.javascript.rhino.jstype.JSType;
+import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,11 +69,23 @@ class PureFunctionIdentifier implements CompilerPass {
   private final AbstractCompiler compiler;
   private final DefinitionProvider definitionProvider;
 
-  // Function node -> function side effects map
-  private final Multimap<Node, FunctionInformation> functionSideEffectMap;
-
   /** Map of function names to side effect gathering representative nodes */
   private final Map<String, FunctionInformation> functionInfoByName = new HashMap<>();
+
+  /**
+   * <p>Mapping from function node to side effects for all names associated with that node.
+   * <p>This is a multimap because you can construct situations in which a function node represents
+   * the side effects for two different FunctionInformation instances.  For example:
+   * <pre>
+   *   // Not enough type information to collapse/disambiguate properties on "staticMethod".
+   *   SomeClass.staticMethod = function anotherName() {};
+   *   OtherClass.staticMethod = function() {global++}
+   * </pre>
+   * <p>In this situation we want to keep the side effects for "X.staticMethod()" which are "global"
+   * separate from "anotherName()". Hence the function node should point to the
+   * {@link FunctionInformation} for both "staticMethod" and "anotherName".
+   */
+  private final Multimap<Node, FunctionInformation> functionSideEffectMap;
 
   // List of all function call sites; used to iterate in markPureFunctionCalls.
   private final List<Node> allFunctionCalls;
@@ -403,7 +414,11 @@ class PureFunctionIdentifier implements CompilerPass {
         }
       }
 
-      callNode.setSideEffectFlags(flags.valueOf());
+      int newSideEffectFlags = flags.valueOf();
+      if (callNode.getSideEffectFlags() != newSideEffectFlags) {
+        callNode.setSideEffectFlags(newSideEffectFlags);
+        compiler.reportChangeToEnclosingScope(callNode);
+      }
     }
   }
 
@@ -421,11 +436,6 @@ class PureFunctionIdentifier implements CompilerPass {
       this.inExterns = inExterns;
     }
 
-    private void resetFunctionVars(Node function) {
-      blacklistedVarsByFunction.replaceValues(function, Collections.<Var>emptySet());
-      taintedVarsByFunction.replaceValues(function, Collections.<Var>emptySet());
-    }
-
     @Override
     public boolean shouldTraverse(NodeTraversal traversal, Node node, Node parent) {
       // Functions need to be processed as part of pre-traversal so that an entry for the function
@@ -440,7 +450,6 @@ class PureFunctionIdentifier implements CompilerPass {
           functionInfo.graphNode = sideEffectGraph.createNode(functionInfo);
         }
       }
-
       return true;
     }
 
@@ -525,8 +534,7 @@ class PureFunctionIdentifier implements CompilerPass {
         Preconditions.checkNotNull(sideEffectInfo, "%s has no side effect info.", function);
 
         if (sideEffectInfo.mutatesGlobalState()) {
-          resetFunctionVars(function);
-          return;
+          continue;
         }
 
         for (Var v : t.getScope().getVarIterable()) {
@@ -539,7 +547,7 @@ class PureFunctionIdentifier implements CompilerPass {
           }
 
           boolean localVar = false;
-          // Parameters and catch values come can from other scopes.
+          // Parameters and catch values can come from other scopes.
           if (v.getParentNode().isVar()) {
             // TODO(johnlenz): create a useful parameter list
             // sideEffectInfo.addKnownLocal(v.getName());
@@ -552,28 +560,29 @@ class PureFunctionIdentifier implements CompilerPass {
               // If the function has global side-effects
               // don't bother with the local side-effects.
               sideEffectInfo.setTaintsGlobalState();
-              resetFunctionVars(function);
               break;
             }
           }
         }
       }
 
+      // Clean up memory after exiting out of the function scope where we will no longer need these.
       if (t.getScopeRoot().isFunction()) {
-        resetFunctionVars(function);
+        blacklistedVarsByFunction.removeAll(function);
+        taintedVarsByFunction.removeAll(function);
       }
     }
 
-    private boolean varDeclaredInDifferentFunction(Var v, Scope scope) {
+    private boolean isVarDeclaredInScope(Var v, Scope scope) {
       if (v == null) {
-        return true;
-      } else if (v.scope != scope) {
-        Node declarationRoot = NodeUtil.getEnclosingFunction(v.scope.rootNode);
-        Node scopeRoot = NodeUtil.getEnclosingFunction(scope.rootNode);
-        return declarationRoot != scopeRoot;
-      } else {
         return false;
       }
+      if (v.scope == scope) {
+        return true;
+      }
+      Node declarationRoot = NodeUtil.getEnclosingFunction(v.scope.rootNode);
+      Node scopeRoot = NodeUtil.getEnclosingFunction(scope.rootNode);
+      return declarationRoot == scopeRoot;
     }
 
     /**
@@ -589,9 +598,7 @@ class PureFunctionIdentifier implements CompilerPass {
       Node lhs = op.getFirstChild();
       if (lhs.isName()) {
         Var var = scope.getVar(lhs.getString());
-        if (varDeclaredInDifferentFunction(var, scope)) {
-          sideEffectInfo.setTaintsGlobalState();
-        } else {
+        if (isVarDeclaredInScope(var, scope)) {
           // Assignment to local, if the value isn't a safe local value,
           // a literal or new object creation, add it to the local blacklist.
           // parameter values depend on the caller.
@@ -603,6 +610,8 @@ class PureFunctionIdentifier implements CompilerPass {
           if (rhs != null && op.isAssign() && !NodeUtil.evaluatesToLocalValue(rhs)) {
             blacklistedVarsByFunction.put(enclosingFunction, var);
           }
+        } else {
+          sideEffectInfo.setTaintsGlobalState();
         }
       } else if (NodeUtil.isGet(lhs)) {
         if (lhs.getFirstChild().isThis()) {
@@ -613,13 +622,12 @@ class PureFunctionIdentifier implements CompilerPass {
           if (objectNode.isName()) {
             var = scope.getVar(objectNode.getString());
           }
-          if (varDeclaredInDifferentFunction(var, scope)) {
-            sideEffectInfo.setTaintsGlobalState();
-          } else {
+          if (isVarDeclaredInScope(var, scope)) {
             // Maybe a local object modification.  We won't know for sure until
             // we exit the scope and can validate the value of the local.
-            //
             taintedVarsByFunction.put(enclosingFunction, var);
+          } else {
+            sideEffectInfo.setTaintsGlobalState();
           }
         }
       } else {
@@ -895,11 +903,11 @@ class PureFunctionIdentifier implements CompilerPass {
 
       JSDocInfo info = NodeUtil.getBestJSDocInfo(externFunction);
       // Handle externs.
-      JSType jstype = externFunction.getJSType();
-      FunctionType functionType = JSType.toMaybeFunctionType(jstype);
+      TypeI typei = externFunction.getTypeI();
+      FunctionTypeI functionType = typei == null ? null : typei.toMaybeFunctionType();
       if (functionType != null) {
-        JSType jstypeReturn = functionType.getReturnType();
-        if (!PureFunctionIdentifier.isLocalValueType(jstypeReturn, compiler)) {
+        TypeI retType = functionType.getReturnType();
+        if (!PureFunctionIdentifier.isLocalValueType(retType, compiler)) {
           setTaintsReturn();
         }
       }
@@ -929,14 +937,13 @@ class PureFunctionIdentifier implements CompilerPass {
    *
    * @return Whether the jstype is something known to be a local value.
    */
-  private static boolean isLocalValueType(JSType jstype, AbstractCompiler compiler) {
-    Preconditions.checkNotNull(jstype);
-    JSType subtype =
-        jstype.getGreatestSubtype(
-            (JSType) compiler.getTypeIRegistry().getNativeType(JSTypeNative.OBJECT_TYPE));
+  private static boolean isLocalValueType(TypeI typei, AbstractCompiler compiler) {
+    Preconditions.checkNotNull(typei);
+    TypeI nativeObj = compiler.getTypeIRegistry().getNativeType(JSTypeNative.OBJECT_TYPE);
+    TypeI subtype = typei.meetWith(nativeObj);
     // If the type includes anything related to a object type, don't assume
     // anything about the locality of the value.
-    return subtype.isNoType();
+    return subtype.isBottom();
   }
 
   /**

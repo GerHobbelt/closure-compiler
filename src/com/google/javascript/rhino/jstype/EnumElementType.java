@@ -39,8 +39,7 @@
 
 package com.google.javascript.rhino.jstype;
 
-
-
+import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.Node;
 
@@ -142,18 +141,16 @@ public class EnumElementType extends ObjectType {
    */
   @Override
   public int hashCode() {
-    if (hasReferenceName()) {
-      return getReferenceName().hashCode();
-    } else {
-      return super.hashCode();
-    }
+    Preconditions.checkState(hasReferenceName());
+    return getReferenceName().hashCode();
   }
 
   @Override
-  String toStringHelper(boolean forAnnotations) {
-    return forAnnotations ?
-        primitiveType.toString() :
-        (getReferenceName() + "<" + primitiveType + ">");
+  StringBuilder appendTo(StringBuilder sb, boolean forAnnotations) {
+    if (forAnnotations) {
+      return sb.append(this.primitiveType);
+    }
+    return sb.append(getReferenceName()).append("<").append(this.primitiveType).append(">");
   }
 
   @Override

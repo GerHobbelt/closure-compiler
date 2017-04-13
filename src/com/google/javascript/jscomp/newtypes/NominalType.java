@@ -131,7 +131,7 @@ public final class NominalType {
     return !isFunction() && !isBuiltinObject() && !isLiteralObject();
   }
 
-  boolean isFunction() {
+  public boolean isFunction() {
     return this.rawType.isBuiltinWithName("Function");
   }
 
@@ -145,6 +145,10 @@ public final class NominalType {
 
   boolean isIObject() {
     return this.rawType.isBuiltinWithName("IObject");
+  }
+
+  boolean isIArrayLike() {
+    return this.rawType.isBuiltinWithName("IArrayLike");
   }
 
   public boolean isStruct() {
@@ -410,6 +414,14 @@ public final class NominalType {
     // Note that other can still be an interface here (implemented by a superclass)
     return isClass() && thisRaw.getSuperClass() != null
       && thisRaw.getSuperClass().instantiateGenerics(this.typeMap).isNominalSubtypeOf(other);
+  }
+
+  boolean isIObjectSubtypeOf(NominalType other) {
+    Preconditions.checkState(
+        this.inheritsFromIObjectReflexive() && other.inheritsFromIObjectReflexive());
+    // Contravariance for the index type and covariance for the indexed type.
+    return other.getIndexType().isSubtypeOf(this.getIndexType())
+        && this.getIndexedType().isSubtypeOf(other.getIndexedType());
   }
 
   private boolean areTypeMapsCompatible(NominalType other) {

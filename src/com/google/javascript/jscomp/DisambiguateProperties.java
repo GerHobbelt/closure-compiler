@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
@@ -115,10 +116,9 @@ class DisambiguateProperties implements CompilerPass {
 
   /**
    * Map of a type to all the related errors that invalidated the type
-   * for disambiguation. It has to be Object because of the generic nature of
-   * this pass.
+   * for disambiguation.
    */
-  private final Multimap<Object, JSError> invalidationMap;
+  private final Multimap<JSType, JSError> invalidationMap;
 
   /**
    * In practice any large code base will have thousands and thousands of
@@ -356,12 +356,12 @@ class DisambiguateProperties implements CompilerPass {
     // For each pair (A, B), here we mark both A and B as types whose properties
     // cannot be renamed.
     for (TypeMismatch mis : compiler.getTypeMismatches()) {
-      recordInvalidatingType(mis.typeA, mis.src);
-      recordInvalidatingType(mis.typeB, mis.src);
+      recordInvalidatingType(mis.typeA, mis);
+      recordInvalidatingType(mis.typeB, mis);
     }
     for (TypeMismatch mis : compiler.getImplicitInterfaceUses()) {
-      recordInvalidatingType(mis.typeA, mis.src);
-      recordInvalidatingType(mis.typeB, mis.src);
+      recordInvalidatingType(mis.typeA, mis);
+      recordInvalidatingType(mis.typeB, mis);
     }
     // Gather names of properties in externs; these properties can't be renamed.
     NodeTraversal.traverseEs6(compiler, externs, new FindExternProperties());
@@ -372,13 +372,19 @@ class DisambiguateProperties implements CompilerPass {
     renameProperties();
   }
 
-  private void recordInvalidationError(JSType t, JSError error) {
+  private void recordInvalidationError(JSType t, TypeMismatch mis) {
     if (!t.isObject()) {
       return;
     }
     if (invalidationMap != null) {
       Collection<JSError> errors = this.invalidationMap.get(t);
       if (errors.size() < MAX_INVALIDATION_WARNINGS_PER_PROPERTY) {
+        JSError error = mis.src;
+        if (error.getType().equals(TypeValidator.TYPE_MISMATCH_WARNING)
+            && error.description.isEmpty()) {
+          String msg = "Implicit use of type " + mis.typeA + " as " + mis.typeB;
+          error = JSError.make(error.node, TypeValidator.TYPE_MISMATCH_WARNING, msg);
+        }
         errors.add(error);
       }
     }
@@ -387,22 +393,22 @@ class DisambiguateProperties implements CompilerPass {
   /**
    * Invalidates the given type, so that no properties on it will be renamed.
    */
-  private void recordInvalidatingType(JSType type, JSError error) {
+  private void recordInvalidatingType(JSType type, TypeMismatch mis) {
     type = type.restrictByNotNullOrUndefined();
     if (type.isUnionType()) {
       for (JSType alt : type.toMaybeUnionType().getAlternatesWithoutStructuralTyping()) {
-        recordInvalidatingType(alt, error);
+        recordInvalidatingType(alt, mis);
       }
     } else if (type.isEnumElementType()) {
       recordInvalidatingType(
-          type.toMaybeEnumElementType().getPrimitiveType(), error);
+          type.toMaybeEnumElementType().getPrimitiveType(), mis);
     } else {
       addInvalidatingType(type);
-      recordInvalidationError(type, error);
+      recordInvalidationError(type, mis);
       ObjectType objType = ObjectType.cast(type);
       if (objType != null && objType.getImplicitPrototype() != null) {
         addInvalidatingType(objType.getImplicitPrototype());
-        recordInvalidationError(objType.getImplicitPrototype(), error);
+        recordInvalidationError(objType.getImplicitPrototype(), mis);
       }
       if (objType != null
           && objType.isConstructor() && objType.isFunctionType()) {
@@ -739,12 +745,14 @@ class DisambiguateProperties implements CompilerPass {
         }
       }
     }
-    logger.fine("Renamed " + instancesRenamed + " instances of "
-                + propsRenamed + " properties.");
-    logger.fine("Skipped renaming " + instancesSkipped + " invalidated "
-                + "properties, " + propsSkipped + " instances of properties "
-                + "that were skipped for specific types and " + singleTypeProps
-                + " properties that were referenced from only one type.");
+    if (logger.isLoggable(Level.FINE)) {
+      logger.fine("Renamed " + instancesRenamed + " instances of "
+                  + propsRenamed + " properties.");
+      logger.fine("Skipped renaming " + instancesSkipped + " invalidated "
+                  + "properties, " + propsSkipped + " instances of properties "
+                  + "that were skipped for specific types and " + singleTypeProps
+                  + " properties that were referenced from only one type.");
+    }
   }
 
   /**

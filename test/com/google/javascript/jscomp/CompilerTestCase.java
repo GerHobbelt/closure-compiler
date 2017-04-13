@@ -204,7 +204,7 @@ public abstract class CompilerTestCase extends TestCase {
           "/** @type {?Function} */ Object.prototype.constructor;",
           "Object.defineProperties = function(obj, descriptors) {};",
           "/** @constructor",
-          " * @param {*} var_args */ ",
+          " * @param {...*} var_args */ ",
           "function Function(var_args) {}",
           "/** @type {!Function} */ Function.prototype.apply;",
           "/** @type {!Function} */ Function.prototype.bind;",
@@ -217,13 +217,21 @@ public abstract class CompilerTestCase extends TestCase {
           "function String(arg) {}",
           "/** @param {number} sliceArg */",
           "String.prototype.slice = function(sliceArg) {};",
+          "/**",
+          " * @this {?String|string}",
+          " * @param {?} regex",
+          " * @param {?} str",
+          " * @param {string=} opt_flags",
+          " * @return {string}",
+          " */",
+          "String.prototype.replace = function(regex, str, opt_flags) {};",
           "/** @type {number} */ String.prototype.length;",
           "/**",
           " * @template T",
           " * @constructor ",
           " * @implements {IArrayLike<T>} ",
           " * @implements {Iterable<T>}",
-          " * @param {*} var_args",
+          " * @param {...*} var_args",
           " * @return {!Array.<?>}",
           " */",
           "function Array(var_args) {}",
@@ -246,6 +254,19 @@ public abstract class CompilerTestCase extends TestCase {
           "Arguments.prototype.length;",
           "/**",
           " * @constructor",
+          " * @param {*=} opt_pattern",
+          " * @param {*=} opt_flags",
+          " * @return {!RegExp}",
+          " * @nosideeffects",
+          " */",
+          "function RegExp(opt_pattern, opt_flags) {}",
+          "/**",
+          " * @param {*} str The string to search.",
+          " * @return {?Array<string>}",
+          " */",
+          "RegExp.prototype.exec = function(str) {};",
+          "/**",
+          " * @constructor",
           " */",
           // TODO(bradfordcsmith): Copy fields for this from es5.js this when we have test cases
           //     that depend on them.
@@ -265,6 +286,9 @@ public abstract class CompilerTestCase extends TestCase {
           " */",
           "Object.defineProperty = function(obj, prop, descriptor) {};",
           "/** @type {?} */ var unknown;", // For producing unknowns in tests.
+          "/** @typedef {?} */ var symbol;", // TODO(sdh): remove once primitive 'symbol' supported
+          "/** @constructor */ function Symbol() {}",
+          "/** @const {!symbol} */ Symbol.iterator;",
           ACTIVE_X_OBJECT_DEF);
 
   /**
@@ -1216,6 +1240,7 @@ public abstract class CompilerTestCase extends TestCase {
       DiagnosticType error,
       DiagnosticType warning,
       String description) {
+    Preconditions.checkState(!this.typeCheckEnabled || !this.newTypeInferenceEnabled);
     RecentChange recentChange = new RecentChange();
     compiler.addChangeHandler(recentChange);
 
@@ -1319,9 +1344,11 @@ public abstract class CompilerTestCase extends TestCase {
         }
 
         if (computeSideEffects && i == 0) {
+          recentChange.reset();
           PureFunctionIdentifier.Driver mark =
               new PureFunctionIdentifier.Driver(compiler, null);
           mark.process(externsRoot, mainRoot);
+          hasCodeChanged = hasCodeChanged || recentChange.hasCodeChanged();
         }
 
         if (markNoSideEffects && i == 0) {
@@ -1416,8 +1443,8 @@ public abstract class CompilerTestCase extends TestCase {
         normalizeActualCode(compiler, externsRootClone, mainRootClone);
       }
 
-      boolean codeChange = !mainRootClone.isEquivalentTo(mainRoot);
-      boolean externsChange = !externsRootClone.isEquivalentTo(externsRoot);
+      boolean codeChange = !mainRootClone.isEquivalentWithSideEffectsTo(mainRoot);
+      boolean externsChange = !externsRootClone.isEquivalentWithSideEffectsTo(externsRoot);
 
       // Generally, externs should not be changed by the compiler passes.
       if (externsChange && !allowExternsChanges) {

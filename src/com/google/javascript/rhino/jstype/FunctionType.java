@@ -444,6 +444,10 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
     if (baseType.hasReferenceName() ||
         isNativeObjectType() ||
         baseType.isFunctionPrototypeType()) {
+      if (prototypeSlot != null && hasInstanceType() && baseType.equals(getInstanceType())) {
+        // Bail out for cases like Foo.prototype = new Foo();
+        return;
+      }
       baseType = new PrototypeObjectType(
           registry, getReferenceName() + ".prototype", baseType);
     }
@@ -956,29 +960,40 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
    */
   boolean checkFunctionEquivalenceHelper(
       FunctionType that, EquivalenceMethod eqMethod, EqCache eqCache) {
-    if (isConstructor()) {
-      if (that.isConstructor()) {
-        return this == that;
-      }
+    if (this == that) {
+      return true;
+    }
+    if (kind != that.kind) {
       return false;
     }
-    if (isInterface()) {
-      if (that.isInterface()) {
+    switch (kind) {
+      case CONSTRUCTOR:
+        return false;  // constructors use identity semantics, which we already checked for above.
+      case INTERFACE:
         return getReferenceName().equals(that.getReferenceName());
-      }
-      return false;
+      case ORDINARY:
+        return typeOfThis.checkEquivalenceHelper(that.typeOfThis, eqMethod, eqCache)
+            && call.checkArrowEquivalenceHelper(that.call, eqMethod, eqCache);
+      default:
+        throw new AssertionError();
     }
-    if (that.isInterface()) {
-      return false;
-    }
-
-    return typeOfThis.checkEquivalenceHelper(that.typeOfThis, eqMethod, eqCache) &&
-        call.checkArrowEquivalenceHelper(that.call, eqMethod, eqCache);
   }
 
   @Override
   public int hashCode() {
-    return isInterface() ? getReferenceName().hashCode() : call.hashCode();
+    int hc = kind.hashCode();
+    switch (kind) {
+      case CONSTRUCTOR:
+        return 31 * hc + System.identityHashCode(this);  // constructors use identity semantics
+      case INTERFACE:
+        return 31 * hc + getReferenceName().hashCode();
+      case ORDINARY:
+        hc =  31 * hc + typeOfThis.hashCode();
+        hc =  31 * hc + call.hashCode();
+        return hc;
+      default:
+        throw new AssertionError();
+    }
   }
 
   public boolean hasEqualCallType(FunctionType otherType) {
@@ -993,79 +1008,77 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
    * {@code this:T} if the function expects a known type for {@code this}.
    */
   @Override
-  String toStringHelper(boolean forAnnotations) {
+  StringBuilder appendTo(StringBuilder sb, boolean forAnnotations) {
     if (!isPrettyPrint() ||
         this == registry.getNativeType(JSTypeNative.FUNCTION_INSTANCE_TYPE)) {
-      return "Function";
+      return sb.append("Function");
     }
 
     setPrettyPrint(false);
 
-    StringBuilder b = new StringBuilder(32);
-    b.append("function (");
+    sb.append("function (");
     int paramNum = call.parameters.getChildCount();
     boolean hasKnownTypeOfThis = !(typeOfThis instanceof UnknownType);
     if (hasKnownTypeOfThis) {
       if (isConstructor()) {
-        b.append("new:");
+        sb.append("new:");
       } else {
-        b.append("this:");
+        sb.append("this:");
       }
-      b.append(typeOfThis.toStringHelper(forAnnotations));
+      typeOfThis.appendTo(sb, forAnnotations);
     }
     if (paramNum > 0) {
       if (hasKnownTypeOfThis) {
-        b.append(", ");
+        sb.append(", ");
       }
       Node p = call.parameters.getFirstChild();
-      appendArgString(b, p, forAnnotations);
+      appendArgString(sb, p, forAnnotations);
 
       p = p.getNext();
       while (p != null) {
-        b.append(", ");
-        appendArgString(b, p, forAnnotations);
+        sb.append(", ");
+        appendArgString(sb, p, forAnnotations);
         p = p.getNext();
       }
     }
-    b.append("): ");
-    b.append(call.returnType.toNonNullString(forAnnotations));
+    sb.append("): ");
+    call.returnType.appendAsNonNull(sb, forAnnotations);
 
     setPrettyPrint(true);
-    return b.toString();
+    return sb;
   }
 
-  private void appendArgString(
-      StringBuilder b, Node p, boolean forAnnotations) {
+  private void appendArgString(StringBuilder sb, Node p, boolean forAnnotations) {
     if (p.isVarArgs()) {
-      appendVarArgsString(b, p.getJSType(), forAnnotations);
+      appendVarArgsString(sb, p.getJSType(), forAnnotations);
     } else if (p.isOptionalArg()) {
-      appendOptionalArgString(b, p.getJSType(), forAnnotations);
+      appendOptionalArgString(sb, p.getJSType(), forAnnotations);
     } else {
-      b.append(p.getJSType().toNonNullString(forAnnotations));
+      p.getJSType().appendAsNonNull(sb, forAnnotations);
     }
   }
 
   /** Gets the string representation of a var args param. */
-  private void appendVarArgsString(StringBuilder builder, JSType paramType,
-      boolean forAnnotations) {
+  private void appendVarArgsString(
+      StringBuilder sb, JSType paramType, boolean forAnnotations) {
     if (paramType.isUnionType()) {
       // Remove the optionality from the var arg.
       paramType = paramType.toMaybeUnionType().getRestrictedUnion(
           registry.getNativeType(JSTypeNative.VOID_TYPE));
     }
-    builder.append("...").append(
-        paramType.toNonNullString(forAnnotations));
+    sb.append("...");
+    paramType.appendAsNonNull(sb, forAnnotations);
   }
 
   /** Gets the string representation of an optional param. */
   private void appendOptionalArgString(
-      StringBuilder builder, JSType paramType, boolean forAnnotations) {
+      StringBuilder sb, JSType paramType, boolean forAnnotations) {
     if (paramType.isUnionType()) {
       // Remove the optionality from the var arg.
       paramType = paramType.toMaybeUnionType().getRestrictedUnion(
           registry.getNativeType(JSTypeNative.VOID_TYPE));
     }
-    builder.append(paramType.toNonNullString(forAnnotations)).append("=");
+    paramType.appendAsNonNull(sb, forAnnotations).append("=");
   }
 
   /**

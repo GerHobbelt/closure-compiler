@@ -231,7 +231,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     Node parent = n.getParent();
     Preconditions.checkState(parent.isExprResult());
     String name = n.getSecondChild().getString();
-    Node value = n.getChildAtIndex(2).detach();
+    Node value = n.isFromExterns() ? null : n.getChildAtIndex(2).detach();
 
     Node replacement = NodeUtil.newQNameDeclaration(
         compiler, name, value, n.getJSDocInfo());
@@ -317,7 +317,7 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
         break;
 
       case EXPR_RESULT:
-        handleTypedefDefinition(t, n);
+        handleStubDefinition(t, n);
         break;
 
       case CLASS:
@@ -486,13 +486,18 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
   }
 
   /**
-   * Handles a typedef definition for a goog.provided name.
+   * Handles a stub definition for a goog.provided name
+   * (e.g. a @typedef or a definition from externs)
+   *
    * @param n EXPR_RESULT node.
    */
-  private void handleTypedefDefinition(
-      NodeTraversal t, Node n) {
+  private void handleStubDefinition(NodeTraversal t, Node n) {
+    if (!t.inGlobalHoistScope()) {
+      return;
+    }
     JSDocInfo info = n.getFirstChild().getJSDocInfo();
-    if (t.inGlobalHoistScope() && info != null && info.hasTypedefType()) {
+    boolean hasStubDefinition = info != null && (n.isFromExterns() || info.hasTypedefType());
+    if (hasStubDefinition) {
       String name = n.getFirstChild().getQualifiedName();
       if (name != null) {
         ProvidedName pn = providedNames.get(name);
@@ -1045,7 +1050,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
 
     // Verify second arg
     arg = arg.getNext();
-    if (!verifyNotNull(t, methodName, arg) || !verifyIsLast(t, methodName, arg)) {
+    if (!args.isFromExterns()
+        && (!verifyNotNull(t, methodName, arg) || !verifyIsLast(t, methodName, arg))) {
       return false;
     }
 

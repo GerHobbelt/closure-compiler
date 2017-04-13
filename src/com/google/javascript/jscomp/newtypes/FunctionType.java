@@ -79,14 +79,19 @@ public final class FunctionType {
     checkValid();
   }
 
-  // Only used to create TOP_FUNCTION and LOOSE_TOP_FUNCTION
+  // This constructor is only used to create TOP_FUNCTION and LOOSE_TOP_FUNCTION.
+  // We create only one TOP_FUNCTION and one LOOSE_TOP_FUNCTION, and check
+  // for "topness" using reference equality. Most fields of these two types are set to null,
+  // and are not allowed to be null for other function types. This is on purpose;
+  // we do not want to accidentally make a top function be equals() to some other
+  // function type. The return type is unknown for convenience.
   private FunctionType(JSTypes commonTypes, boolean isLoose) {
     Preconditions.checkNotNull(commonTypes);
     this.commonTypes = commonTypes;
     this.requiredFormals = null;
     this.optionalFormals = null;
     this.restFormals = null;
-    this.returnType = null;
+    this.returnType = Preconditions.checkNotNull(this.commonTypes.UNKNOWN);
     this.nominalType = null;
     this.receiverType = null;
     this.outerVarPreconditions = null;
@@ -275,7 +280,6 @@ public final class FunctionType {
   }
 
   public JSType getReturnType() {
-    Preconditions.checkArgument(!isTopFunction());
     return returnType;
   }
 
@@ -354,8 +358,13 @@ public final class FunctionType {
     }
     FunctionTypeBuilder builder = new FunctionTypeBuilder(this.commonTypes);
     builder.addReqFormal(fromReceiverToFirstFormal());
-    builder.addOptFormal(JSType.join(
-        this.commonTypes.getArrayInstance(), this.commonTypes.getArgumentsArrayType()));
+    JSType arrayContents;
+    if (getMaxArityWithoutRestFormals() == 0 && hasRestFormals()) {
+      arrayContents = getRestFormalsType();
+    } else {
+      arrayContents = this.commonTypes.UNKNOWN;
+    }
+    builder.addOptFormal(this.commonTypes.getIArrayLikeInstance(arrayContents));
     builder.addRetType(this.returnType);
     builder.addAbstract(this.isAbstract);
     return builder.buildFunction();
@@ -762,7 +771,7 @@ public final class FunctionType {
   }
 
   public boolean isGeneric() {
-    return !typeParameters.isEmpty();
+    return !this.typeParameters.isEmpty();
   }
 
   public List<String> getTypeParameters() {
@@ -773,11 +782,15 @@ public final class FunctionType {
       Multimap<String, JSType> typeMultimap, SubtypeCache subSuperMap) {
     Preconditions.checkState(this.typeParameters.isEmpty(),
         "Non-empty type parameters %s", this.typeParameters);
-    Preconditions.checkState(this.outerVarPreconditions.isEmpty());
+    Preconditions.checkState(this == this.commonTypes.LOOSE_TOP_FUNCTION
+        || this.outerVarPreconditions.isEmpty());
     Preconditions.checkState(this != this.commonTypes.TOP_FUNCTION);
 
     if (this == this.commonTypes.LOOSE_TOP_FUNCTION || other.isTopFunction() || other.isLoose()) {
       return true;
+    }
+    if (other.isGeneric()) {
+      other = instantiateGenericsWithUnknown(other);
     }
     if (!acceptsAnyArguments()) {
       if (other.requiredFormals.size() > this.requiredFormals.size()) {
@@ -947,7 +960,7 @@ public final class FunctionType {
   }
 
   private FunctionType substituteNominalGenerics(Map<String, JSType> typeMap) {
-    if (typeMap.isEmpty()) {
+    if (typeMap.isEmpty() || this.isTopFunction()) {
       return this;
     }
     Map<String, JSType> reducedMap = typeMap;
@@ -1069,9 +1082,8 @@ public final class FunctionType {
     }
     Multimap<String, JSType> typeMultimap = LinkedHashMultimap.create();
     for (int i = 0, size = argTypes.size(); i < size; i++) {
-      if (!this.getFormalType(i)
-          .unifyWithSubtype(argTypes.get(i), typeParameters, typeMultimap,
-              SubtypeCache.create())) {
+      if (!this.getFormalType(i).unifyWithSubtype(
+          argTypes.get(i), typeParameters, typeMultimap, SubtypeCache.create())) {
         return null;
       }
     }

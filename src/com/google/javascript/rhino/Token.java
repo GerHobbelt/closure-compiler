@@ -124,7 +124,8 @@ public enum Token {
     DEFAULT_CASE, // default keyword
     WHILE, // while keyword
     DO, // do keyword
-    FOR, // for keyword
+    FOR, // for(;;) statemet
+    FOR_IN, // for-in
     BREAK, // break keyword
     CONTINUE, // continue keyword
     VAR, // var keyword
@@ -134,6 +135,7 @@ public enum Token {
 
     EMPTY,
 
+    ROOT, // Used only for the 3 root nodes of the AST: externsRoot, jsRoot, and externsAndJsRoot
     BLOCK, // statement block
     LABEL, // label
     EXPR_RESULT, // expression statement in scripts
@@ -248,6 +250,7 @@ public enum Token {
       case ARRAYLIT:
       case BANG:
       case BLOCK:
+      case ROOT:
       case BREAK:
       case CALL:
       case COLON:

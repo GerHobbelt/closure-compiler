@@ -384,7 +384,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // But we do not want to see the warnings from OTI.
     if (options.getNewTypeInference()) {
       options.checkTypes = true;
-      // Supress warnings from the const checks of CheckAccessControls so as to avoid
+      // Suppress warnings from the const checks of CheckAccessControls so as to avoid
       // duplication.
       options.setWarningLevel(DiagnosticGroups.ACCESS_CONTROLS_CONST, CheckLevel.OFF);
       if (!options.reportOTIErrorsUnderNTI) {
@@ -654,14 +654,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * Sets up the skeleton of the AST (the externs and root).
    */
   private void initAST() {
-    jsRoot = IR.block();
-    jsRoot.setIsSyntheticBlock(true);
-
-    externsRoot = IR.block();
-    externsRoot.setIsSyntheticBlock(true);
-
-    externAndJsRoot = IR.block(externsRoot, jsRoot);
-    externAndJsRoot.setIsSyntheticBlock(true);
+    jsRoot = IR.root();
+    externsRoot = IR.root();
+    externAndJsRoot = IR.root(externsRoot, jsRoot);
   }
 
   public Result compile(
@@ -742,7 +737,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * stack.
    */
   <T> T runInCompilerThread(Callable<T> callable) {
-    return compilerExecutor.runInCompilerThread(callable, options != null && options.tracer.isOn());
+    return compilerExecutor.runInCompilerThread(
+        callable, options != null && options.getTracerMode().isOn());
   }
 
   private void compileInternal() {
@@ -1036,7 +1032,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   Tracer newTracer(String passName) {
     String comment = passName
         + (recentChange.hasCodeChanged() ? " on recently changed AST" : "");
-    if (options.tracer.isOn() && tracker != null) {
+    if (options.getTracerMode().isOn() && tracker != null) {
       tracker.recordPassStart(passName, true);
     }
     return new Tracer("Compiler", comment);
@@ -1044,7 +1040,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   void stopTracer(Tracer t, String passName) {
     long result = t.stop();
-    if (options.tracer.isOn() && tracker != null) {
+    if (options.getTracerMode().isOn() && tracker != null) {
       tracker.recordPassStop(passName, result);
     }
   }
@@ -1348,14 +1344,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   public SymbolTable buildKnownSymbolTable() {
-    SymbolTable symbolTable = new SymbolTable(getTypeRegistry());
+    SymbolTable symbolTable = new SymbolTable(this, getTypeRegistry());
 
     MemoizedScopeCreator typedScopeCreator = getTypedScopeCreator();
     if (typedScopeCreator != null) {
       symbolTable.addScopes(typedScopeCreator.getAllMemoizedScopes());
       symbolTable.addSymbolsFrom(typedScopeCreator);
     } else {
-      symbolTable.findScopes(this, externsRoot, jsRoot);
+      symbolTable.findScopes(externsRoot, jsRoot);
     }
 
     GlobalNamespace globalNamespace =
@@ -1366,8 +1362,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     ReferenceCollectingCallback refCollector =
         new ReferenceCollectingCallback(
-            this, ReferenceCollectingCallback.DO_NOTHING_BEHAVIOR);
-    NodeTraversal.traverse(this, getRoot(), refCollector);
+            this,
+            ReferenceCollectingCallback.DO_NOTHING_BEHAVIOR,
+            SyntacticScopeCreator.makeUntyped(this));
+    refCollector.process(getRoot());
     symbolTable.addSymbolsFrom(refCollector);
 
     PreprocessorSymbolTable preprocessorSymbolTable =
@@ -1378,10 +1376,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     symbolTable.fillNamespaceReferences();
     symbolTable.fillPropertyScopes();
-    symbolTable.fillThisReferences(this, externsRoot, jsRoot);
-    symbolTable.fillPropertySymbols(this, externsRoot, jsRoot);
-    symbolTable.fillJSDocInfo(this, externsRoot, jsRoot);
-    symbolTable.fillSymbolVisibility(this, externsRoot, jsRoot);
+    symbolTable.fillThisReferences(externsRoot, jsRoot);
+    symbolTable.fillPropertySymbols(externsRoot, jsRoot);
+    symbolTable.fillJSDocInfo(externsRoot, jsRoot);
+    symbolTable.fillSymbolVisibility(externsRoot, jsRoot);
 
     return symbolTable;
   }
@@ -1460,8 +1458,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     externsRoot.detachChildren();
     jsRoot.detachChildren();
 
-    if (options.tracer.isOn()) {
-      tracker = new PerformanceTracker(externsRoot, jsRoot, options.tracer, this.outStream);
+    if (options.getTracerMode().isOn()) {
+      tracker =
+          new PerformanceTracker(externsRoot, jsRoot, options.getTracerMode(), this.outStream);
       addChangeHandler(tracker.getCodeChangeHandler());
     }
 
@@ -2467,7 +2466,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
-  SourceFile getSourceFileByName(String sourceName) {
+  public SourceFile getSourceFileByName(String sourceName) {
     // Here we assume that the source name is the input name, this
     // is try of JavaScript parsed from source.
     if (sourceName != null) {
@@ -2787,7 +2786,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       Node originalRoot, Node js, PassFactory passFactory) {
     HotSwapCompilerPass pass = passFactory.getHotSwapPass(this);
     if (pass != null) {
-      logger.info("Performing HotSwap for pass " + passFactory.getName());
+      if (logger.isLoggable(Level.INFO)) {
+        logger.info("Performing HotSwap for pass " + passFactory.getName());
+      }
       pass.hotSwapScript(js, originalRoot);
     }
   }

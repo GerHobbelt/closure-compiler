@@ -384,7 +384,7 @@ class RemoveUnusedVars
     // Rather than create a new option for this, we assume that if the user
     // is removing globals, then it's OK to remove unused function args.
     //
-    // See http://code.google.com/p/closure-compiler/issues/detail?id=253
+    // See http://blickly.github.io/closure-compiler-issues/#253
     if (!removeGlobals) {
       return;
     }
@@ -746,8 +746,7 @@ class RemoveUnusedVars
           boolean assignedToUnknownValue = false;
           boolean hasPropertyAssign = false;
 
-          if (var.getParentNode().isVar() &&
-              !NodeUtil.isForIn(var.getParentNode().getParent())) {
+          if (var.getParentNode().isVar() && !var.getParentNode().getParent().isForIn()) {
             Node value = var.getInitialValue();
             assignedToUnknownValue = value != null &&
                 !NodeUtil.isLiteralValue(value, true);
@@ -845,9 +844,7 @@ class RemoveUnusedVars
           toRemove.getFirstChild().setString("");
         }
         // Don't remove bleeding functions.
-      } else if (parent != null &&
-          parent.isFor() &&
-          parent.getChildCount() < 4) {
+      } else if (parent != null && parent.isForIn()) {
         // foreach iterations have 3 children. Leave them alone.
       } else if (toRemove.isVar() &&
           nameNode.hasChildren() &&

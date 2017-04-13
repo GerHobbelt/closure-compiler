@@ -914,8 +914,9 @@ function ViewCSS() {}
  * @param {?string=} opt_pseudoElt This argument is required according to the
  *     CSS2 specification, but optional in all major browsers. See the note at
  *     https://developer.mozilla.org/en-US/docs/Web/API/Window.getComputedStyle
- * @return {CSSStyleDeclaration}
+ * @return {?CSSStyleDeclaration}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSview-getComputedStyle
+ * @see https://bugzilla.mozilla.org/show_bug.cgi?id=548397
  */
 ViewCSS.prototype.getComputedStyle = function(elt, opt_pseudoElt) {};
 
@@ -2488,15 +2489,11 @@ Window.prototype.CSS;
 // http://dev.w3.org/csswg/css-font-loading/
 
 /**
- * @enum {string}
+ * Set of possible string values: 'error', 'loaded', 'loading', 'unloaded'.
+ * @typedef {string}
  * @see http://dev.w3.org/csswg/css-font-loading/#enumdef-fontfaceloadstatus
  */
-var FontFaceLoadStatus = {
-  ERROR: 'error',
-  LOADED: 'loaded',
-  LOADING: 'loading',
-  UNLOADED: 'unloaded'
-};
+var FontFaceLoadStatus;
 
 /**
  * @typedef {{
@@ -2575,13 +2572,11 @@ FontFace.prototype.status;
 FontFace.prototype.load = function() {};
 
 /**
- * @enum
+ * Set of possible string values: 'loaded', 'loading'.
+ * @typedef {string}
  * @see http://dev.w3.org/csswg/css-font-loading/#enumdef-fontfacesetloadstatus
  */
-var FontFaceSetLoadStatus = {
-  LOADED: 'loaded',
-  LOADING: 'loading'
-};
+var FontFaceSetLoadStatus;
 
 /**
  * @interface

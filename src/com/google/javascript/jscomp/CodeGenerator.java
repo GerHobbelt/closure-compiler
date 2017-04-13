@@ -308,7 +308,7 @@ public class CodeGenerator {
 
       case NUMBER:
         Preconditions.checkState(childCount == 0);
-        cc.addNumber(n.getDouble());
+        cc.addNumber(n.getDouble(), n);
         break;
 
       case TYPEOF:
@@ -332,7 +332,7 @@ public class CodeGenerator {
           // we print produces the same AST as the code we parse back.
           // NEG is a weird case because Rhino parses "- -2" as "2".
           if (n.getFirstChild().isNumber()) {
-            cc.addNumber(-n.getFirstChild().getDouble());
+            cc.addNumber(-n.getFirstChild().getDouble(), n.getFirstChild());
           } else {
             cc.addOp(NodeUtil.opToStrNoFail(type), false);
             addExpr(first, NodeUtil.precedence(type), Context.OTHER);
@@ -601,7 +601,7 @@ public class CodeGenerator {
               // Determine if the string is a simple number.
               double d = getSimpleNumber(name);
               if (!Double.isNaN(d)) {
-                cc.addNumber(d);
+                cc.addNumber(d, n);
               } else {
                 addJsString(n);
               }
@@ -617,11 +617,12 @@ public class CodeGenerator {
       case SCRIPT:
       case MODULE_BODY:
       case BLOCK:
+      case ROOT:
         {
           if (n.getClass() != Node.class) {
             throw new Error("Unexpected Node subclass.");
           }
-          boolean preserveBlock = n.isBlock() && !n.isSyntheticBlock();
+          boolean preserveBlock = n.isNormalBlock() && !n.isSyntheticBlock();
           if (preserveBlock) {
             cc.beginBlock();
           }
@@ -652,32 +653,33 @@ public class CodeGenerator {
         }
 
       case FOR:
-        if (childCount == 4) {
-          add("for");
-          cc.maybeInsertSpace();
-          add("(");
-          if (NodeUtil.isNameDeclaration(first)) {
-            add(first, Context.IN_FOR_INIT_CLAUSE);
-          } else {
-            addExpr(first, 0, Context.IN_FOR_INIT_CLAUSE);
-          }
-          add(";");
-          add(first.getNext());
-          add(";");
-          add(first.getNext().getNext());
-          add(")");
-          addNonEmptyStatement(last, getContextForNonEmptyExpression(context), false);
+        Preconditions.checkState(childCount == 4);
+        add("for");
+        cc.maybeInsertSpace();
+        add("(");
+        if (NodeUtil.isNameDeclaration(first)) {
+          add(first, Context.IN_FOR_INIT_CLAUSE);
         } else {
-          Preconditions.checkState(childCount == 3);
-          add("for");
-          cc.maybeInsertSpace();
-          add("(");
-          add(first);
-          add("in");
-          add(first.getNext());
-          add(")");
-          addNonEmptyStatement(last, getContextForNonEmptyExpression(context), false);
+          addExpr(first, 0, Context.IN_FOR_INIT_CLAUSE);
         }
+        add(";");
+        add(first.getNext());
+        add(";");
+        add(first.getNext().getNext());
+        add(")");
+        addNonEmptyStatement(last, getContextForNonEmptyExpression(context), false);
+        break;
+
+      case FOR_IN:
+        Preconditions.checkState(childCount == 3);
+        add("for");
+        cc.maybeInsertSpace();
+        add("(");
+        add(first);
+        add("in");
+        add(first.getNext());
+        add(")");
+        addNonEmptyStatement(last, getContextForNonEmptyExpression(context), false);
         break;
 
       case FOR_OF:
@@ -1601,7 +1603,7 @@ public class CodeGenerator {
       // Determine if the string is a simple number.
       double d = getSimpleNumber(key);
       if (!Double.isNaN(d)) {
-        cc.addNumber(d);
+        cc.addNumber(d, n);
       } else {
         addJsString(n);
       }
@@ -1648,8 +1650,9 @@ public class CodeGenerator {
   }
 
   void addCaseBody(Node caseBody) {
+    Preconditions.checkState(caseBody.isBlock());
     cc.beginCaseBody();
-    add(caseBody);
+    addAllSiblings(caseBody.getFirstChild());
     cc.endCaseBody();
   }
 

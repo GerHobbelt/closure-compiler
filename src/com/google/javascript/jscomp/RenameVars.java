@@ -21,10 +21,10 @@ import static com.google.common.base.Strings.nullToEmpty;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ListMultimap;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.Node;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
-
 import javax.annotation.Nullable;
 
 /**
@@ -88,16 +87,18 @@ final class RenameVars implements CompilerPass {
   // Logic for bleeding functions, where the name leaks into the outer
   // scope on IE but not on other browsers.
   private final Set<Var> localBleedingFunctions = new HashSet<>();
-  private final ArrayListMultimap<Scope, Var> localBleedingFunctionsPerScope =
+  private final ListMultimap<Scope, Var> localBleedingFunctionsPerScope =
       ArrayListMultimap.create();
 
   class Assignment {
+    final boolean isLocal;
     final String oldName;
     final int orderOfOccurrence;
     String newName;
     int count; // Number of times this is referenced
 
     Assignment(String name) {
+      this.isLocal = name.startsWith(LOCAL_VAR_PREFIX);
       this.oldName = name;
       this.newName = null;
       this.count = 0;
@@ -138,8 +139,7 @@ final class RenameVars implements CompilerPass {
   private final char[] reservedCharacters;
 
   /** A prefix to distinguish temporary local names from global names */
-  // TODO(user): No longer needs to be public when shadowing doesn't use it.
-  public static final String LOCAL_VAR_PREFIX = "L ";
+  private static final String LOCAL_VAR_PREFIX = "L ";
 
   // Shared name generator
   private final NameGenerator nameGenerator;
@@ -271,9 +271,9 @@ final class RenameVars implements CompilerPass {
       // Check if we can rename this.
       if (!okToRenameVar(name, local)) {
         if (local) {
-          // Blindly de-uniquify for the Prototype library for issue 103.
-          String newName = MakeDeclaredNamesUnique.ContextualRenameInverter
-              .getOriginalName(name);
+          // Blindly de-uniquify for the Prototype library for
+          // http://blickly.github.io/closure-compiler-issues/#103
+          String newName = MakeDeclaredNamesUnique.ContextualRenameInverter.getOriginalName(name);
           if (!newName.equals(name)) {
             n.setString(newName);
           }
@@ -455,7 +455,7 @@ final class RenameVars implements CompilerPass {
         continue;
       }
 
-      if (a.oldName.startsWith(LOCAL_VAR_PREFIX)
+      if (a.isLocal
           || (!externNames.contains(a.oldName)
               && prevNewName.startsWith(prefix))) {
         reservedNames.add(prevNewName);
@@ -499,7 +499,7 @@ final class RenameVars implements CompilerPass {
       }
 
       String newName;
-      if (a.oldName.startsWith(LOCAL_VAR_PREFIX)) {
+      if (a.isLocal) {
         // For local variable, we make the assignment right away.
         newName = localNameGenerator.generateNextName();
         finalizeNameAssignment(a, newName);

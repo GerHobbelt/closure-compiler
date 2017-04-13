@@ -119,8 +119,8 @@ public class UnknownType extends ObjectType {
   }
 
   @Override
-  String toStringHelper(boolean forAnnotations) {
-    return getReferenceName();
+  StringBuilder appendTo(StringBuilder sb, boolean forAnnotations) {
+    return sb.append(getReferenceName());
   }
 
   @Override
@@ -163,5 +163,10 @@ public class UnknownType extends ObjectType {
   @Override
   JSType resolveInternal(ErrorReporter t, StaticTypedScope<JSType> scope) {
     return this;
+  }
+
+  @Override
+  public int hashCode() {
+    return System.identityHashCode(this);
   }
 }

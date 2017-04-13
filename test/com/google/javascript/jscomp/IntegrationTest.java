@@ -3122,6 +3122,16 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, code, "_.x = null; try { +_.x.FOO; } catch (a) {}");
   }
 
+  // https://github.com/google/closure-compiler/issues/1875
+  public void testNoProtectSideEffectsInChecksOnly() {
+    String code = "x;";
+
+    CompilerOptions options = createCompilerOptions();
+    options.setChecksOnly(true);
+    options.setProtectHiddenSideEffects(true);
+    testSame(options, code);
+  }
+
   public void testRenameCollision() {
     String code = "" +
           "/**\n" +
@@ -3802,7 +3812,12 @@ public final class IntegrationTest extends IntegrationTestCase {
     try {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
-    } catch (CompilerOptionsPreprocessor.InvalidOptionsException e) {}
+    } catch (RuntimeException e) {
+      Throwable t = e.getCause();
+      if (!(t instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
+        fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
+      }
+    }
   }
 
   public void testMaxFunSizeAfterInliningUsage() {
@@ -3812,7 +3827,12 @@ public final class IntegrationTest extends IntegrationTestCase {
     try {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
-    } catch (CompilerOptionsPreprocessor.InvalidOptionsException expected) {}
+    } catch (RuntimeException e) {
+      Throwable t = e.getCause();
+      if (!(t instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
+        fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
+      }
+    }
   }
 
   // isEquivalentTo returns false for alpha-equivalent nodes
@@ -3830,6 +3850,18 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setSkipTranspilationAndCrash(true);
     test(options, "function f(x) { if (x) var x=5; }", "function f(x) { if (x) x=5; }");
+  }
+
+  public void testExternsProvideIsAllowed() {
+    CompilerOptions options = createCompilerOptions();
+    options.setIncrementalChecks(CompilerOptions.IncrementalCheckMode.CHECK_IJS);
+    options.setClosurePass(true);
+    options.setCheckTypes(true);
+
+    externs = ImmutableList.of(SourceFile.fromCode("<externs>",
+        "goog.provide('foo.bar'); /** @type {!Array<number>} */ foo.bar;"));
+
+    test(options, "", "");
   }
 
   // GitHub issue #250: https://github.com/google/closure-compiler/issues/250
@@ -3924,6 +3956,20 @@ public final class IntegrationTest extends IntegrationTestCase {
             "function a(){}a.prototype.a=function(b,e){window.c=b*e};",
             "function d(){}d.b=a.prototype;d.prototype.a=function(b){d.b.a.call(this,b)};",
             "(new d).a(100, 200);"));
+  }
+
+  // GitHub issue #2203: https://github.com/google/closure-compiler/issues/2203
+  public void testPureFunctionIdentifierWorksWithMultipleNames() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    test(options,
+        LINE_JOINER.join(
+            "var SetCustomData1 = function SetCustomData2(element, dataName, dataValue) {",
+            "    var x = element['_customData'];",
+            "    x[dataName] = dataValue;",
+            "}",
+            "SetCustomData1(window, \"foo\", \"bar\");"),
+        "window._customData.foo=\"bar\";");
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

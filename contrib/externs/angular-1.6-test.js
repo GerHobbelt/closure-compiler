@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-package com.google.common.base;
+/**
+ * @fileoverview Test externs for v1_5.
+ * @externs
+ *
+ * Some AngularJS methods are only available when debug data is enabled,
+ * see https://docs.angularjs.org/guide/production#disabling-debug-data.
+ */
 
-/** GWT compatible minimal replacement for {@code Throwables} */
-public final class Throwables {
-  public static RuntimeException propagate(Throwable throwable) {
-    // TODO(moz): Emulate propagation and maybe contribute to Guava.
-    throw new RuntimeException(throwable);
-  }
-}
+/**
+ * Allows isolateScope to be used in angular tests.
+ * @return {!angular.Scope|undefined}
+ */
+angular.JQLite.prototype.isolateScope = function() {};

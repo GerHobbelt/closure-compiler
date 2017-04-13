@@ -320,7 +320,7 @@ class TypeValidator {
       // }
       // In this case, we incorrectly type x because of how we
       // infer properties locally. See issue 109.
-      // http://code.google.com/p/closure-compiler/issues/detail?id=109
+      // http://blickly.github.io/closure-compiler-issues/#109
       //
       // We do not do this inference globally.
       if (n.isGetProp() &&
@@ -384,7 +384,7 @@ class TypeValidator {
                         JSType indexType) {
     Preconditions.checkState(n.isGetElem(), n);
     Node indexNode = n.getLastChild();
-    if (objType.isStruct()) {
+    if (objType.isStruct() && !isWellKnownSymbol(indexNode)) {
       report(JSError.make(indexNode,
                           ILLEGAL_PROPERTY_ACCESS, "'[]'", "struct"));
     }
@@ -408,6 +408,14 @@ class TypeValidator {
             typeRegistry.createUnionType(ARRAY_TYPE, OBJECT_TYPE));
       }
     }
+  }
+
+  // TODO(sdh): Replace isWellKnownSymbol with a real type-based
+  // check once the type system understands the symbol primitive.
+  // Any @const symbol reference should be allowed for a @struct.
+  private static boolean isWellKnownSymbol(Node n) {
+    return n.isGetProp() && n.getFirstChild().isName()
+        && n.getFirstChild().getString().equals("Symbol");
   }
 
   /**
@@ -794,8 +802,9 @@ class TypeValidator {
     if (strictMismatch || mismatch) {
       // We don't report a type error, but we still need to construct a JSError,
       // for people who enable the invalidation diagnostics in DisambiguateProperties.
-      String msg = "Implicit use of type " + sourceType + " as " + targetType;
-      JSError err = JSError.make(src, TYPE_MISMATCH_WARNING, msg);
+      // Use the empty string as the error string. Creating an actual error message can be slow
+      // for large types; we create an error string lazily in DisambiguateProperties.
+      JSError err = JSError.make(src, TYPE_MISMATCH_WARNING, "");
       implicitInterfaceUses.add(new TypeMismatch(sourceType, targetType, err));
     }
   }

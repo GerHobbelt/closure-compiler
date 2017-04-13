@@ -609,16 +609,14 @@ final class ObjectType implements TypeWithProperties {
       if (!thisNt.isNominalSubtypeOf(otherNt)) {
         checkOnlyLocalProps = false;
       }
-      if (otherNt.isIObject()) {
-        // IObject is a weird structural type; we check that the generics
-        // match when checking two IObjects for subtyping.
-        if (thisNt.inheritsFromIObjectReflexive()
-            && !thisNt.isNominalSubtypeOf(otherNt)) {
-          return false;
-        }
-        if (thisNt.isBuiltinObject() || thisNt.isLiteralObject()) {
-          return compareRecordTypeToIObject(otherNt, subSuperMap);
-        }
+      // IObject and IArrayLike are treated specially;
+      // unlike other structural types, we check that the generics match.
+      if (thisNt.inheritsFromIObjectReflexive() && otherNt.inheritsFromIObjectReflexive()
+          && !thisNt.isIObjectSubtypeOf(otherNt)) {
+        return false;
+      }
+      if ((thisNt.isBuiltinObject() || thisNt.isLiteralObject()) && otherNt.isIObject()) {
+        return compareRecordTypeToIObject(otherNt, subSuperMap);
       }
     } else if (!thisNt.isNominalSubtypeOf(otherNt)) {
       return false;
@@ -676,10 +674,12 @@ final class ObjectType implements TypeWithProperties {
        if (keyType.isNumber() && Ints.tryParse(pname) == null) {
          return false;
        }
-       if (!keyType.isNumber() && !keyType.isString()) {
+       if (!keyType.isNumber() && !keyType.isString() && !keyType.isUnknown()) {
          return false;
        }
-       if (!ptype.isSubtypeOf(valueType, subSuperMap)) {
+       // Bracket accesses on the IObject (or on an Array) can generally return undefined
+       // and we don't warn about that; so ignore undefined for the object literal as well.
+       if (!ptype.removeType(this.commonTypes.UNDEFINED).isSubtypeOf(valueType, subSuperMap)) {
          return false;
        }
      }
@@ -1279,6 +1279,9 @@ final class ObjectType implements TypeWithProperties {
     }
     Set<String> thisProps = !thisNt.isBuiltinObject() && thisNt.isStructuralInterface()
         ? thisNt.getAllPropsOfInterface() : this.props.keySet();
+    if (thisProps == null) {// Can happen during GTI when types aren't finalized yet.
+      return true;
+    }
     return unifyPropsWithSubtype(other, thisProps, typeParameters, typeMultimap, subSuperMap);
   }
 

@@ -67,6 +67,8 @@ class ReferenceCollectingCallback implements ScopedCallback,
    */
   private final Behavior behavior;
 
+  private final ScopeCreator scopeCreator;
+
   /**
    * JavaScript compiler to use in traversing.
    */
@@ -88,8 +90,8 @@ class ReferenceCollectingCallback implements ScopedCallback,
   /**
    * Constructor initializes block stack.
    */
-  ReferenceCollectingCallback(AbstractCompiler compiler, Behavior behavior) {
-    this(compiler, behavior, Predicates.<Var>alwaysTrue());
+  ReferenceCollectingCallback(AbstractCompiler compiler, Behavior behavior, ScopeCreator creator) {
+    this(compiler, behavior, creator, Predicates.<Var>alwaysTrue());
   }
 
   /**
@@ -98,10 +100,11 @@ class ReferenceCollectingCallback implements ScopedCallback,
    * The test for Var equality uses reference equality, so it's necessary to
    * inject a scope when you traverse.
    */
-  ReferenceCollectingCallback(AbstractCompiler compiler, Behavior behavior,
+  ReferenceCollectingCallback(AbstractCompiler compiler, Behavior behavior, ScopeCreator creator,
       Predicate<Var> varFilter) {
     this.compiler = compiler;
     this.behavior = behavior;
+    this.scopeCreator = creator;
     this.varFilter = varFilter;
   }
 
@@ -111,11 +114,13 @@ class ReferenceCollectingCallback implements ScopedCallback,
    */
   @Override
   public void process(Node externs, Node root) {
-    NodeTraversal.traverseRoots(compiler, this, externs, root);
+    NodeTraversal t = new NodeTraversal(compiler, this, scopeCreator);
+    t.traverseRoots(externs, root);
   }
 
   public void process(Node root) {
-    NodeTraversal.traverse(compiler, root, this);
+    NodeTraversal t = new NodeTraversal(compiler, this, scopeCreator);
+    t.traverse(root);
   }
 
   /**
@@ -123,7 +128,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
    */
   void processScope(Scope scope) {
     this.narrowScope = scope;
-    (new NodeTraversal(compiler, this)).traverseAtScope(scope);
+    (new NodeTraversal(compiler, this, scopeCreator)).traverseAtScope(scope);
     this.narrowScope = null;
   }
 
@@ -175,10 +180,10 @@ class ReferenceCollectingCallback implements ScopedCallback,
           addReference(v, new Reference(n, t, peek(blockStack)));
         }
 
-        if (v.getParentNode() != null &&
-            NodeUtil.isHoistedFunctionDeclaration(v.getParentNode()) &&
+        if (v.getParentNode() != null
+            && NodeUtil.isHoistedFunctionDeclaration(v.getParentNode())
             // If we're only traversing a narrow scope, do not try to climb outside.
-            (narrowScope == null || narrowScope.getDepth() <= v.getScope().getDepth())) {
+            && (narrowScope == null || narrowScope.getDepth() <= v.getScope().getDepth())) {
           outOfBandTraversal(v);
         }
       }
@@ -222,7 +227,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
     List<BasicBlock> oldBlockStack = blockStack;
     blockStack = newBlockStack;
 
-    NodeTraversal outOfBandTraversal = new NodeTraversal(compiler, this);
+    NodeTraversal outOfBandTraversal = new NodeTraversal(compiler, this, scopeCreator);
     outOfBandTraversal.traverseFunctionOutOfBand(fnNode, containingScope);
 
     blockStack = oldBlockStack;
@@ -299,6 +304,7 @@ class ReferenceCollectingCallback implements ScopedCallback,
       switch (parent.getToken()) {
         case DO:
         case FOR:
+        case FOR_IN:
         case FOR_OF:
         case TRY:
         case WHILE:
@@ -738,9 +744,6 @@ class ReferenceCollectingCallback implements ScopedCallback,
 
     private static boolean isLhsOfEnhancedForExpression(Node n) {
       Node parent = n.getParent();
-      if (NodeUtil.isNameDeclaration(parent)) {
-        return isLhsOfEnhancedForExpression(parent);
-      }
       return NodeUtil.isEnhancedFor(parent) && parent.getFirstChild() == n;
     }
 
@@ -758,16 +761,28 @@ class ReferenceCollectingCallback implements ScopedCallback,
     boolean isLvalue() {
       Node parent = getParent();
       Token parentType = parent.getToken();
-      return (parentType == Token.VAR && nameNode.getFirstChild() != null)
-          || (parentType == Token.LET && nameNode.getFirstChild() != null)
-          || (parentType == Token.CONST && nameNode.getFirstChild() != null)
-          || (parentType == Token.DEFAULT_VALUE && parent.getFirstChild() == nameNode)
-          || parentType == Token.INC
-          || parentType == Token.DEC
-          || parentType == Token.CATCH
-          || (NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == nameNode)
-          || isLhsOfEnhancedForExpression(nameNode)
-          || NodeUtil.isLhsByDestructuring(nameNode);
+      switch (parentType) {
+        case VAR:
+        case LET:
+        case CONST:
+          return (nameNode.getFirstChild() != null || isLhsOfEnhancedForExpression(nameNode));
+        case DEFAULT_VALUE:
+          return parent.getFirstChild() == nameNode;
+        case INC:
+        case DEC:
+        case CATCH:
+          return true;
+        case FOR:
+        case FOR_IN:
+        case FOR_OF:
+          return NodeUtil.isEnhancedFor(parent) && parent.getFirstChild() == nameNode;
+        case OBJECT_PATTERN:
+        case ARRAY_PATTERN:
+        case STRING_KEY:
+          return NodeUtil.isLhsByDestructuring(nameNode);
+        default:
+          return (NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == nameNode);
+      }
     }
 
     Scope getScope() {
@@ -808,9 +823,11 @@ class ReferenceCollectingCallback implements ScopedCallback,
 
       if (root.getParent() != null) {
         Token pType = root.getParent().getToken();
-        this.isLoop = pType == Token.DO ||
-            pType == Token.WHILE ||
-            pType == Token.FOR;
+        this.isLoop =
+            pType == Token.DO
+                || pType == Token.WHILE
+                || pType == Token.FOR
+                || pType == Token.FOR_IN;
       } else {
         this.isLoop = false;
       }

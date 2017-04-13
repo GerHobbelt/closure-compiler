@@ -16,6 +16,7 @@
 
 package com.google.javascript.refactoring;
 
+import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -94,6 +95,39 @@ public final class SuggestedFix {
       Joiner.on("\n\n").appendTo(sb, entry.getValue());
     }
     return sb.toString();
+  }
+
+  static String getShortNameForRequire(String namespace) {
+    int lastDot = namespace.lastIndexOf('.');
+    if (lastDot == -1) {
+      return namespace;
+    }
+
+    // A few special cases so that we don't end up with code like
+    // "const string = goog.require('goog.string');" which would shadow the built-in string type.
+    String rightmostName = namespace.substring(lastDot + 1);
+    switch (Ascii.toUpperCase(rightmostName)) {
+      case "ARRAY":
+      case "MAP":
+      case "MATH":
+      case "OBJECT":
+      case "PROMISE":
+      case "SET":
+      case "STRING":
+        int secondToLastDot = namespace.lastIndexOf('.', lastDot - 1);
+        String secondToLastName = namespace.substring(secondToLastDot + 1, lastDot);
+        boolean capitalize = Character.isUpperCase(rightmostName.charAt(0));
+        if (capitalize) {
+          secondToLastName = upperCaseFirstLetter(secondToLastName);
+        }
+        return secondToLastName + upperCaseFirstLetter(rightmostName);
+      default:
+        return rightmostName;
+    }
+  }
+
+  static String upperCaseFirstLetter(String w) {
+    return Character.toUpperCase(w.charAt(0)) + w.substring(1);
   }
 
   /**
@@ -192,6 +226,13 @@ public final class SuggestedFix {
      */
     public Builder deleteWithoutRemovingWhitespaceBefore(Node n) {
       return delete(n, false);
+    }
+
+    /** Deletes a node without touching any surrounding whitespace. */
+    public Builder deleteWithoutRemovingWhitespace(Node n) {
+      replacements.put(
+          n.getSourceFileName(), new CodeReplacement(n.getSourceOffset(), n.getLength(), ""));
+      return this;
     }
 
     /**
@@ -547,7 +588,7 @@ public final class SuggestedFix {
 
     public Builder addLhsToGoogRequire(Match m, String namespace) {
       Node existingNode = findGoogRequireNode(m.getNode(), m.getMetadata(), namespace);
-      String shortName = namespace.substring(namespace.lastIndexOf('.') + 1);
+      String shortName = getShortNameForRequire(namespace);
       insertBefore(existingNode, "const " + shortName + " = ");
       return this;
     }
@@ -577,8 +618,7 @@ public final class SuggestedFix {
           IR.getprop(IR.name("goog"), IR.string("require")),
           IR.string(namespace));
 
-      // The name that will be used on the LHS, if the require is added using the shorthand form.
-      String shortName = namespace.substring(namespace.lastIndexOf('.') + 1);
+      String shortName = getShortNameForRequire(namespace);
 
       if (script.isModuleBody()) {
         googRequireNode = IR.constNode(IR.name(shortName), googRequireNode);

@@ -84,6 +84,26 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
         ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
   }
 
+  public void testThisPropertiesInConstructorsAndPrototype() {
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function Foo() { this.x = null; }",
+            "/** @type {?number} */ Foo.prototype.x = 5;"),
+        "/** @constructor */ function Foo() {} \n /** @type {?number} */ Foo.prototype.x;");
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function Foo() { this.x = null; }",
+            "/** @type {?number} */ Foo.prototype.x;"),
+        "/** @constructor */ function Foo() {} \n /** @type {?number} */ Foo.prototype.x;");
+
+     test(
+         LINE_JOINER.join(
+             "/** @constructor */ function Foo() { this.x = null; }",
+             "Foo.prototype.x = 5;"),
+         "/** @constructor */ function Foo() {} \n /** @const {*} */ Foo.prototype.x;");
+  }
+
   public void testConstJsdocPropagationForNames() {
     test(
         "/** @type {!Array<string>} */ var x = []; /** @const */ var y = x;",
@@ -349,6 +369,38 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
         "{ /** @type {number} */ var n; }");
   }
 
+  public void testTemplatedClass() {
+    testEs6(
+        LINE_JOINER.join(
+            "/** @template T */",
+            "const Foo = goog.defineClass(null, {",
+            "  /** @param {T} x */",
+            "  constructor: function(x) { /** @const */ this.x = x;},",
+            "});"),
+        LINE_JOINER.join(
+            "/** @template T */",
+            "const Foo = goog.defineClass(null, {",
+            "  /** @param {T} x */",
+            "  constructor: function(x) {},",
+            "});",
+            "/** @const {T} */ Foo.prototype.x;"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "/** @template T */",
+            "class Foo {",
+            "  /** @param {T} x */",
+            "  constructor(x) { /** @const */ this.x = x;}",
+            "}"),
+        LINE_JOINER.join(
+            "/** @template T */",
+            "class Foo {",
+            "  /** @param {T} x */",
+            "  constructor(x) {}",
+            "}",
+            "/** @const {T} */ Foo.prototype.x;"));
+  }
+
   public void testConstructorBodyWithThisDeclaration() {
     test(
         "/** @constructor */ function Foo() { /** @type {number} */ this.num = 5;}",
@@ -430,6 +482,9 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
   public void testDefines() {
     // NOTE: This is another pattern that is only allowed in externs.
     test("/** @define {number} */ var x = 5;", "/** @define {number} */ var x;");
+
+    test("/** @define {number} */ goog.define('goog.BLAH', 5);",
+         "/** @define {number} */ goog.define('goog.BLAH');");
   }
 
   public void testIfs() {

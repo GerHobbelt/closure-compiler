@@ -73,16 +73,14 @@ public final class AstValidator implements CompilerPass {
   }
 
   public void validateRoot(Node n) {
-    validateNodeType(Token.BLOCK, n);
-    validateIsSynthetic(n);
+    validateNodeType(Token.ROOT, n);
     validateChildCount(n, 2);
     validateCodeRoot(n.getFirstChild());
     validateCodeRoot(n.getLastChild());
   }
 
   public void validateCodeRoot(Node n) {
-    validateNodeType(Token.BLOCK, n);
-    validateIsSynthetic(n);
+    validateNodeType(Token.ROOT, n);
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
       validateScript(c);
     }
@@ -136,6 +134,9 @@ public final class AstValidator implements CompilerPass {
         return;
       case FOR:
         validateFor(n);
+        return;
+      case FOR_IN:
+        validateForIn(n);
         return;
       case FOR_OF:
         validateForOf(n);
@@ -434,7 +435,7 @@ public final class AstValidator implements CompilerPass {
       } else {
         validateStatement(n.getFirstChild(), isAmbient);
       }
-      if (n.getChildCount() == 2) {
+      if (n.hasTwoChildren()) {
         validateString(n.getSecondChild());
       }
     }
@@ -630,20 +631,6 @@ public final class AstValidator implements CompilerPass {
     validateNodeType(Token.BLOCK, n);
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
       validateStatement(c);
-    }
-  }
-
-  private void validateSyntheticBlock(Node n) {
-    validateNodeType(Token.BLOCK, n);
-    validateIsSynthetic(n);
-    for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
-      validateStatement(c);
-    }
-  }
-
-  private void validateIsSynthetic(Node n) {
-    if (!n.getBooleanProp(Node.SYNTHETIC_BLOCK_PROP)) {
-      violation("Missing 'synthetic block' annotation.", n);
     }
   }
 
@@ -942,18 +929,18 @@ public final class AstValidator implements CompilerPass {
 
   private void validateFor(Node n) {
     validateNodeType(Token.FOR, n);
-    if (NodeUtil.isForIn(n)) {
-      // FOR-IN
-      validateChildCount(n, 3);
-      validateVarOrAssignmentTarget(n.getFirstChild());
-      validateExpression(n.getSecondChild());
-    } else {
-      // FOR
-      validateChildCount(n, 4);
-      validateVarOrOptionalExpression(n.getFirstChild());
-      validateOptionalExpression(n.getSecondChild());
-      validateOptionalExpression(n.getChildAtIndex(2));
-    }
+    validateChildCount(n, 4);
+    validateVarOrOptionalExpression(n.getFirstChild());
+    validateOptionalExpression(n.getSecondChild());
+    validateOptionalExpression(n.getChildAtIndex(2));
+    validateBlock(n.getLastChild());
+  }
+
+  private void validateForIn(Node n) {
+    validateNodeType(Token.FOR_IN, n);
+    validateChildCount(n, 3);
+    validateVarOrAssignmentTarget(n.getFirstChild());
+    validateExpression(n.getSecondChild());
     validateBlock(n.getLastChild());
   }
 
@@ -1117,14 +1104,14 @@ public final class AstValidator implements CompilerPass {
   private void validateDefaultCase(Node n) {
     validateNodeType(Token.DEFAULT_CASE, n);
     validateChildCount(n);
-    validateSyntheticBlock(n.getLastChild());
+    validateBlock(n.getLastChild());
   }
 
   private void validateCase(Node n) {
     validateNodeType(Token.CASE, n);
     validateChildCount(n);
     validateExpression(n.getFirstChild());
-    validateSyntheticBlock(n.getLastChild());
+    validateBlock(n.getLastChild());
   }
 
   private void validateOptionalExpression(Node n) {

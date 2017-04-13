@@ -19,12 +19,12 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.MultimapBuilder;
 import com.google.javascript.jscomp.ControlFlowGraph.Branch;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;
 import com.google.javascript.jscomp.graph.GraphNode;
 import com.google.javascript.jscomp.graph.LatticeElement;
 import com.google.javascript.rhino.Node;
-
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -93,7 +93,7 @@ class MaybeReachingVariableUse extends
      * @param other The constructed object is a replicated copy of this element.
      */
     public ReachingUses(ReachingUses other) {
-      mayUseMap = HashMultimap.create(other.mayUseMap);
+      mayUseMap = MultimapBuilder.hashKeys().hashSetValues().build(other.mayUseMap);
     }
 
     @Override
@@ -169,6 +169,7 @@ class MaybeReachingVariableUse extends
     switch (n.getToken()) {
 
       case BLOCK:
+      case ROOT:
       case FUNCTION:
         return;
 
@@ -184,21 +185,20 @@ class MaybeReachingVariableUse extends
         return;
 
       case FOR:
-        if (!NodeUtil.isForIn(n)) {
-          computeMayUse(
-              NodeUtil.getConditionExpression(n), cfgNode, output, conditional);
-        } else {
-          // for(x in y) {...}
-          Node lhs = n.getFirstChild();
-          Node rhs = lhs.getNext();
-          if (lhs.isVar()) {
-            lhs = lhs.getLastChild(); // for(var x in y) {...}
-          }
-          if (lhs.isName() && !conditional) {
-            removeFromUseIfLocal(lhs.getString(), output);
-          }
-          computeMayUse(rhs, cfgNode, output, conditional);
+        computeMayUse(NodeUtil.getConditionExpression(n), cfgNode, output, conditional);
+        return;
+
+      case FOR_IN:
+        // for(x in y) {...}
+        Node lhs = n.getFirstChild();
+        Node rhs = lhs.getNext();
+        if (lhs.isVar()) {
+          lhs = lhs.getLastChild(); // for(var x in y) {...}
         }
+        if (lhs.isName() && !conditional) {
+          removeFromUseIfLocal(lhs.getString(), output);
+        }
+        computeMayUse(rhs, cfgNode, output, conditional);
         return;
 
       case AND:

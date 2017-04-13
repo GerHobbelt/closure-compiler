@@ -164,7 +164,7 @@ public enum CompilationLevel {
     options.setOptimizeArgumentsArray(true);
     options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
     options.collapseObjectLiterals = true;
-    options.protectHiddenSideEffects = true;
+    options.setProtectHiddenSideEffects(true);
   }
 
   /**

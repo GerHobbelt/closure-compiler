@@ -40,6 +40,7 @@ import com.google.javascript.rhino.jstype.TernaryValue;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -607,7 +608,7 @@ public final class NodeUtil {
     if ((isAssignmentOp(parent) && parent.getFirstChild() == n)
         || parent.isInc()
         || parent.isDec()
-        || (isForIn(parent) && parent.getFirstChild() == n)) {
+        || (parent.isForIn() && parent.getFirstChild() == n)) {
       // If GETPROP/GETELEM is used as assignment target the object literal is
       // acting as a temporary we can't fold it here:
       //    "{a:x}.a += 1" is not "x += 1"
@@ -707,7 +708,7 @@ public final class NodeUtil {
     if (node.isString()) {
       return true;
     } else if (node.getToken() == Token.ADD) {
-      Preconditions.checkState(node.getChildCount() == 2);
+      Preconditions.checkState(node.hasTwoChildren(), node);
       Node left = node.getFirstChild();
       Node right = node.getLastChild();
       return isStringLiteralValue(left) && isStringLiteralValue(right);
@@ -1135,6 +1136,7 @@ public final class NodeUtil {
       case CAST:
       case AND:
       case BLOCK:
+      case ROOT:
       case EXPR_RESULT:
       case HOOK:
       case IF:
@@ -2362,19 +2364,12 @@ public final class NodeUtil {
     return n.isFunction() && !n.isArrowFunction();
   }
 
-  static boolean isVanillaFor(Node n) {
-    return n.isFor() && n.getChildCount() == 4;
-  }
-
   static boolean isEnhancedFor(Node n) {
-    return n.isForOf() || isForIn(n);
+    return n.isForOf() || n.isForIn();
   }
 
-  /**
-   * @return Whether the node represents a FOR-IN loop.
-   */
-  public static boolean isForIn(Node n) {
-    return n.isFor() && n.getChildCount() == 3;
+  static boolean isAnyFor(Node n) {
+    return n.isVanillaFor() || n.isForIn() || n.isForOf();
   }
 
   /**
@@ -2383,6 +2378,7 @@ public final class NodeUtil {
   static boolean isLoopStructure(Node n) {
     switch (n.getToken()) {
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case DO:
       case WHILE:
@@ -2400,6 +2396,7 @@ public final class NodeUtil {
   static Node getLoopCodeBlock(Node n) {
     switch (n.getToken()) {
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case WHILE:
         return n.getLastChild();
@@ -2433,6 +2430,7 @@ public final class NodeUtil {
   public static boolean isControlStructure(Node n) {
     switch (n.getToken()) {
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case DO:
       case WHILE:
@@ -2461,6 +2459,7 @@ public final class NodeUtil {
       case TRY:
         return parent.getFirstChild() == n || parent.getLastChild() == n;
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case WHILE:
       case LABEL:
@@ -2492,7 +2491,8 @@ public final class NodeUtil {
       case DO:
         return n.getLastChild();
       case FOR:
-        return NodeUtil.isForIn(n) ? null : n.getSecondChild();
+      case FOR_IN:
+        return n.isForIn() ? null : n.getSecondChild();
       case FOR_OF:
       case CASE:
         return null;
@@ -2522,38 +2522,25 @@ public final class NodeUtil {
   static boolean createsBlockScope(Node n) {
     switch (n.getToken()) {
       case BLOCK:
-        // Don't create block scope for synthetic blocks, or the one contained in a CATCH.
-        if (n.isSyntheticBlock()
-            || n.getParent() == null || n.getGrandparent() == null
-            || n.getParent().isCatch()) {
-          return false;
-        }
-        return true;
+        Node parent = n.getParent();
+        // Don't create block scope for switch cases or catch blocks.
+        return parent != null && !isSwitchCase(parent) && !parent.isCatch();
       case FOR:
+      case FOR_IN:
       case FOR_OF:
       case SWITCH:
       case CLASS:
         return true;
       default:
-        break;
-    }
-    return false;
-  }
-
-  static boolean isValidCfgRoot(Node n) {
-    switch (n.getToken()) {
-      case FUNCTION:
-      case SCRIPT:
-      case MODULE_BODY:
-        return true;
-      case BLOCK:
-        // Only valid for top level synthetic block
-        if (n.getParent() == null || n.getGrandparent() == null) {
-          return true;
-        }
-      default:
         return false;
     }
+  }
+
+  private static final Set<Token> DEFINITE_CFG_ROOTS =
+      EnumSet.of(Token.FUNCTION, Token.SCRIPT, Token.MODULE_BODY, Token.ROOT);
+
+  static boolean isValidCfgRoot(Node n) {
+    return DEFINITE_CFG_ROOTS.contains(n.getToken());
   }
 
   /**
@@ -2570,21 +2557,19 @@ public final class NodeUtil {
     }
   };
 
+  private static final Set<Token> IS_STATEMENT_PARENT =
+      EnumSet.of(
+          Token.SCRIPT,
+          Token.MODULE_BODY,
+          Token.BLOCK,
+          Token.LABEL,
+          Token.NAMESPACE_ELEMENTS);
+
   static boolean isStatementParent(Node parent) {
     // It is not possible to determine definitely if a node is a statement
     // or not if it is not part of the AST.  A FUNCTION node can be
     // either part of an expression or a statement.
-    Preconditions.checkState(parent != null);
-    switch (parent.getToken()) {
-      case SCRIPT:
-      case MODULE_BODY:
-      case BLOCK:
-      case LABEL:
-      case NAMESPACE_ELEMENTS: // The body of TypeScript namespace is also a statement parent
-        return true;
-      default:
-        return false;
-    }
+    return IS_STATEMENT_PARENT.contains(parent.getToken());
   }
 
   private static boolean isDeclarationParent(Node parent) {
@@ -2675,8 +2660,7 @@ public final class NodeUtil {
       parent.removeChild(node);
       // A LABEL without children can not be referred to, remove it.
       removeChild(parent.getParent(), parent);
-    } else if (parent.isFor()
-        && parent.getChildCount() == 4) {
+    } else if (parent.isVanillaFor()) {
       // Only Token.FOR can have an Token.EMPTY other control structure
       // need something for the condition. Others need to be replaced
       // or the structure removed.
@@ -2979,25 +2963,48 @@ public final class NodeUtil {
    * @return True if n is an L-value.
    */
   public static boolean isLValue(Node n) {
-    if (!n.isName() && !n.isGetProp() && !n.isGetElem() && !n.isStringKey()) {
-      return false;
+    switch (n.getToken()) {
+      case NAME:
+      case GETPROP:
+      case GETELEM:
+      case STRING_KEY:
+        break;
+      default:
+        return false;
     }
+
     Node parent = n.getParent();
     if (parent == null) {
       return false;
     }
-    return (isAssignmentOp(parent) && parent.getFirstChild() == n)
-        || (isForIn(parent) && parent.getFirstChild() == n)
-        || isNameDeclaration(parent)
-        || (parent.isFunction() && parent.getFirstChild() == n)
-        || parent.isRest()
-        || (parent.isDefaultValue() && parent.getFirstChild() == n)
-        || parent.isDec()
-        || parent.isInc()
-        || parent.isParamList()
-        || parent.isCatch()
-        || isImportedName(n)
-        || isLhsByDestructuring(n);
+
+    switch (parent.getToken()) {
+      case IMPORT_SPEC:
+        return parent.getLastChild() == n;
+      case VAR:
+      case LET:
+      case CONST:
+      case REST:
+      case PARAM_LIST:
+      case IMPORT:
+      case INC:
+      case DEC:
+      case CATCH:
+        return true;
+      case CLASS:
+      case FUNCTION:
+      case DEFAULT_VALUE:
+      case FOR:
+      case FOR_IN:
+      case FOR_OF:
+        return parent.getFirstChild() == n;
+      case OBJECT_PATTERN:
+      case ARRAY_PATTERN:
+      case STRING_KEY:
+        return isLhsByDestructuring(n);
+      default:
+        return NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == n;
+    }
   }
 
   static boolean isLhsOfAssign(Node n) {
@@ -3375,7 +3382,7 @@ public final class NodeUtil {
       if (current.isName() || current.isThis() || current.isSuper()) {
         return current;
       }
-      Preconditions.checkState(current.isGetProp());
+      Preconditions.checkState(current.isGetProp(), "Not a getprop node: ", current);
     }
   }
 
@@ -3587,13 +3594,28 @@ public final class NodeUtil {
    * @return {@code true} if the node is a definition with Object.defineProperties
    */
   static boolean isObjectDefinePropertiesDefinition(Node n) {
-    if (!(n.isCall() && n.getChildCount() == 3)) {
+    if (!n.isCall() || !n.hasXChildren(3)) {
       return false;
     }
     Node first = n.getFirstChild();
-    return first.matchesQualifiedName("Object.defineProperties")
-        || first.matchesQualifiedName("$jscomp.global.Object.defineProperties")
-        || first.matchesQualifiedName("$jscomp$global.Object.defineProperties");
+    if (!first.isGetProp()) {
+      return false;
+    }
+    Node prop = first.getLastChild();
+    return prop.getString().equals("defineProperties")
+        && isKnownGlobalObjectReference(first.getFirstChild());
+  }
+
+  private static boolean isKnownGlobalObjectReference(Node n) {
+    switch (n.getToken()) {
+      case NAME:
+        return n.getString().equals("Object");
+      case GETPROP:
+        return n.matchesQualifiedName("$jscomp.global.Object")
+            || n.matchesQualifiedName("$jscomp$global.Object");
+      default:
+        return false;
+    }
   }
 
   /**
@@ -3681,6 +3703,7 @@ public final class NodeUtil {
       case WHILE:
       case DO:
       case FOR:
+      case FOR_IN:
         return NodeUtil.getConditionExpression(parent) == propAccess;
 
       case INSTANCEOF:
@@ -4508,24 +4531,23 @@ public final class NodeUtil {
         return (expr == parent.getFirstChild()) || isExpressionResultUsed(parent);
       case COMMA:
         Node grandparent = parent.getParent();
-        if (grandparent.isCall() &&
-            parent == grandparent.getFirstChild()) {
+        if (grandparent.isCall() && parent == grandparent.getFirstChild()) {
           // Semantically, a direct call to eval is different from an indirect
           // call to an eval. See ECMA-262 S15.1.2.1. So it's OK for the first
           // expression to a comma to be a no-op if it's used to indirect
           // an eval. This we pretend that this is "used".
-          if (expr == parent.getFirstChild() &&
-              parent.getChildCount() == 2 &&
-              expr.getNext().isName() &&
-              "eval".equals(expr.getNext().getString())) {
+          if (expr == parent.getFirstChild()
+              && parent.hasTwoChildren()
+              && expr.getNext().isName()
+              && "eval".equals(expr.getNext().getString())) {
             return true;
           }
         }
 
-        return (expr == parent.getFirstChild())
-            ? false : isExpressionResultUsed(parent);
+        return (expr == parent.getFirstChild()) ? false : isExpressionResultUsed(parent);
       case FOR:
-        if (!NodeUtil.isForIn(parent)) {
+      case FOR_IN:
+        if (!parent.isForIn()) {
           // Only an expression whose result is in the condition part of the
           // expression is used.
           return (parent.getSecondChild() == expr);
@@ -4556,7 +4578,8 @@ public final class NodeUtil {
           // other ancestors may be conditional
           continue inspect;
         case FOR:
-          if (NodeUtil.isForIn(parent)) {
+        case FOR_IN:
+          if (parent.isForIn()) {
             if (parent.getSecondChild() != n) {
               return false;
             }

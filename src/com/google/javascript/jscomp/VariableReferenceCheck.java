@@ -16,13 +16,16 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.BasicBlock;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Behavior;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
+import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Token;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -77,6 +80,11 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
   // we clear after each method call, because the Set never gets too big.
   private final Set<BasicBlock> blocksWithDeclarations = new HashSet<>();
 
+  // These types do not permit a block-scoped declaration inside them without an explicit block.
+  // e.g. if (b) let x;
+  private static final Set<Token> BLOCKLESS_DECLARATION_FORBIDDEN_STATEMENTS =
+      Sets.immutableEnumSet(Token.IF, Token.FOR, Token.FOR_IN, Token.FOR_OF, Token.WHILE);
+
   public VariableReferenceCheck(AbstractCompiler compiler) {
     this(compiler, false);
   }
@@ -103,7 +111,8 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
   @Override
   public void process(Node externs, Node root) {
     if (shouldProcess(root)) {
-      new ReferenceCollectingCallback(compiler, new ReferenceCheckingBehavior())
+      new ReferenceCollectingCallback(
+              compiler, new ReferenceCheckingBehavior(), new Es6SyntacticScopeCreator(compiler))
           .process(externs, root);
     }
   }
@@ -113,7 +122,8 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
     if (!forTranspileOnly
         || (compiler.getOptions().getLanguageIn().isEs6OrHigher()
             && TranspilationPasses.isScriptEs6ImplOrHigher(scriptRoot))) {
-      new ReferenceCollectingCallback(compiler, new ReferenceCheckingBehavior())
+      new ReferenceCollectingCallback(
+              compiler, new ReferenceCheckingBehavior(), new Es6SyntacticScopeCreator(compiler))
           .hotSwapScript(scriptRoot, originalRoot);
     }
   }
@@ -238,10 +248,9 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
             v.getParentNode().isVar()
                 && (reference.isLetDeclaration() || reference.isConstDeclaration());
         boolean isVarNodeSameAsReferenceNode = v.getNode() == reference.getNode();
-        // We disallow redeclaration of caught exception in ES6
+        // We disallow redeclaration of caught exceptions
         boolean shadowCatchVar =
             isDeclaration
-                && compiler.getLanguageMode().isEs6OrHigher()
                 && v.getParentNode().isCatch()
                 && !isVarNodeSameAsReferenceNode;
         boolean shadowParam =
@@ -306,7 +315,7 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
           Reference decl = references.get(0);
           Node declNode = decl.getNode();
           Node gp = declNode.getGrandparent();
-          boolean lhsOfForInLoop = NodeUtil.isForIn(gp) && gp.getFirstFirstChild() == declNode;
+          boolean lhsOfForInLoop = gp.isForIn() && gp.getFirstFirstChild() == declNode;
 
           if (decl.getScope().isLocal()
               && (decl.isVarDeclaration() || decl.isLetDeclaration() || decl.isConstDeclaration())
@@ -374,7 +383,9 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
 
         if (isDeclaration
             && !reference.isVarDeclaration()
-            && reference.getGrandparent().isAddedBlock()) {
+            && reference.getGrandparent().isAddedBlock()
+            && BLOCKLESS_DECLARATION_FORBIDDEN_STATEMENTS.contains(
+                reference.getGrandparent().getParent().getToken())) {
           compiler.report(JSError.make(referenceNode, DECLARATION_NOT_DIRECTLY_IN_BLOCK, v.name));
         }
 
@@ -384,31 +395,55 @@ class VariableReferenceCheck implements HotSwapCompilerPass {
         }
       }
 
-      // Only check for unused local if there are no other errors, and if not in a goog.scope
-      // function.
-      // TODO(tbreisacher): Consider moving UNUSED_LOCAL_ASSIGNMENT into its own check pass, so
-      // that we can run it after goog.scope processing, and get rid of the inGoogScope check.
       if (unusedAssignment != null && !isRead && !hasErrors) {
-        boolean inGoogScope = false;
-        Scope s = v.getScope();
-        Node function = null;
-        if (s.isFunctionBlockScope()) {
-          function = s.getRootNode().getParent();
-        } else if (s.isFunctionScope()) {
-          // TODO(tbreisacher): Remove this branch when everything is switched to
-          // Es6SyntacticScopeCreator.
-          function = s.getRootNode();
-        }
-        if (function != null) {
-          Node callee = function.getPrevious();
-          inGoogScope = callee != null && callee.matchesQualifiedName("goog.scope");
-        }
+        checkForUnusedLocalVar(v, unusedAssignment);
+      }
+    }
+  }
 
-        if (!inGoogScope) {
-          compiler.report(
-              JSError.make(unusedAssignment.getNode(), UNUSED_LOCAL_ASSIGNMENT, v.name));
+  // Only check for unused local if not in a goog.scope function.
+  // TODO(tbreisacher): Consider moving UNUSED_LOCAL_ASSIGNMENT into its own check pass, so
+  // that we can run it after goog.scope processing, and get rid of the inGoogScope check.
+  private void checkForUnusedLocalVar(Var v, Reference unusedAssignment) {
+    JSDocInfo jsDoc = NodeUtil.getBestJSDocInfo(unusedAssignment.getNode());
+    if (jsDoc != null && jsDoc.hasTypedefType()) {
+      return;
+    }
+
+    boolean inGoogScope = false;
+    Scope s = v.getScope();
+    Node function = null;
+    if (s.isFunctionBlockScope()) {
+      function = s.getRootNode().getParent();
+    } else if (s.isFunctionScope()) {
+      // TODO(tbreisacher): Remove this branch when everything is switched to
+      // Es6SyntacticScopeCreator.
+      function = s.getRootNode();
+    }
+    if (function != null) {
+      Node callee = function.getPrevious();
+      inGoogScope = callee != null && callee.matchesQualifiedName("goog.scope");
+    }
+
+    if (inGoogScope) {
+      // No warning.
+      return;
+    }
+
+    if (s.isModuleScope()) {
+      Node statement = NodeUtil.getEnclosingStatement(v.getNode());
+      if (NodeUtil.isNameDeclaration(statement)) {
+        Node lhs = statement.getFirstChild();
+        Node rhs = lhs.getFirstChild();
+        if (rhs != null
+            && rhs.isCall()
+            && rhs.getFirstChild().matchesQualifiedName("goog.require")) {
+          // No warning. Will be caught by the unused-require check anyway.
+          return;
         }
       }
     }
+
+    compiler.report(JSError.make(unusedAssignment.getNode(), UNUSED_LOCAL_ASSIGNMENT, v.name));
   }
 }

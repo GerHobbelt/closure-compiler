@@ -22,7 +22,6 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -146,20 +145,19 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
           "function Error(opt_message, opt_file, opt_line) {}",
           "/** @type {string} */",
           "Error.prototype.stack;",
-          "/**",
-          " * @constructor",
-          " * @param {?=} opt_pattern",
-          " * @param {?=} opt_flags",
-          " * @return {!RegExp}",
-          " */",
-          "function RegExp(opt_pattern, opt_flags) {}",
           "/** @constructor */",
           "function Window() {}",
           "/** @type {boolean} */",
           "Window.prototype.closed;",
           "/** @type {!Window} */",
           "var window;",
-          "",
+          "/**",
+          " * @param {Function|string} callback",
+          " * @param {number=} opt_delay",
+          " * @param {...*} var_args",
+          " * @return {number}",
+          " */",
+          "function setTimeout(callback, opt_delay, var_args) {}",
           "/**",
           " * @constructor",
           " * @extends {Array<string>}",
@@ -212,12 +210,10 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
         ImmutableList.of(SourceFile.fromCode("[testcode]", js)),
         compilerOptions);
 
-    Node externsRoot = IR.block();
-    externsRoot.setIsSyntheticBlock(true);
+    Node externsRoot = IR.root();
     externsRoot.addChildToFront(
         compiler.getInput(new InputId("[externs]")).getAstRoot(compiler));
-    Node astRoot = IR.block();
-    astRoot.setIsSyntheticBlock(true);
+    Node astRoot = IR.root();
     astRoot.addChildToFront(
         compiler.getInput(new InputId("[testcode]")).getAstRoot(compiler));
 
@@ -228,8 +224,7 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
         compiler.getWarningCount());
 
     // Create common parent of externs and ast; needed by Es6RewriteBlockScopedDeclaration.
-    Node block = IR.block(externsRoot, astRoot);
-    block.setIsSyntheticBlock(true);
+    Node block = IR.root(externsRoot, astRoot);
 
     // Run ASTValidator
     (new AstValidator(compiler)).validateRoot(block);

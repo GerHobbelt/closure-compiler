@@ -97,10 +97,8 @@ class PeepholeMinimizeConditions
         return node;
 
       case FOR:
-        if (!NodeUtil.isForIn(node)) {
-          tryJoinForCondition(node);
-          tryMinimizeCondition(NodeUtil.getConditionExpression(node));
-        }
+        tryJoinForCondition(node);
+        tryMinimizeCondition(NodeUtil.getConditionExpression(node));
         return node;
 
       case BLOCK:
@@ -814,7 +812,7 @@ class PeepholeMinimizeConditions
           // IE has a bug where event handlers behave differently when
           // their return value is used vs. when their return value is in
           // an EXPR_RESULT. It's pretty freaking weird. See:
-          // http://code.google.com/p/closure-compiler/issues/detail?id=291
+          // http://blickly.github.io/closure-compiler-issues/#291
           // We try to detect this case, and not fold EXPR_RESULTs
           // into other expressions.
           if (maybeExpr.getFirstChild().isCall()) {
@@ -947,6 +945,7 @@ class PeepholeMinimizeConditions
         case WITH:
         case WHILE:
         case FOR:
+        case FOR_IN:
           n = n.getLastChild();
           continue;
         default:
@@ -1085,9 +1084,7 @@ class PeepholeMinimizeConditions
     boolean leftIsObjectType = isObjectType(left);
     boolean rightIsObjectType = isObjectType(right);
     if (op == Token.SHEQ || op == Token.SHNE) {
-      if ((leftIsObjectType && !left.getJSType().isVoidable() && rightIsNull)
-          || (leftIsObjectType && !left.getJSType().isNullable() && rightIsUndefined)
-          || (rightIsObjectType && !right.getJSType().isVoidable() && leftIsNull)
+      if ((leftIsObjectType && !left.getJSType().isNullable() && rightIsUndefined)
           || (rightIsObjectType && !right.getJSType().isNullable() && leftIsUndefined)) {
         return leftIsNullOrUndefined ? BooleanCoercability.RIGHT : BooleanCoercability.LEFT;
       }

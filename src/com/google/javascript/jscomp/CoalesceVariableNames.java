@@ -32,7 +32,6 @@ import com.google.javascript.jscomp.graph.LinkedUndirectedGraph;
 import com.google.javascript.jscomp.graph.UndiGraph;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedList;
@@ -115,7 +114,7 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
       // bug in IE 8 and below, where it throws an exception if you write to the parameters of the
       // callback in a sort(). See http://blickly.github.io/closure-compiler-issues/#58 and
       // https://www.zachleat.com/web/array-sort/
-      if (NodeUtil.getFunctionParameters(scope.getRootNode()).getChildCount() == 2) {
+      if (NodeUtil.getFunctionParameters(scope.getRootNode()).hasTwoChildren()) {
         liveness.markAllParametersEscaped();
       }
     }
@@ -337,7 +336,7 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
     Node parent = var.getParent();
 
     // Special case when we are in FOR-IN loop.
-    if (NodeUtil.isForIn(parent)) {
+    if (parent.isForIn()) {
       var.removeChild(name);
       parent.replaceChild(var, name);
     } else if (var.hasOneChild()) {
@@ -348,7 +347,7 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
         Node assign = IR.assign(name, value).srcref(name);
 
         // We don't need to wrapped it with EXPR node if it is within a FOR.
-        if (!parent.isFor()) {
+        if (!parent.isVanillaFor()) {
           assign = NodeUtil.newExpr(assign);
         }
         parent.replaceChild(var, assign);
@@ -402,23 +401,24 @@ class CoalesceVariableNames extends AbstractPostOrderCallback implements
     }
 
     private static boolean isAssignTo(Var var, Node n, Node parent) {
-      if (n.isName() && var.getName().equals(n.getString()) && parent != null) {
-        if (parent.isParamList()) {
-          // In a function declaration, the formal parameters are assigned.
-          return true;
-        } else if (parent.isVar()) {
-          // If this is a VAR declaration, if the name node has a child, we are
-          // assigning to that name.
-          return n.hasChildren();
+      if (n.isName()) {
+        if (var.getName().equals(n.getString()) && parent != null) {
+          if (parent.isParamList()) {
+            // In a function declaration, the formal parameters are assigned.
+            return true;
+          } else if (parent.isVar()) {
+            // If this is a VAR declaration, if the name node has a child, we are
+            // assigning to that name.
+            return n.hasChildren();
+          }
         }
-        return false; // Definitely a read.
-      } else {
+      } else if (NodeUtil.isAssignmentOp(n)) {
         // Lastly, any assignmentOP is also an assign.
         Node name = n.getFirstChild();
         return name != null && name.isName()
-            && var.getName().equals(name.getString())
-            && NodeUtil.isAssignmentOp(n);
+            && var.getName().equals(name.getString());
       }
+      return false; // Definitely a read.
     }
 
     private static boolean isReadFrom(Var var, Node name) {

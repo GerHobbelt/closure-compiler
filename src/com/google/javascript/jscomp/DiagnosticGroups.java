@@ -355,7 +355,7 @@ public class DiagnosticGroups {
 //           NewTypeInference.INEXISTENT_PROPERTY,
 //           NewTypeInference.INVALID_ARGUMENT_TYPE,
 //           NewTypeInference.INVALID_CAST,
-          NewTypeInference.INVALID_INDEX_TYPE,
+//          NewTypeInference.INVALID_INDEX_TYPE,
           NewTypeInference.INVALID_INFERRED_RETURN_TYPE,
           NewTypeInference.INVALID_OBJLIT_PROPERTY_TYPE,
 //           NewTypeInference.INVALID_OPERAND_TYPE,
@@ -478,7 +478,7 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("strictMissingRequire",
           CheckRequiresForConstructors.MISSING_REQUIRE_WARNING,
           CheckRequiresForConstructors.MISSING_REQUIRE_FOR_GOOG_SCOPE,
-          CheckRequiresForConstructors.MISSING_REQUIRE_CALL_WARNING);
+          CheckRequiresForConstructors.MISSING_REQUIRE_STRICT_WARNING);
 
   public static final DiagnosticGroup STRICT_REQUIRES =
       DiagnosticGroups.registerGroup("legacyGoogScopeRequire",
@@ -543,7 +543,9 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup FUNCTION_PARAMS =
       DiagnosticGroups.registerGroup(
-          "functionParams", FunctionTypeBuilder.OPTIONAL_ARG_AT_END);
+          "functionParams",
+          FunctionTypeBuilder.INEXISTENT_PARAM,
+          FunctionTypeBuilder.OPTIONAL_ARG_AT_END);
 
   public static final DiagnosticGroup DEPRECATED_ANNOTATIONS =
       DiagnosticGroups.registerGroup("deprecatedAnnotations",
@@ -574,9 +576,6 @@ public class DiagnosticGroups {
               // checkTypes DiagnosticGroup
               CheckInterfaces.INTERFACE_FUNCTION_NOT_EMPTY,
               CheckInterfaces.INTERFACE_SHOULD_NOT_TAKE_ARGS,
-
-              // TODO(tbreisacher): Make this an error once all Google projects are fixed.
-              ClosureCheckModule.AT_EXPORT_IN_NON_LEGACY_GOOG_MODULE,
               CheckMissingSemicolon.MISSING_SEMICOLON,
               CheckPrimitiveAsObject.NEW_PRIMITIVE_OBJECT,
               CheckPrimitiveAsObject.PRIMITIVE_OBJECT_DECLARATION,
@@ -595,8 +594,7 @@ public class DiagnosticGroups {
               ClosureRewriteModule.USELESS_USE_STRICT_DIRECTIVE,
               RhinoErrorReporter.JSDOC_MISSING_BRACES_WARNING,
               RhinoErrorReporter.JSDOC_MISSING_TYPE_WARNING,
-              RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS,
-              VariableReferenceCheck.UNUSED_LOCAL_ASSIGNMENT));
+              RhinoErrorReporter.TOO_MANY_TEMPLATE_PARAMS));
 
   static final DiagnosticGroup STRICT_MODULE_CHECKS =
       DiagnosticGroups.registerGroup(

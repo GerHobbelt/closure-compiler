@@ -163,9 +163,9 @@ class DeadAssignmentsElimination extends AbstractScopedCallback implements Compi
           tryRemoveAssignment(t, NodeUtil.getConditionExpression(n), state);
           continue;
         case FOR:
-          if (!NodeUtil.isForIn(n)) {
-            tryRemoveAssignment(
-                t, NodeUtil.getConditionExpression(n), state);
+        case FOR_IN:
+          if (!n.isForIn()) {
+            tryRemoveAssignment(t, NodeUtil.getConditionExpression(n), state);
           }
           continue;
         case SWITCH:
@@ -226,7 +226,7 @@ class DeadAssignmentsElimination extends AbstractScopedCallback implements Compi
       // Ignore declarations that don't initialize a value. Dead code removal will kill those nodes.
       // Also ignore the var declaration if it's in a for-loop instantiation since there's not a
       // safe place to move the side-effects.
-      if (isDeclarationNode && (rhs == null || parent.getParent().isFor())) {
+      if (isDeclarationNode && (rhs == null || NodeUtil.isAnyFor(parent.getParent()))) {
         return;
       }
 
@@ -291,8 +291,7 @@ class DeadAssignmentsElimination extends AbstractScopedCallback implements Compi
               IR.voidNode(IR.number(0).srcref(n)));
         } else if (n.isComma() && n != parent.getLastChild()) {
           parent.removeChild(n);
-        } else if (parent.isFor() && !NodeUtil.isForIn(parent) &&
-            NodeUtil.getConditionExpression(parent) != n) {
+        } else if (parent.isVanillaFor() && NodeUtil.getConditionExpression(parent) != n) {
           parent.replaceChild(n, IR.empty());
         } else {
           // Cannot replace x = a++ with x = a because that's not valid

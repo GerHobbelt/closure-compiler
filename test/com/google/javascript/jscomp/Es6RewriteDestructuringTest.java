@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.TypeCheck.POSSIBLE_INEXISTENT_PROPERTY;
 import static com.google.javascript.jscomp.TypeValidator.TYPE_MISMATCH_WARNING;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
@@ -134,6 +135,27 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
             "function f($jscomp$destructuring$var0) {",
             "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0",
             "  var x = $jscomp$destructuring$var1['KEY']",
+            "}"));
+  }
+
+  // https://github.com/google/closure-compiler/issues/2189
+  public void testGithubIssue2189() {
+    setExpectParseWarningsThisTest();
+    test(
+        LINE_JOINER.join(
+            "/**",
+            " * @param {string} a",
+            " * @param {{b: ?<?>}} __1",
+            " */",
+            "function x(a, { b }) {}"),
+        LINE_JOINER.join(
+            "/**",
+            " * @param {string} a",
+            " * @param {{b: ?<?>}} __1",
+            " */",
+            "function x(a, $jscomp$destructuring$var0) {",
+            "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0;",
+            "  var b=$jscomp$destructuring$var1.b;",
             "}"));
   }
 
@@ -575,6 +597,20 @@ public class Es6RewriteDestructuringTest extends CompilerTestCase {
             "  var $jscomp$destructuring$var0 = obj===undefined ? {x:0} : obj;",
             "  var x = $jscomp$destructuring$var0.x",
             "};"));
+  }
+
+  public void testDestructuringPatternInExterns() {
+    enableTypeCheck();
+    allowExternsChanges(true);
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Foo() {}",
+            "",
+            "Foo.prototype.bar = function({a}) {};"),
+        "(new Foo).bar({b: 0});",
+        POSSIBLE_INEXISTENT_PROPERTY);
   }
 
   public void testTypeCheck_inlineAnnotations() {

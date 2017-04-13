@@ -71,9 +71,12 @@ public final class JSDocInfoPrinterTest extends TestCase {
     assertEquals("/** @final */ ", jsDocInfoPrinter.print(info));
   }
 
-  /**
-   * test case for the @record tag
-   */
+  public void testDescTag() {
+    builder.recordDescription("foo");
+    JSDocInfo info = builder.buildAndReset();
+    assertEquals("/** @desc foo\n */ ", jsDocInfoPrinter.print(info));
+  }
+
   public void testRecordTag() {
     builder.recordImplicitMatch();
     JSDocInfo info = builder.buildAndReset();
@@ -85,6 +88,12 @@ public final class JSDocInfoPrinterTest extends TestCase {
     builder.recordTemplateTypeName("U");
     JSDocInfo info = builder.buildAndReset();
     assertEquals("/**\n @template T,U\n */\n", jsDocInfoPrinter.print(info));
+  }
+
+  public void testTypeTransformationLanguageTemplate() {
+    builder.recordTypeTransformation("T", IR.string("Promise"));
+    JSDocInfo info = builder.buildAndReset();
+    assertEquals("/**\n @template T := \"Promise\" =:\n */\n", jsDocInfoPrinter.print(info));
   }
 
   public void testParam() {
