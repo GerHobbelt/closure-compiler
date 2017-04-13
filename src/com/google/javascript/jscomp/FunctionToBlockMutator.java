@@ -149,7 +149,7 @@ class FunctionToBlockMutator {
     // that they are properly initialized.
     //
     if (isCallInLoop) {
-      fixUnitializedVarDeclarations(newBlock, newBlock);
+      fixUninitializedVarDeclarations(newBlock, newBlock);
     }
 
     String labelName = getLabelNameForFunction(fnName);
@@ -192,7 +192,7 @@ class FunctionToBlockMutator {
    *  For all VAR node with uninitialized declarations, set
    *  the values to be "undefined".
    */
-  private static void fixUnitializedVarDeclarations(Node n, Node containingBlock) {
+  private static void fixUninitializedVarDeclarations(Node n, Node containingBlock) {
     // Inner loop structure must already have logic to initialize its
     // variables.  In particular FOR-IN structures must not be modified.
     if (NodeUtil.isLoopStructure(n)) {
@@ -212,7 +212,7 @@ class FunctionToBlockMutator {
     }
 
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
-      fixUnitializedVarDeclarations(c, containingBlock);
+      fixUninitializedVarDeclarations(c, containingBlock);
     }
   }
 
@@ -426,7 +426,7 @@ class FunctionToBlockMutator {
    *   a = (void) 0;
    */
   private static void addDummyAssignment(Node node, String resultName) {
-    Preconditions.checkArgument(node.isBlock());
+    Preconditions.checkArgument(node.isNormalBlock());
 
     // A result is needed create a dummy value.
     Node srcLocation = node;

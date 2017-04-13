@@ -595,11 +595,9 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
     // Munge inherited types of methods
     for (String pname : propMethodTypesToProcess.keySet()) {
-      Collection<DeclaredFunctionType> methodTypes =
-          propMethodTypesToProcess.get(pname);
+      Collection<DeclaredFunctionType> methodTypes = propMethodTypesToProcess.get(pname);
       Preconditions.checkState(!methodTypes.isEmpty());
-      PropertyDef localPropDef =
-          propertyDefs.get(rawType, pname);
+      PropertyDef localPropDef = propertyDefs.get(rawType, pname);
       // To find the declared type of a method, we must meet declared types
       // from all inherited methods.
       DeclaredFunctionType superMethodType = DeclaredFunctionType.meet(methodTypes);
@@ -702,11 +700,22 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
     Collection<PropertyDef> inheritedPropDefs;
     if (superType.isInterface()) {
       inheritedPropDefs = getPropDefsFromInterface(superType, pname);
+      // If a class is defined by mixin application, add missing property defs from the
+      // super interface, o/w checkSuperProperty will break for its subclasses.
+      if (isCtorDefinedByCall(NodeUtil.getBestLValue(current.getDefSite()))) {
+        for (PropertyDef inheritedDef : inheritedPropDefs) {
+          if (!current.mayHaveProp(pname)) {
+            propertyDefs.put(current, pname, inheritedDef);
+          }
+        }
+      }
     } else {
-      inheritedPropDefs =
-          ImmutableSet.of(getPropDefFromClass(superType, pname));
+      PropertyDef propdef = Preconditions.checkNotNull(getPropDefFromClass(superType, pname));
+      inheritedPropDefs = ImmutableSet.of(propdef);
     }
-    if (superType.isInterface() && current.isClass()
+    if (superType.isInterface()
+        && current.isClass()
+        && !isCtorDefinedByCall(NodeUtil.getBestLValue(current.getDefSite()))
         && !current.mayHaveProp(pname)) {
       warnings.add(JSError.make(
           inheritedPropDefs.iterator().next().defSite,
@@ -1876,9 +1885,13 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       }
       // Only add the definition node if the property is not already defined.
       if (!propertyDefs.contains(rawType, pname)) {
-        propertyDefs.put(rawType, pname,
-            new PropertyDef(getProp, null, null));
+        propertyDefs.put(rawType, pname, new PropertyDef(getProp, null, null));
       }
+    }
+
+    private boolean isTranspiledLoopVariable(Node getProp) {
+      Node recv = getProp.getFirstChild();
+      return recv.isName() && recv.getString().startsWith("$jscomp$loop$");
     }
 
     private void visitOtherPropertyDeclaration(Node getProp) {
@@ -1891,7 +1904,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
             getProp, null, this.currentScope);
         return;
       }
-      if (isAnnotatedAsConst(getProp)) {
+      if (isAnnotatedAsConst(getProp) && !isTranspiledLoopVariable(getProp)) {
         warnings.add(JSError.make(getProp, MISPLACED_CONST_ANNOTATION));
       }
       Node recv = getProp.getFirstChild();
@@ -2113,8 +2126,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           return objLitType;
         }
         case GETPROP:
-          return simpleInferPropAccessType(
-              n.getFirstChild(), n.getLastChild().getString());
+          return simpleInferPropAccessType(n.getFirstChild(), n.getLastChild().getString());
         case GETELEM:
           return simpleInferGetelemType(n);
         case COMMA:
@@ -2233,9 +2245,6 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
         return commonTypes.fromFunctionType(ctorFn)
             .withProperty(CONST_INFERENCE_MARKER, commonTypes.UNKNOWN);
       }
-      if (decl.getNamespace() != null) {
-        return null;
-      }
       if (decl.getTypeOfSimpleDecl() != null) {
         return decl.getTypeOfSimpleDecl();
       }
@@ -2323,8 +2332,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       // For an unannotated function, check if we can grab a type signature for
       // it from the surrounding code where it appears.
       if (fnDoc == null && !NodeUtil.functionHasInlineJsdocs(declNode)) {
-        DeclaredFunctionType t = getDeclaredFunctionTypeFromContext(
-            functionName, declNode, parentScope);
+        DeclaredFunctionType t =
+            getDeclaredFunctionTypeFromContext(functionName, declNode, parentScope);
         if (t != null) {
           return t;
         }
@@ -2428,14 +2437,13 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
 
       // The function literal is an argument at a call
       if (parent.isCall() && declNode != parent.getFirstChild()) {
-        DeclaredFunctionType calleeDeclType = getDeclaredFunctionTypeOfCalleeIfAny(
-            parent.getFirstChild(), parentScope);
+        DeclaredFunctionType calleeDeclType =
+            getDeclaredFunctionTypeOfCalleeIfAny(parent.getFirstChild(), parentScope);
         if (calleeDeclType != null && !calleeDeclType.isGeneric()) {
           int index = parent.getIndexOfChild(declNode) - 1;
           JSType declTypeFromCallee = calleeDeclType.getFormalType(index);
           if (declTypeFromCallee != null) {
-            DeclaredFunctionType t =
-                computeFnDeclaredTypeFromCallee(declNode, declTypeFromCallee);
+            DeclaredFunctionType t = computeFnDeclaredTypeFromCallee(declNode, declTypeFromCallee);
             if (t != null) {
               return t;
             }
@@ -2444,6 +2452,21 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       }
 
       return null;
+    }
+
+    private DeclaredFunctionType getDeclaredFunctionTypeOfCalleeIfAny(
+        Node fn, NTIScope currentScope) {
+      Preconditions.checkArgument(fn.getParent().isCall());
+      if (fn.isThis() || (!fn.isFunction() && !fn.isQualifiedName())) {
+        return null;
+      }
+      if (fn.isFunction()) {
+        return currentScope.getScope(getFunInternalName(fn)).getDeclaredFunctionType();
+      }
+      Preconditions.checkState(fn.isQualifiedName(), fn);
+      JSType t = simpleInferExprType(fn);
+      FunctionType funType = t == null ? null : t.getFunType();
+      return funType == null ? null : funType.toDeclaredFunctionType();
     }
 
     /**
@@ -2569,32 +2592,6 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
     }
   }
 
-  private DeclaredFunctionType getDeclaredFunctionTypeOfCalleeIfAny(
-      Node fn, NTIScope currentScope) {
-    Preconditions.checkArgument(fn.getParent().isCall());
-    if (fn.isThis() || (!fn.isFunction() && !fn.isQualifiedName())) {
-      return null;
-    }
-    if (fn.isFunction()) {
-      return currentScope.getScope(getFunInternalName(fn)).getDeclaredFunctionType();
-    }
-    Preconditions.checkState(fn.isQualifiedName());
-    Declaration decl = currentScope.getDeclaration(QualifiedName.fromNode(fn), false);
-    if (decl == null) {
-      return null;
-    }
-    if (decl.getFunctionScope() != null) {
-      return decl.getFunctionScope().getDeclaredFunctionType();
-    }
-    if (decl.getTypeOfSimpleDecl() != null) {
-      FunctionType funType = decl.getTypeOfSimpleDecl().getFunType();
-      if (funType != null && !funType.isGeneric()) {
-        return funType.toDeclaredFunctionType();
-      }
-    }
-    return null;
-  }
-
   private static boolean isClassPropertyDeclaration(Node n, NTIScope s) {
     Node parent = n.getParent();
     return n.isGetProp()
@@ -2663,7 +2660,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
                 this.convention, fromDefsiteToName(defSite)));
   }
 
-  private static boolean isCtorDefinedByCall(Node qnameNode) {
+  static boolean isCtorDefinedByCall(Node qnameNode) {
     if (!qnameNode.isName() && !qnameNode.isGetProp()) {
       return false;
     }

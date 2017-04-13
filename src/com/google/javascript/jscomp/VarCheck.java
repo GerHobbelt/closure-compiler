@@ -23,7 +23,6 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -117,9 +116,8 @@ class VarCheck extends AbstractPostOrderCallback implements
   }
 
   /**
-   * Create a SyntacticScopeCreator. If not in sanity check mode, use a
-   * {@link RedeclarationCheckHandler} to check var redeclarations.
-   * @return the SyntacticScopeCreator
+   * Creates the scope creator used by this pass. If not in sanity check mode, use a {@link
+   * RedeclarationCheckHandler} to check var redeclarations.
    */
   private ScopeCreator createScopeCreator() {
     if (sanityCheck) {
@@ -194,11 +192,11 @@ class VarCheck extends AbstractPostOrderCallback implements
       Var var = scope.getVar(varName);
       if (var == null) {
         if (NodeUtil.isFunctionExpression(parent)
-            || NodeUtil.isClassExpression(parent) && n == parent.getFirstChild()) {
+            || (NodeUtil.isClassExpression(parent) && n == parent.getFirstChild())) {
           // e.g. [ function foo() {} ], it's okay if "foo" isn't defined in the
           // current scope.
         } else {
-          boolean isArguments = scope.isLocal() && ARGUMENTS.equals(varName);
+          boolean isArguments = scope.isFunctionScope() && ARGUMENTS.equals(varName);
           // The extern checks are stricter, don't report a second error.
           if (!isArguments && !(strictExternCheck && t.getInput().isExtern())) {
             t.report(n, UNDEFINED_VAR_ERROR, varName);
@@ -295,6 +293,8 @@ class VarCheck extends AbstractPostOrderCallback implements
           case FUNCTION:
           case CLASS:
           case PARAM_LIST:
+          case DEFAULT_VALUE:
+          case REST:
             // These are okay.
             break;
           case GETPROP:
@@ -319,7 +319,7 @@ class VarCheck extends AbstractPostOrderCallback implements
           default:
             // Don't warn for simple var assignments "/** @const */ var foo = bar;"
             // They are used to infer the types of namespace aliases.
-            if (!parent.isName() || parent.getParent() == null
+            if (!parent.isName()
                 || !NodeUtil.isNameDeclaration(parent.getParent())) {
               t.report(n, NAME_REFERENCE_IN_EXTERNS_ERROR, n.getString());
             }

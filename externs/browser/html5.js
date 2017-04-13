@@ -81,6 +81,13 @@ HTMLCanvasElement.prototype.toDataURL = function(opt_type, var_args) {};
  */
 HTMLCanvasElement.prototype.getContext = function(contextId, opt_args) {};
 
+/**
+ * @see https://www.w3.org/TR/mediacapture-fromelement/
+ * @param {number=} opt_framerate
+ * @return {!MediaStream}
+ * @throws {Error}
+ * */
+HTMLCanvasElement.prototype.captureStream = function(opt_framerate) {};
 
 /**
  * @interface
@@ -1896,6 +1903,33 @@ function MediaError() {}
 /** @type {number} */
 MediaError.prototype.code;
 
+/**
+ * The fetching process for the media resource was aborted by the user agent at
+ * the user's request.
+ * @type {number}
+ */
+MediaError.MEDIA_ERR_ABORTED;
+
+/**
+ * A network error of some description caused the user agent to stop fetching
+ * the media resource, after the resource was established to be usable.
+ * @type {number}
+ */
+MediaError.MEDIA_ERR_NETWORK;
+
+/**
+ * An error of some description occurred while decoding the media resource,
+ * after the resource was established to be usable.
+ * @type {number}
+ */
+MediaError.MEDIA_ERR_DECODE;
+
+/**
+ * The media resource indicated by the src attribute was not suitable.
+ * @type {number}
+ */
+MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+
 // HTML5 MessageChannel
 /**
  * @see http://dev.w3.org/html5/spec/comms.html#messagechannel
@@ -3158,6 +3192,9 @@ Element.prototype.webkitRequestFullscreen = function(opt_allowKeyboardInput) {};
 Document.prototype.webkitIsFullScreen;
 
 Document.prototype.webkitCancelFullScreen = function() {};
+
+/** @type {boolean} */
+Document.prototype.webkitFullscreenEnabled;
 
 /** @type {Element} */
 Document.prototype.webkitCurrentFullScreenElement;

@@ -94,7 +94,7 @@ public class NameBasedDefinitionProvider implements DefinitionProvider, Compiler
    * should not have to drop definitions itself.
    */
   private void dropUntypedExterns() {
-    for (String externName : nameDefinitionMultimap.keys()) {
+    for (String externName : nameDefinitionMultimap.keySet()) {
       for (Definition def : new ArrayList<Definition>(nameDefinitionMultimap.get(externName))) {
         if (def instanceof ExternalNameOnlyDefinition) {
           Node node = def.getLValue();
@@ -102,10 +102,10 @@ public class NameBasedDefinitionProvider implements DefinitionProvider, Compiler
             for (Definition prevDef : nameDefinitionMultimap.get(externName)) {
               if (prevDef != def && node.matchesQualifiedName(prevDef.getLValue())) {
                 nameDefinitionMultimap.remove(externName, def);
+                DefinitionSite site = definitionNodeByDefinitionSite.remove(def.getLValue());
+
                 // Since it's a stub we know its keyed by the name/getProp node.
-                Preconditions.checkState(
-                    definitionNodeByDefinitionSite.containsKey(def.getLValue()));
-                definitionNodeByDefinitionSite.remove(def.getLValue());
+                Preconditions.checkNotNull(site);
                 break;
               }
             }

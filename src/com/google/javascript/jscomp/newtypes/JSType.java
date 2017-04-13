@@ -29,6 +29,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 import com.google.javascript.rhino.TypeI;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -467,8 +468,15 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     return false;
   }
 
+  @Override
   public boolean isEnumElement() {
     return getMask() == ENUM_MASK && getEnums().size() == 1;
+  }
+
+  @Override
+  public boolean isEnumObject() {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    return obj != null && obj.isEnumObject();
   }
 
   public boolean isUnion() {
@@ -491,11 +499,13 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   }
 
   // Only makes sense for a JSType that represents a single enum
-  public JSType getEnumeratedType() {
+  @Override
+  public JSType getEnumeratedTypeOfEnumElement() {
     return isEnumElement() ?
         Iterables.getOnlyElement(getEnums()).getEnumeratedType() : null;
   }
 
+  @Override
   public JSType autobox() {
     if (isTop() || isUnknown()) {
       return this;
@@ -1643,7 +1653,8 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (this == o) {
       return true;
     }
-    Preconditions.checkArgument(o instanceof JSType);
+    Preconditions.checkArgument(o instanceof JSType,
+        "Expected newtypes.JSType but found %s", o);
     JSType t2 = (JSType) o;
     return getMask() == t2.getMask() && Objects.equals(getObjs(), t2.getObjs())
         && Objects.equals(getEnums(), t2.getEnums())
@@ -1824,11 +1835,10 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
 
   @Override
   public boolean isPrototypeObject() {
-    // TODO(aravindpg): this is just a complete stub to ensure that we never enter a codepath
-    // that depends on us being a prototype object.
-    return false;
+    return isSingletonObj() && getObjTypeIfSingletonObj().isPrototypeObject();
   }
 
+  @Override
   public boolean isUnknownObject() {
     return isSingletonObj() && getNominalTypeIfSingletonObj().isBuiltinObject();
   }
@@ -1895,6 +1905,105 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
       }
     }
     return this;
+  }
+
+  @Override
+  public boolean isBoxableScalar() {
+    return isNumber() || isString() || isBoolean();
+  }
+
+  @Override
+  public final boolean isObjectType() {
+    return !isBottom() && !isUnknown() && isSubtypeOf(this.commonTypes.getTopObject());
+  }
+
+  @Override
+  public final boolean isGeneric() {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    return nt != null && nt.isGeneric();
+  }
+
+  @Override
+  public Collection<ObjectTypeI> getAncestorInterfaces() {
+    FunctionType funType = getFunTypeIfSingletonObj();
+    if (!funType.isUniqueConstructor() && !funType.isInterfaceDefinition()) {
+      return ImmutableSet.of();
+    }
+    NominalType nt = funType.getInstanceTypeOfCtor().getNominalTypeIfSingletonObj();
+    ImmutableSet.Builder<ObjectTypeI> builder = new ImmutableSet.Builder<>();
+    for (NominalType i : nt.getInstantiatedInterfaces()) {
+      builder.add(this.commonTypes.fromFunctionType(i.getConstructorFunction()));
+    }
+    return builder.build();
+  }
+
+  @Override
+  public boolean isStructuralInterface() {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    return nt != null && nt.isStructuralInterface();
+  }
+
+  @Override
+  public boolean hasOwnProperty(String propertyName) {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    return obj != null && obj.hasOwnPropery(new QualifiedName(propertyName));
+  }
+
+  @Override
+  public ObjectTypeI getRawType() {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    return nt.isGeneric()
+        ? nt.getRawNominalTypeAfterTypeChecking().getInstanceAsJSType() : null;
+  }
+
+  @Override
+  public final boolean isLegacyNamedType() {
+    return false;
+  }
+
+  @Override
+  public TypeI getLegacyResolvedType() {
+    throw new UnsupportedOperationException(
+        "NTI does not have NamedType. This method should never be called on NTI types.");
+  }
+
+  Collection<JSType> getSubtypesWithProperty(QualifiedName qname) {
+    Collection<JSType> typesWithProp =
+        TypeWithPropertiesStatics.getSubtypesWithProperty(getEnums(), qname);
+    typesWithProp.addAll(TypeWithPropertiesStatics.getSubtypesWithProperty(getObjs(), qname));
+    return typesWithProp;
+  }
+
+  @Override
+  public TypeI getGreatestSubtypeWithProperty(String pname) {
+    JSType result = this.commonTypes.BOTTOM;
+    for (JSType t : getSubtypesWithProperty(new QualifiedName(pname))) {
+      result = join(result, t);
+    }
+    return result;
+  }
+
+  @Override
+  public Collection<JSType> getDirectImplementors() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ObjectTypeI getPrototypeProperty() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ObjectTypeI getTopDefiningInterface(String propName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public FunctionTypeI getOwnerFunction() {
+    if (isPrototypeObject()) {
+      return this.commonTypes.fromFunctionType(getObjTypeIfSingletonObj().getOwnerFunction());
+    }
+    return null;
   }
 }
 

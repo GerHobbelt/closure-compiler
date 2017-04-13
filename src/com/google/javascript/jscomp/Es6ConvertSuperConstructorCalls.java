@@ -178,6 +178,9 @@ implements NodeTraversal.Callback, HotSwapCompilerPass {
   }
 
   private boolean isKnownToReturnOnlyUndefined(String functionQName) {
+    if (globalNamespace == null) {
+      return false;
+    }
     Name globalName = globalNamespace.getSlot(functionQName);
     if (globalName == null) {
       return false;
@@ -298,7 +301,7 @@ implements NodeTraversal.Callback, HotSwapCompilerPass {
     // `this`, so a workaround is needed.
     Node superStatement = NodeUtil.getEnclosingStatement(superCall);
     Node body = superStatement.getParent();
-    checkState(body.isBlock(), body);
+    checkState(body.isNormalBlock(), body);
 
     // var $jscomp$tmp$error;
     Node getError = IR.var(IR.name(TMP_ERROR)).useSourceInfoIfMissingFromForTree(superCall);

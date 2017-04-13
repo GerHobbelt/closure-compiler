@@ -163,8 +163,7 @@ public final class JsFileParser extends JsFileLineParser {
    */
   public DependencyInfo parseFile(String filePath, String closureRelativePath,
       String fileContents) {
-    return parseReader(filePath, closureRelativePath,
-        new StringReader(fileContents));
+    return parseReader(filePath, closureRelativePath, new StringReader(fileContents));
   }
 
   private DependencyInfo parseReader(String filePath,
@@ -286,7 +285,11 @@ public final class JsFileParser extends JsFileLineParser {
           if (arg.startsWith("goog:")) {
             requires.add(arg.substring(5)); // cut off the "goog:" prefix
           } else {
-            requires.add(file.resolveEs6Module(arg).toModuleName());
+            ModuleLoader.ModulePath path = file.resolveJsModule(arg);
+            if (path == null) {
+              path = file.resolveModuleAsPath(arg);
+            }
+            requires.add(path.toModuleName());
           }
         }
       }

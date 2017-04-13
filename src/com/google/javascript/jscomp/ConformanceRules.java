@@ -37,7 +37,6 @@ import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.JSTypeNative;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
@@ -46,7 +45,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-
 import javax.annotation.Nullable;
 
 /**
@@ -502,23 +500,33 @@ public final class ConformanceRules {
     private ConformanceResult checkConformance(NodeTraversal t, Node n, Property prop) {
       if (isCandidatePropUse(n, prop)) {
         TypeIRegistry registry = t.getCompiler().getTypeIRegistry();
-        TypeI methodClassType = registry.getType(prop.type);
+        TypeI typeWithBannedProp = registry.getType(prop.type);
         Node lhs = n.getFirstChild();
-        if (methodClassType != null && lhs.getTypeI() != null) {
-          TypeI targetType = lhs.getTypeI().restrictByNotNullOrUndefined();
-          if (targetType.isSomeUnknownType()
-             || targetType.isTypeVariable()
-             || targetType.isBottom()
-             || targetType.isTop()
-             || targetType.isEquivalentTo(
-                 registry.getNativeType(JSTypeNative.OBJECT_TYPE))) {
+        if (typeWithBannedProp != null && lhs.getTypeI() != null) {
+          TypeI foundType = lhs.getTypeI().restrictByNotNullOrUndefined();
+          ObjectTypeI foundObj = foundType.toMaybeObjectType();
+          if (foundObj != null) {
+            if (foundObj.isPrototypeObject()) {
+              FunctionTypeI ownerFun = foundObj.getOwnerFunction();
+              if (ownerFun.isConstructor()) {
+                foundType = ownerFun.getInstanceType();
+              }
+            } else if (foundObj.isGeneric()) {
+              foundType = foundObj.getRawType();
+            }
+          }
+          if (foundType.isSomeUnknownType()
+             || foundType.isTypeVariable()
+             || foundType.isBottom()
+             || foundType.isTop()
+             || foundType.isEquivalentTo(registry.getNativeType(JSTypeNative.OBJECT_TYPE))) {
             if (reportLooseTypeViolations) {
               return ConformanceResult.POSSIBLE_VIOLATION_DUE_TO_LOOSE_TYPES;
             }
-          } else if (targetType.isSubtypeOf(methodClassType)) {
+          } else if (foundType.isSubtypeOf(typeWithBannedProp)) {
             return ConformanceResult.VIOLATION;
-          } else if (methodClassType.isSubtypeOf(targetType)) {
-            if (matchesPrototype(methodClassType, targetType)) {
+          } else if (typeWithBannedProp.isSubtypeOf(foundType)) {
+            if (matchesPrototype(typeWithBannedProp, foundType)) {
               return ConformanceResult.VIOLATION;
             } else if (reportLooseTypeViolations) {
               // Access of a banned property through a super class may be a violation
@@ -533,8 +541,7 @@ public final class ConformanceRules {
     private boolean matchesPrototype(TypeI type, TypeI maybePrototype) {
       ObjectTypeI methodClassObjectType = type.toMaybeObjectType();
       if (methodClassObjectType != null) {
-        if (methodClassObjectType.getPrototypeObject().isEquivalentTo(
-            maybePrototype)) {
+        if (methodClassObjectType.getPrototypeObject().isEquivalentTo(maybePrototype)) {
           return true;
         }
       }
@@ -1415,125 +1422,6 @@ public final class ConformanceRules {
         return ConformanceResult.VIOLATION;
       }
       return ConformanceResult.CONFORMANCE;
-    }
-  }
-
-  /**
-   * Requires top-level Closure-style "declarations"
-   * (example: {@code foo.bar.Baz = ...;}) to have explicit visibility
-   * annotations, either at the declaration site or in the {@code @fileoverview}
-   * block.
-   */
-  public static final class NoImplicitlyPublicDecls extends AbstractRule {
-    public NoImplicitlyPublicDecls(
-        AbstractCompiler compiler, Requirement requirement)
-        throws InvalidRequirementSpec {
-      super(compiler, requirement);
-    }
-
-    @Override
-    protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
-      if (!t.inGlobalScope()
-          || !n.isExprResult()
-          || !n.getFirstChild().isAssign()
-          || n.getFirstChild().getLastChild() == null
-          || n.getFirstChild().getLastChild().isObjectLit()
-          || isWizDeclaration(n)) {
-        return ConformanceResult.CONFORMANCE;
-      }
-      // TODO(tbreisacher): Instead of skipping goog.modules entirely, run
-      // this check before goog.modules are rewritten, so that we can catch
-      // implicitly public prototype methods.
-      Node enclosingScript = NodeUtil.getEnclosingScript(n);
-      if (enclosingScript != null && enclosingScript.getBooleanProp(Node.GOOG_MODULE)) {
-        return ConformanceResult.CONFORMANCE;
-      }
-
-      JSDocInfo ownJsDoc = n.getFirstChild().getJSDocInfo();
-      if (ownJsDoc != null && ownJsDoc.isConstructor()) {
-        TypeI type = n.getFirstChild().getTypeI();
-        if (type == null) {
-          return ConformanceResult.CONFORMANCE;
-        }
-        FunctionTypeI functionType = type.toMaybeFunctionType();
-        if (functionType == null) {
-          return ConformanceResult.CONFORMANCE;
-        }
-        ObjectTypeI instanceType = functionType.getInstanceType();
-        if (instanceType == null) {
-          return ConformanceResult.CONFORMANCE;
-        }
-        ConformanceResult result = checkCtorProperties(instanceType);
-        if (result.level != ConformanceLevel.CONFORMANCE) {
-          return result;
-        }
-      }
-
-      return visibilityAtDeclarationOrFileoverview(ownJsDoc, getScriptNode(n));
-    }
-
-    /**
-     * Do not check Wiz-style declarations for implicit public visibility.
-     * Example:
-     * <code>
-     * foo.Bar = wiz.service(...);
-     * </code>
-     * {@link WizPass} rewrites portions of the AST, and I believe it
-     * does not propagate the constructor JsDoc properly. Until I have time
-     * to investigate, this seems like a reasonable workaround.
-     * TODO(brndn): get to the bottom of this. See b/18436759.
-     */
-    private static boolean isWizDeclaration(Node n) {
-      Node lastChild = n.getFirstChild().getLastChild();
-      if (!lastChild.isCall()) {
-        return false;
-      }
-      Node getprop = lastChild.getFirstChild();
-      if (getprop == null || !getprop.isGetProp()) {
-        return false;
-      }
-      Node name = getprop.getFirstChild();
-      if (name == null || !name.isName()) {
-        return false;
-      }
-      return "wiz".equals(name.getString());
-    }
-
-    private static ConformanceResult checkCtorProperties(ObjectTypeI type) {
-      for (String propertyName : type.getOwnPropertyNames()) {
-        JSDocInfo docInfo = type.getOwnPropertyJSDocInfo(propertyName);
-        Node scriptNode = getScriptNode(type.getOwnPropertyDefSite(propertyName));
-        ConformanceResult result = visibilityAtDeclarationOrFileoverview(
-            docInfo, scriptNode);
-        if (result != ConformanceResult.CONFORMANCE) {
-          return result;
-        }
-      }
-      return ConformanceResult.CONFORMANCE;
-    }
-
-    @Nullable private static Node getScriptNode(Node start) {
-      for (Node up : start.getAncestors()) {
-        if (up.isScript()) {
-          return up;
-        }
-      }
-      return null;
-    }
-
-    private static ConformanceResult visibilityAtDeclarationOrFileoverview(
-        @Nullable JSDocInfo declaredJsDoc, @Nullable Node scriptNode) {
-      if (declaredJsDoc != null
-          && (declaredJsDoc.getVisibility() != Visibility.INHERITED
-              || declaredJsDoc.isOverride())) {
-        return ConformanceResult.CONFORMANCE;
-      } else if (scriptNode != null
-          && scriptNode.getJSDocInfo() != null
-          && scriptNode.getJSDocInfo().getVisibility() != Visibility.INHERITED) {
-        return ConformanceResult.CONFORMANCE;
-      } else {
-        return ConformanceResult.VIOLATION;
-      }
     }
   }
 }

@@ -67,9 +67,11 @@ enum CompilationParam {
   TRANSPILE(true, ParamGroup.TRANSPILATION) {
     @Override
     void apply(CompilerOptions options, boolean value) {
-      options.setLanguageOut(value ?
-          CompilerOptions.LanguageMode.ECMASCRIPT5 :
-          CompilerOptions.LanguageMode.NO_TRANSPILE);
+      options.setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_NEXT);
+      options.setLanguageOut(
+          value
+              ? CompilerOptions.LanguageMode.ECMASCRIPT5
+              : CompilerOptions.LanguageMode.NO_TRANSPILE);
     }
     @Override
     String getJavaInfo() {
@@ -704,7 +706,7 @@ enum CompilationParam {
   POLYMER_PASS(ParamGroup.SPECIAL_PASSES) {
     @Override
     void apply(CompilerOptions options, boolean value) {
-      options.setPolymerPass(value);
+      options.setPolymerVersion(value ? 1 : null);
     }
   },
 

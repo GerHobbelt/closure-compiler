@@ -418,13 +418,12 @@ public final class JSTypeCreatorFromJSDoc {
         JSType result;
         if (n.hasChildren()) {
           // We consider a parameterized Object<...> as an alias of IObject.
-          NominalType iobject = this.commonTypes.getIObjectType();
+          RawNominalType iobject = this.commonTypes.getIObjectType();
           if (iobject == null) {
             // Can happen when using old externs.
             return this.commonTypes.UNKNOWN;
           }
-          result = getNominalTypeHelper(
-              iobject.getRawNominalType(), n, registry, outerTypeParameters);
+          result = getNominalTypeHelper(iobject, n, registry, outerTypeParameters);
         } else {
           result = this.commonTypes.getTopObject();
         }
@@ -529,7 +528,7 @@ public final class JSTypeCreatorFromJSDoc {
 
   private void checkInvalidGenericsInstantiation(Node n) {
     if (n.hasChildren()) {
-      Preconditions.checkState(n.getFirstChild().isBlock(), n);
+      Preconditions.checkState(n.getFirstChild().isNormalBlock(), n);
       warnings.add(JSError.make(n, INVALID_GENERICS_INSTANTIATION,
               "", "0", String.valueOf(n.getFirstChild().getChildCount())));
     }
@@ -949,8 +948,7 @@ public final class JSTypeCreatorFromJSDoc {
       return null;
     }
     if (!jsdoc.isConstructor()) {
-      warnings.add(JSError.make(
-          funNode, EXTENDS_NOT_ON_CTOR_OR_INTERF, functionName));
+      warnings.add(JSError.make(funNode, EXTENDS_NOT_ON_CTOR_OR_INTERF, functionName));
       return null;
     }
     Node docNode = jsdoc.getBaseType().getRoot();
@@ -960,13 +958,44 @@ public final class JSTypeCreatorFromJSDoc {
       return parentClass;
     }
     if (parentClass == null) {
-      warnings.add(JSError.make(funNode, EXTENDS_NON_OBJECT,
-              functionName, extendedType.toString()));
+      return getMaybeHigherOrderParentClass(docNode, functionName, funNode, extendedType, registry);
     } else {
       Preconditions.checkState(parentClass.isInterface());
       warnings.add(JSError.make(funNode, CONFLICTING_EXTENDED_TYPE,
               "constructor", functionName));
     }
+    return null;
+  }
+
+  /**
+   * Used for first-class classes like:
+   * function(clazz) { class Foo extends clazz { ... } }
+   */
+  private NominalType getMaybeHigherOrderParentClass(Node docNode, String functionName,
+      Node funNode, JSType extendedType, DeclaredTypeRegistry registry) {
+    if (extendedType.isUnknown()
+        && docNode.getToken() == Token.BANG
+        && docNode.getFirstChild().getToken() == Token.STRING) {
+      String varname = docNode.getFirstChild().getString();
+      Declaration decl = registry.getDeclaration(QualifiedName.fromQualifiedString(varname), false);
+      if (decl != null) {
+        if (decl.getTypeOfSimpleDecl() == null) {
+          return null;
+        }
+        JSType maybeFunction = decl.getTypeOfSimpleDecl();
+        if (maybeFunction != null && maybeFunction.isFunctionType()) {
+          FunctionType maybeCtor = maybeFunction.getFunType();
+          if (maybeCtor.isSomeConstructorOrInterface()) {
+            extendedType = maybeCtor.getThisType();
+            NominalType parentClass = extendedType.getNominalTypeIfSingletonObj();
+            if (parentClass == null || parentClass.isClass()) {
+              return parentClass;
+            }
+          }
+        }
+      }
+    }
+    warnings.add(JSError.make(funNode, EXTENDS_NON_OBJECT, functionName, extendedType.toString()));
     return null;
   }
 

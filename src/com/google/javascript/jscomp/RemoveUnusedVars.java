@@ -348,7 +348,7 @@ class RemoveUnusedVars
     Preconditions.checkState(n.isFunction(), n);
 
     final Node body = n.getLastChild();
-    Preconditions.checkState(body.getNext() == null && body.isBlock(), body);
+    Preconditions.checkState(body.getNext() == null && body.isNormalBlock(), body);
 
     Scope fnScope = SyntacticScopeCreator.makeUntyped(compiler).createScope(n, parentScope);
     traverseNode(body, n, fnScope);
@@ -397,7 +397,7 @@ class RemoveUnusedVars
       return;
     }
 
-    Node argList = getFunctionArgList(function);
+    Node argList = NodeUtil.getFunctionParameters(function);
     boolean modifyCallers = modifyCallSites
         && callSiteOptimizer.canModifyCallers(function);
     if (!modifyCallers) {
@@ -417,14 +417,6 @@ class RemoveUnusedVars
     }
   }
 
-
-  /**
-   * @return the LP node containing the function parameters.
-   */
-  private static Node getFunctionArgList(Node function) {
-    return function.getSecondChild();
-  }
-
   private static class CallSiteOptimizer {
     private final AbstractCompiler compiler;
     private final DefinitionUseSiteFinder defFinder;
@@ -441,7 +433,7 @@ class RemoveUnusedVars
     public void optimize(Scope fnScope, Set<Var> referenced) {
       Node function = fnScope.getRootNode();
       Preconditions.checkState(function.isFunction());
-      Node argList = getFunctionArgList(function);
+      Node argList = NodeUtil.getFunctionParameters(function);
 
       // In this path we try to modify all the call sites to remove unused
       // function parameters.
@@ -844,7 +836,7 @@ class RemoveUnusedVars
           toRemove.getFirstChild().setString("");
         }
         // Don't remove bleeding functions.
-      } else if (parent != null && parent.isForIn()) {
+      } else if (parent.isForIn()) {
         // foreach iterations have 3 children. Leave them alone.
       } else if (toRemove.isVar() &&
           nameNode.hasChildren() &&

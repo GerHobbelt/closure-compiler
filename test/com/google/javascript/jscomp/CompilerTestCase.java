@@ -367,6 +367,7 @@ public abstract class CompilerTestCase extends TestCase {
     options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.INVALID_CASTS, CheckLevel.WARNING);
     options.setCodingConvention(getCodingConvention());
+    options.setPolymerVersion(1);
     return options;
   }
 
@@ -1693,7 +1694,7 @@ public abstract class CompilerTestCase extends TestCase {
       }
 
       // Expected output parsed without implied block.
-      Preconditions.checkState(externs.isBlock());
+      Preconditions.checkState(externs.isRoot());
       Preconditions.checkState(compareJsDoc);
       Preconditions.checkState(
           externs.hasOneChild(), "Compare as tree only works when output has a single script.");

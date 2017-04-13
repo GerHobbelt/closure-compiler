@@ -43,10 +43,6 @@ public final class ProcessCommonJSModules implements CompilerPass {
   private static final String EXPORTS = "exports";
   private static final String MODULE = "module";
 
-  public static final DiagnosticType COMMON_JS_MODULE_LOAD_ERROR = DiagnosticType.error(
-      "JSC_COMMONJS_MODULE_LOAD_ERROR",
-      "Failed to load module \"{0}\"");
-
   public static final DiagnosticType UNKNOWN_REQUIRE_ENSURE =
       DiagnosticType.warning(
           "JSC_COMMONJS_UNKNOWN_REQUIRE_ENSURE_ERROR", "Unrecognized require.ensure call: {0}");
@@ -99,6 +95,7 @@ public final class ProcessCommonJSModules implements CompilerPass {
     NodeTraversal.traverseEs6(compiler, root, finder);
 
     ImmutableList.Builder<ExportInfo> exports = ImmutableList.builder();
+    Node hoistInsertionReference = null;
     if (finder.isCommonJsModule()) {
       finder.reportModuleErrors();
 
@@ -125,12 +122,14 @@ public final class ProcessCommonJSModules implements CompilerPass {
         }
       }
 
-      finder.addGoogProvide();
+      hoistInsertionReference = finder.addGoogProvide();
       compiler.reportCodeChange();
     }
 
     NodeTraversal.traverseEs6(
-        compiler, root, new RewriteModule(finder.isCommonJsModule(), exports.build()));
+        compiler,
+        root,
+        new RewriteModule(finder.isCommonJsModule(), exports.build(), hoistInsertionReference));
   }
 
   /**
@@ -230,6 +229,24 @@ public final class ProcessCommonJSModules implements CompilerPass {
     compiler.reportCodeChange();
 
     return true;
+  }
+
+  /**
+   * Given a scope root, return an insertion reference after any goog.require or goot.provide
+   * functions.
+   */
+  private static Node getScopeInsertionPoint(Node scopeRoot, Node startPoint) {
+    Node insertionPoint = startPoint;
+    for (Node next = startPoint != null ? startPoint.getNext() : scopeRoot.getFirstChild();
+        next != null
+            && next.getFirstChild().isCall()
+            && (next.getFirstFirstChild().matchesQualifiedName("goog.require")
+                || next.getFirstFirstChild().matchesQualifiedName("goog.provide"));
+        next = next.getNext()) {
+      insertionPoint = next;
+    }
+
+    return insertionPoint;
   }
 
   /**
@@ -356,9 +373,16 @@ public final class ProcessCommonJSModules implements CompilerPass {
     /** Visit require calls. Emit corresponding goog.require call. */
     private void visitRequireCall(NodeTraversal t, Node require, Node parent) {
       String requireName = require.getSecondChild().getString();
-      ModulePath modulePath = t.getInput().getPath().resolveCommonJsModule(requireName);
+      ModulePath modulePath =
+          t.getInput()
+              .getPath()
+              .resolveJsModule(
+                  requireName,
+                  require.getSourceFileName(),
+                  require.getLineno(),
+                  require.getCharno());
       if (modulePath == null) {
-        compiler.report(t.makeError(require, COMMON_JS_MODULE_LOAD_ERROR, requireName));
+        // The module loader will issue an error
         return;
       }
 
@@ -462,12 +486,15 @@ public final class ProcessCommonJSModules implements CompilerPass {
      *
      * <p>If all of the assignments are simply property assignments, initialize the module name
      * variable as a namespace.
+     *
+     * <p>Returns a node reference after which hoisted functions within the module should be
+     * inserted.
      */
-    void addGoogProvide() {
+    Node addGoogProvide() {
       CompilerInput ci = compiler.getInput(this.script.getInputId());
       ModulePath modulePath = ci.getPath();
       if (modulePath == null) {
-        return;
+        return null;
       }
 
       String moduleName = modulePath.toModuleName();
@@ -526,16 +553,16 @@ public final class ProcessCommonJSModules implements CompilerPass {
         }
         initModule.useSourceInfoIfMissingFromForTree(this.script);
 
-        Node refChild = this.script.getFirstChild();
-        while (refChild.getNext() != null
-            && refChild.getNext().isExprResult()
-            && refChild.getNext().getFirstChild().isCall()
-            && (refChild.getNext().getFirstFirstChild().matchesQualifiedName("goog.require")
-                || refChild.getNext().getFirstFirstChild().matchesQualifiedName("goog.provide"))) {
-          refChild = refChild.getNext();
+        Node refChild = getScopeInsertionPoint(this.script, null);
+        if (refChild == null) {
+          this.script.addChildToFront(initModule);
+        } else {
+          this.script.addChildAfter(initModule, refChild);
         }
-        this.script.addChildAfter(initModule, refChild);
+        return initModule;
       }
+
+      return script.getFirstChild();
     }
 
     /** Find the outermost if node ancestor for a node without leaving the function scope */
@@ -572,7 +599,8 @@ public final class ProcessCommonJSModules implements CompilerPass {
         }
 
         // Remove redundant block node. Not strictly necessary, but makes tests more legible.
-        if (umdPattern.activeBranch.isBlock() && umdPattern.activeBranch.getChildCount() == 1) {
+        if (umdPattern.activeBranch.isNormalBlock()
+            && umdPattern.activeBranch.getChildCount() == 1) {
           newNode = umdPattern.activeBranch.getFirstChild();
           umdPattern.activeBranch.detachChildren();
         } else {
@@ -609,10 +637,16 @@ public final class ProcessCommonJSModules implements CompilerPass {
     private final ImmutableCollection<ExportInfo> exports;
     private final List<Node> imports = new ArrayList<>();
     private final List<Node> rewrittenClassExpressions = new ArrayList<>();
+    private final List<Node> functionsToHoist = new ArrayList<>();
+    private final Node hoistInsertionPoint;
 
-    public RewriteModule(boolean allowFullRewrite, ImmutableCollection<ExportInfo> exports) {
+    public RewriteModule(
+        boolean allowFullRewrite,
+        ImmutableCollection<ExportInfo> exports,
+        Node hoistInsertionPoint) {
       this.allowFullRewrite = allowFullRewrite;
       this.exports = exports;
+      this.hoistInsertionPoint = hoistInsertionPoint;
     }
 
     @Override
@@ -625,6 +659,26 @@ public final class ProcessCommonJSModules implements CompilerPass {
             clazz.replaceChild(
                 clazz.getFirstChild(), IR.empty().useSourceInfoFrom(clazz.getFirstChild()));
             compiler.reportCodeChange();
+          }
+
+          // Hoist functions in reverse order so that they maintain the same relative
+          // order after hoisting.
+          for (int i = functionsToHoist.size() - 1; i >= 0; i--) {
+            Node functionExpr = functionsToHoist.get(i);
+            Node scopeRoot = t.getClosestHoistScope().getRootNode();
+            Node insertionRef = null;
+            if (hoistInsertionPoint != null
+                && t.getEnclosingFunction() == NodeUtil.getEnclosingFunction(hoistInsertionPoint)) {
+              insertionRef = hoistInsertionPoint;
+            }
+            Node insertionPoint = getScopeInsertionPoint(scopeRoot, insertionRef);
+            if (insertionPoint == null) {
+              if (scopeRoot.getFirstChild() != functionExpr) {
+                scopeRoot.addChildToFront(functionExpr.detach());
+              }
+            } else if (insertionPoint != functionExpr && insertionPoint.getNext() != functionExpr) {
+              scopeRoot.addChildAfter(functionExpr.detach(), insertionPoint);
+            }
           }
 
           for (ExportInfo export : exports) {
@@ -700,9 +754,16 @@ public final class ProcessCommonJSModules implements CompilerPass {
      */
     private void visitRequireCall(NodeTraversal t, Node require, Node parent) {
       String requireName = require.getSecondChild().getString();
-      ModulePath modulePath = t.getInput().getPath().resolveCommonJsModule(requireName);
+      ModulePath modulePath =
+          t.getInput()
+              .getPath()
+              .resolveJsModule(
+                  requireName,
+                  require.getSourceFileName(),
+                  require.getLineno(),
+                  require.getCharno());
       if (modulePath == null) {
-        compiler.report(t.makeError(require, COMMON_JS_MODULE_LOAD_ERROR, requireName));
+        // The module loader will issue an error
         return;
       }
 
@@ -988,6 +1049,7 @@ public final class ProcessCommonJSModules implements CompilerPass {
             } else {
               expr.getFirstChild().replaceChild(expr.getFirstChild().getSecondChild(), parent);
             }
+            functionsToHoist.add(expr);
           } else {
             nameRef.setString(newName);
             nameRef.setOriginalName(originalName);
@@ -1001,17 +1063,14 @@ public final class ProcessCommonJSModules implements CompilerPass {
             // Refactor a var declaration to a getprop assignment
             Node getProp = NodeUtil.newQName(compiler, newName, nameRef, originalName);
             JSDocInfo info = parent.getJSDocInfo();
-            if (info != null) {
-              parent.setJSDocInfo(null);
-              getProp.setJSDocInfo(info);
-            }
-
+            parent.setJSDocInfo(null);
             if (nameRef.hasChildren()) {
-              Node expr =
-                  IR.exprResult(IR.assign(getProp, nameRef.getFirstChild().detachFromParent()))
-                      .useSourceInfoIfMissingFromForTree(nameRef);
+              Node assign = IR.assign(getProp, nameRef.getFirstChild().detachFromParent());
+              assign.setJSDocInfo(info);
+              Node expr = IR.exprResult(assign).useSourceInfoIfMissingFromForTree(nameRef);
               parent.replaceWith(expr);
             } else {
+              getProp.setJSDocInfo(info);
               parent.replaceWith(IR.exprResult(getProp).useSourceInfoFrom(getProp));
             }
           } else if (newNameDeclaration != null) {
@@ -1192,7 +1251,11 @@ public final class ProcessCommonJSModules implements CompilerPass {
             && rValue.getSecondChild().isString()
             && t.getScope().getVar(rValue.getFirstChild().getQualifiedName()) == null) {
           String requireName = rValue.getSecondChild().getString();
-          ModulePath modulePath = t.getInput().getPath().resolveCommonJsModule(requireName);
+          ModulePath modulePath =
+              t.getInput()
+                  .getPath()
+                  .resolveJsModule(
+                      requireName, n.getSourceFileName(), n.getLineno(), n.getCharno());
           if (modulePath == null) {
             return null;
           }
@@ -1229,9 +1292,16 @@ public final class ProcessCommonJSModules implements CompilerPass {
           }
 
           String moduleName = name.substring(0, endIndex);
-          ModulePath modulePath = t.getInput().getPath().resolveCommonJsModule(moduleName);
+          ModulePath modulePath =
+              t.getInput()
+                  .getPath()
+                  .resolveJsModule(
+                      moduleName,
+                      typeNode.getSourceFileName(),
+                      typeNode.getLineno(),
+                      typeNode.getCharno());
           if (modulePath == null) {
-            t.makeError(typeNode, COMMON_JS_MODULE_LOAD_ERROR, moduleName);
+            // The module loader will issue an error
             return;
           }
 

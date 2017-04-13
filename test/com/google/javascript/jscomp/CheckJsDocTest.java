@@ -83,6 +83,18 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         DISALLOWED_MEMBER_JSDOC);
   }
 
+  public void testMisplacedParamAnnotation() {
+    testWarningEs6(LINE_JOINER.join(
+        "/** @param {string} x */ var Foo = goog.defineClass(null, {",
+        "  constructor(x) {}",
+        "});"), MISPLACED_ANNOTATION);
+
+    testWarningEs6(LINE_JOINER.join(
+        "/** @param {string} x */ const Foo = class {",
+        "  constructor(x) {}",
+        "};"), MISPLACED_ANNOTATION);
+  }
+
   public void testAbstract_method() {
     testSameEs6("class Foo { /** @abstract */ doSomething() {}}");
     testSame(LINE_JOINER.join(
@@ -90,6 +102,13 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         "var Foo = function() {};",
         "/** @abstract */",
         "Foo.prototype.something = function() {}"));
+  }
+
+  public void testAbstract_getter_setter() {
+    testSameEs6("class Foo { /** @abstract */ get foo() {}}");
+    testSameEs6("class Foo { /** @abstract */ set foo(val) {}}");
+    testWarningEs6("class Foo { /** @abstract */ static get foo() {}}", MISPLACED_ANNOTATION);
+    testWarningEs6("class Foo { /** @abstract */ static set foo(val) {}}", MISPLACED_ANNOTATION);
   }
 
   public void testAbstract_nonEmptyMethod() {
@@ -259,6 +278,11 @@ public final class CheckJsDocTest extends Es6CompilerTestCase {
         MISPLACED_MSG_ANNOTATION);
     testWarning("/** @desc Foo. */ bar = goog.getMsg('x');",
         MISPLACED_MSG_ANNOTATION);
+  }
+
+  public void testJSDocDescInExterns() {
+    testWarning("/** @desc Foo. */ x.y.z.MSG_bar;", MISPLACED_MSG_ANNOTATION);
+    testSame("/** @desc Foo. */ x.y.z.MSG_bar;", "", null);
   }
 
   public void testJSDocTypeAttachment() {

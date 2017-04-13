@@ -33,7 +33,7 @@ import com.google.javascript.rhino.Node;
  *
  * @author moz@google.com (Michael Zhou)
  */
-class Es6SyntacticScopeCreator implements ScopeCreator {
+public final class Es6SyntacticScopeCreator implements ScopeCreator {
   private final AbstractCompiler compiler;
   private Scope scope;
   private InputId inputId;
@@ -43,7 +43,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
   // but not explicitly declared.
   private static final String ARGUMENTS = "arguments";
 
-  Es6SyntacticScopeCreator(AbstractCompiler compiler) {
+  public Es6SyntacticScopeCreator(AbstractCompiler compiler) {
     this.compiler = compiler;
     this.redeclarationHandler = new DefaultRedeclarationHandler();
   }
@@ -108,7 +108,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
           declareVar(classNameNode);
         }
       }
-    } else if (n.isBlock()
+    } else if (n.isRoot()
+        || n.isNormalBlock()
         || NodeUtil.isAnyFor(n)
         || n.isSwitch()
         || n.isModuleBody()) {
@@ -119,8 +120,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
           n.isRoot() || NodeUtil.isFunctionBlock(n) || n.isModuleBody();
       scanVars(n, scanInnerBlocks, true);
     } else {
-      // n is the global SCRIPT node
-      checkState(scope.getParent() == null);
+      // n is the global scope
+      checkState(scope.isGlobal(), scope);
       scanVars(n, true, true);
     }
   }
@@ -197,6 +198,14 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         inputId = n.getInputId();
         Preconditions.checkNotNull(inputId);
         break;
+
+      case MODULE_BODY:
+        // Module bodies are not part of global scope.
+        if (scope.isGlobal()) {
+          return;
+        }
+        break;
+
       default:
         break;
     }
@@ -208,8 +217,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     // Variables can only occur in statement-level nodes, so
     // we only need to traverse children in a couple special cases.
     if (NodeUtil.isControlStructure(n) || NodeUtil.isStatementBlock(n)) {
-      for (Node child = n.getFirstChild();
-           child != null;) {
+      for (Node child = n.getFirstChild(); child != null;) {
         Node next = child.getNext();
         scanVars(child, scanInnerBlockScopes, false);
         child = next;
@@ -241,7 +249,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     CompilerInput input = compiler.getInput(inputId);
     if (v != null
         || isShadowingDisallowed(name)
-        || (scope.isLocal() && name.equals(ARGUMENTS))) {
+        || ((scope.isFunctionScope() || scope.isFunctionBlockScope()) && name.equals(ARGUMENTS))) {
       redeclarationHandler.onRedeclaration(scope, name, n, input);
     } else {
       scope.declare(name, n, input);
@@ -252,7 +260,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
   // function parameters.
   private boolean isShadowingDisallowed(String name) {
     if (scope.isFunctionBlockScope()) {
-      return scope.getParent().getOwnSlot(name) != null;
+      Var maybeParam = scope.getParent().getOwnSlot(name);
+      return maybeParam != null && maybeParam.isParam();
     }
     return false;
   }

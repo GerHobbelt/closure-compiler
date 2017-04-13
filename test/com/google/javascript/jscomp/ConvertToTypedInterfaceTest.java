@@ -158,6 +158,56 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
             "/** @const {number} */ Foo.prototype.x;"));
   }
 
+  public void testConstPropagationPrivateProperties1() {
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "function Foo() {",
+            "  /** @const @private */ this.x = someComplicatedExpression();",
+            "}"),
+        LINE_JOINER.join(
+            "/** @constructor */ function Foo() {}",
+            "/** @const @private {*} */ Foo.prototype.x;"));
+  }
+
+  public void testConstPropagationPrivateProperties2() {
+    testEs6(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "",
+            "/** @private @const */",
+            "a.b.c.helper_ = someComplicatedExpression();"),
+        "goog.provide('a.b.c');   /** @private @const {*} */ a.b.c.helper_;");
+  }
+
+  public void testOverrideAnnotationCountsAsDeclaration() {
+    testSame(
+        LINE_JOINER.join(
+            "goog.provide('x.y.z.Bar');",
+            "",
+            "goog.require('a.b.c.Foo');",
+            "",
+            "/** @constructor @extends {a.b.c.Foo} */",
+            "x.y.z.Bar = function() {};",
+            "",
+            "/** @override */",
+            "x.y.z.Bar.prototype.method = function(a, b, c) {};"));
+
+    testSameEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const {Foo} = goog.require('a.b.c');",
+            "",
+            "/** @constructor @extends {Foo} */",
+            "const Bar = class {",
+            "   /** @override */",
+            "   method(a, b, c) {}",
+            "}",
+            "exports.Bar = Bar;"));
+
+  }
+
   public void testConstJsdocPropagationForNames_optional() {
     test(
         LINE_JOINER.join(
@@ -190,6 +240,26 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
             "/** @const {!Array<number>} */ Foo.prototype.nums;"));
   }
 
+  public void testOptionalRestParamFunction() {
+    testEs6(
+        LINE_JOINER.join(
+            "/**",
+            " * @param {?Object} o",
+            " * @param {string=} str",
+            " * @param {number=} num",
+            " * @param {...!Object} rest",
+            " */",
+            "function foo(o, str = '', num = 5, ...rest) {}"),
+        LINE_JOINER.join(
+            "/**",
+            " * @param {?Object} o",
+            " * @param {string=} str",
+            " * @param {number=} num",
+            " * @param {...!Object} rest",
+            " */",
+            "function foo(o, str, num, ...rest) {}"));
+  }
+
   public void testConstJsdocPropagationForNames_defaultValue() {
     testEs6(
         LINE_JOINER.join(
@@ -205,8 +275,24 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
             " * @constructor",
             " * @param {string=} str",
             " */",
-            "function Foo(str='') {}",
+            "function Foo(str) {}",
             "/** @const {string} */ Foo.prototype.s;"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "class Foo {",
+            "  /** @param {string=} str */",
+            "  constructor(str = '') {",
+            "    /** @const */ this.s = str;",
+            "  }",
+            "}"),
+        LINE_JOINER.join(
+            "class Foo {",
+            "  /** @param {string=} str */",
+            "  constructor(str) {}",
+            "}",
+            "/** @const {string} */ Foo.prototype.s;"));
+
   }
 
   public void testConstWithDeclaredTypes() {
@@ -329,6 +415,78 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
               "/** @type {number} */ Foo.prototype.x;",
               "exports = Foo;"),
         });
+  }
+
+  public void testGoogModulesWithUndefinedExports() {
+    testEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "/** @type {Foobar} */",
+            "exports.foobar = (new Baz).getFoobar();"),
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "/** @type {Foobar} */",
+            "exports.foobar;"));
+
+    testEs6(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "/** @type {Foobar} */",
+            "exports = (new Baz).getFoobar();"),
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "/** @type {Foobar} */",
+            "exports = /** @const {?} */ (0);"));
+  }
+
+  public void testCrossFileModifications() {
+    test(
+        LINE_JOINER.join(
+            "goog.module('a.b.c');",
+            "othermodule.modify.something = othermodule.modify.something + 1;"),
+        "goog.module('a.b.c');");
+
+    testEs6(
+        LINE_JOINER.join(
+            "goog.module('a.b.c');",
+            "class Foo {}",
+            "Foo.something = othermodule.modify.something + 1;",
+            "exports = Foo;"),
+        LINE_JOINER.join(
+            "goog.module('a.b.c');",
+            "class Foo {}",
+            "/** @const {*} */ Foo.something",
+            "exports = Foo;"));
+
+    test(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "otherfile.modify.something = otherfile.modify.something + 1;"),
+        "goog.provide('a.b.c');");
+
+    test(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "a.b.c.something = otherfile.modify.something + 1;"),
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "/** @const {*} */ a.b.c.something;"));
   }
 
   public void testRemoveCalls() {
@@ -573,7 +731,9 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
   }
 
   public void testDontRemoveGoogModuleContents() {
-    testSame("goog.module('x.y.z'); var C = goog.require('a.b.C'); exports = new C;");
+    testWarning(
+        "goog.module('x.y.z'); var C = goog.require('a.b.C'); exports = new C;",
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
 
     testSameEs6("goog.module('x.y.z.Foo'); exports = class {};");
 
@@ -604,6 +764,84 @@ public final class ConvertToTypedInterfaceTest extends Es6CompilerTestCase {
 
     // This is OK, because short-import goog.forwardDeclares don't declare a type.
     testSame("goog.module('x.y.z'); var C = goog.forwardDeclare('a.b.C'); /** @type {C} */ var c;");
+  }
+
+  public void testAliasOfRequirePreserved() {
+    testSame(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "",
+            "goog.require('ns.Foo');",
+            "",
+            "/** @const */",
+            "a.b.c.FooAlias = ns.Foo;"));
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "",
+            "goog.require('ns.Foo');",
+            "",
+            "/** @constructor */",
+            "a.b.c.FooAlias = ns.Foo;"));
+
+    testSameEs6(
+        LINE_JOINER.join(
+            "goog.module('mymod');",
+            "",
+            "const {Foo} = goog.require('ns.Foo');",
+            "",
+            "/** @const */",
+            "var FooAlias = Foo;",
+            "",
+            "/** @param {!FooAlias} f */",
+            "exports = function (f) {};"));
+
+
+    testSame(
+        LINE_JOINER.join(
+            "goog.module('mymod');",
+            "",
+            "var Foo = goog.require('ns.Foo');",
+            "",
+            "/** @constructor */",
+            "var FooAlias = Foo;",
+            "",
+            "/** @param {!FooAlias} f */",
+            "exports = function (f) {};"));
+  }
+
+  public void testAliasOfNonRequiredName() {
+    testWarning(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "",
+            "/** @const */",
+            "a.b.c.FooAlias = ns.Foo;"),
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+
+    testWarning(
+        LINE_JOINER.join(
+            "goog.provide('a.b.c');",
+            "",
+            "/** @constructor */",
+            "a.b.c.Bar = function() {",
+            "  /** @const */",
+            "  this.FooAlias = ns.Foo;",
+            "};"),
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+
+    testWarningEs6(
+        LINE_JOINER.join(
+            "goog.module('a.b.c');",
+            "",
+            "class FooAlias {",
+            "  constructor() {",
+            "    /** @const */",
+            "    this.FooAlias = window.Foo;",
+            "  }",
+            "};"),
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
   }
 
   public void testGoogScopeNotSupported() {

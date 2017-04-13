@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -25,10 +27,12 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.CompilerOptions.DevMode;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.TypeValidator.TypeMismatch;
+import com.google.javascript.jscomp.WarningsGuard.DiagnosticGroupState;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
 import com.google.javascript.jscomp.parsing.Config;
@@ -98,6 +102,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       "unknown module \"{0}\" specified in entry point spec");
 
   // Used in PerformanceTracker
+  static final String READING_PASS_NAME = "readInputs";
   static final String PARSING_PASS_NAME = "parseInputs";
   static final String CROSS_MODULE_CODE_MOTION_NAME = "crossModuleCodeMotion";
   static final String CROSS_MODULE_METHOD_MOTION_NAME =
@@ -378,6 +383,13 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           DiagnosticGroup.forType(
               RhinoErrorReporter.TYPE_PARSE_ERROR),
           CheckLevel.OFF);
+    }
+    DiagnosticGroupState ntiState =
+        options.getWarningsGuard().enablesExplicitly(DiagnosticGroups.NEW_CHECK_TYPES);
+    if (ntiState == DiagnosticGroupState.ON) {
+      options.setNewTypeInference(true);
+    } else if (ntiState == DiagnosticGroupState.OFF) {
+      options.setNewTypeInference(false);
     }
     // With NTI, we still need OTI to run because the later passes that use
     // types only understand OTI types at the moment.
@@ -744,9 +756,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private void compileInternal() {
     setProgress(0.0, null);
     CompilerOptionsPreprocessor.preprocess(options);
+    read();
+    // Guesstimate.
+    setProgress(0.02, "read");
     parse();
-    // 15 percent of the work is assumed to be for parsing (based on some
-    // minimal analysis on big JS projects, of course this depends on options)
+    // Guesstimate.
     setProgress(0.15, "parse");
     if (hasErrors()) {
       return;
@@ -785,6 +799,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     if (tracker != null) {
       tracker.outputTracerReport();
     }
+  }
+
+  public void read() {
+    readInputs();
   }
 
   public void parse() {
@@ -897,7 +915,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     externExports = pass.getGeneratedExterns();
 
-    endPass();
+    endPass("externExports");
   }
 
   @Override
@@ -937,7 +955,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       r.enableTweakStripping();
     }
     process(r);
-    endPass();
+    endPass("stripCode");
   }
 
   /**
@@ -966,15 +984,17 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     Preconditions.checkState(currentTracer == null);
     currentPassName = passName;
     currentTracer = newTracer(passName);
+    beforePass(passName);
   }
 
   /**
    * Marks the end of a pass.
    */
-  void endPass() {
+  void endPass(String passName) {
     Preconditions.checkState(currentTracer != null,
         "Tracer should not be null at the end of a pass.");
     stopTracer(currentTracer, currentPassName);
+    afterPass(passName);
     currentPassName = null;
     currentTracer = null;
 
@@ -1441,6 +1461,39 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   //------------------------------------------------------------------------
+  // Reading
+  //------------------------------------------------------------------------
+
+  /**
+   * Performs all externs and main inputs IO.
+   *
+   * <p>Allows for easy measurement of IO cost separately from parse cost.
+   */
+  void readInputs() {
+    if (options.getTracerMode().isOn()) {
+      tracker =
+          new PerformanceTracker(externsRoot, jsRoot, options.getTracerMode(), this.outStream);
+      addChangeHandler(tracker.getCodeChangeHandler());
+    }
+
+    Tracer tracer = newTracer(READING_PASS_NAME);
+    beforePass(READING_PASS_NAME);
+
+    try {
+      for (CompilerInput input : Iterables.concat(externs, inputs)) {
+        try {
+          input.getCode();
+        } catch (IOException e) {
+          report(JSError.make(AbstractCompiler.READ_ERROR, input.getName()));
+        }
+      }
+    } finally {
+      afterPass(READING_PASS_NAME);
+      stopTracer(tracer, READING_PASS_NAME);
+    }
+  }
+
+  //------------------------------------------------------------------------
   // Parsing
   //------------------------------------------------------------------------
 
@@ -1457,12 +1510,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // individual file parse trees.
     externsRoot.detachChildren();
     jsRoot.detachChildren();
-
-    if (options.getTracerMode().isOn()) {
-      tracker =
-          new PerformanceTracker(externsRoot, jsRoot, options.getTracerMode(), this.outStream);
-      addChangeHandler(tracker.getCodeChangeHandler());
-    }
 
     Tracer tracer = newTracer(PARSING_PASS_NAME);
     beforePass(PARSING_PASS_NAME);
@@ -1481,9 +1528,15 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           || options.transformAMDToCJSModules
           || options.processCommonJSModules) {
 
-        this.moduleLoader = new ModuleLoader(this, options.moduleRoots, inputs);
+        this.moduleLoader =
+            new ModuleLoader(
+                this,
+                options.moduleRoots,
+                inputs,
+                ModuleLoader.PathResolver.RELATIVE,
+                options.moduleResolutionMode);
 
-        if (options.processCommonJSModules) {
+        if (options.moduleResolutionMode == ModuleLoader.ResolutionMode.NODE) {
           this.moduleLoader.setPackageJsonMainEntries(processJsonInputs(inputs));
         }
 
@@ -2200,7 +2253,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     logger.fine("Normalizing");
     startPass("normalize");
     process(new Normalize(this, false));
-    endPass();
+    endPass("normalize");
   }
 
   @Override
@@ -2217,7 +2270,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
             this, getPassConfig().getIntermediateState().functionNames);
     process(recordFunctionInfoPass);
     functionInformationMap = recordFunctionInfoPass.getMap();
-    endPass();
+    endPass("recordFunctionInformation");
   }
 
   protected final RecentChange recentChange = new RecentChange();
@@ -2466,7 +2519,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
-  public SourceFile getSourceFileByName(String sourceName) {
+  SourceFile getSourceFileByName(String sourceName) {
     // Here we assume that the source name is the input name, this
     // is try of JavaScript parsed from source.
     if (sourceName != null) {
@@ -2480,6 +2533,16 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
 
     return null;
+  }
+
+  public CharSequence getSourceFileContentByName(String sourceName) {
+    SourceFile file = getSourceFileByName(sourceName);
+    checkNotNull(file);
+    try {
+      return file.getCode();
+    } catch (IOException e) {
+      return null;
+    }
   }
 
   @Override
@@ -2657,8 +2720,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   @Override
   void updateGlobalVarReferences(Map<Var, ReferenceCollection> refMapPatch,
       Node collectionRoot) {
-    Preconditions.checkState(collectionRoot.isScript()
-        || collectionRoot.isBlock());
+    Preconditions.checkState(collectionRoot.isScript() || collectionRoot.isRoot());
     if (globalRefMap == null) {
       globalRefMap = new GlobalVarReferenceMap(getInputsInOrder(),
           getExternsInOrder());

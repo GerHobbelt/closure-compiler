@@ -292,10 +292,10 @@ final class NewTypeInference implements CompilerPass {
           + "left : {0}\n"
           + "right: {1}");
 
-  static final DiagnosticType ABSTRACT_METHOD_NOT_CALLABLE =
+  static final DiagnosticType ABSTRACT_SUPER_METHOD_NOT_CALLABLE =
       DiagnosticType.warning(
-          "JSC_NTI_ABSTRACT_METHOD_NOT_CALLABLE",
-          "Abstract method {0} cannot be called");
+          "JSC_NTI_ABSTRACT_SUPER_METHOD_NOT_CALLABLE",
+          "Abstract super method {0} cannot be called");
 
   // Not part of ALL_DIAGNOSTICS because it should not be enabled with
   // --jscomp_error=newCheckTypes. It should only be enabled explicitly.
@@ -311,7 +311,7 @@ final class NewTypeInference implements CompilerPass {
           "This {0} expression has the unknown type.");
 
   static final DiagnosticGroup COMPATIBLE_DIAGNOSTICS = new DiagnosticGroup(
-      ABSTRACT_METHOD_NOT_CALLABLE,
+      ABSTRACT_SUPER_METHOD_NOT_CALLABLE,
       ASSERT_FALSE,
       CANNOT_BIND_CTOR,
       CANNOT_INSTANTIATE_ABSTRACT_CLASS,
@@ -624,7 +624,11 @@ final class NewTypeInference implements CompilerPass {
     }
     if (currentScope.isFunction()) {
       Node fn = currentScope.getRoot();
-      if (!currentScope.hasThis() && NodeUtil.referencesSuper(fn)) {
+      if (!currentScope.hasThis()
+          // Can't use NodeUtil.referencesSuper here because that function is correct only
+          // on valid ASTs, but here we may have an invalid AST that contains super inside
+          // a function.
+          && NodeUtil.containsType(fn.getLastChild(), Token.SUPER, NodeUtil.MATCH_NOT_FUNCTION)) {
         // This function is a static method on some class. To do lookups of the
         // class name, we add the root of the qualified name to the environment.
         Node funNameNode = NodeUtil.getBestLValue(fn);
@@ -948,7 +952,7 @@ final class NewTypeInference implements CompilerPass {
       TypeEnv inEnv = getInEnv(dn);
       TypeEnv outEnv = null;
       if (parent.isScript()
-          || (parent.isBlock() && parent.getParent().isFunction())) {
+          || (parent.isNormalBlock() && parent.getParent().isFunction())) {
         // All joins have merged; forget changes
         inEnv = inEnv.clearChangeLog();
       }
@@ -1282,15 +1286,16 @@ final class NewTypeInference implements CompilerPass {
     if (currentScope.isLocalFunDef(varName)) {
       return inEnv;
     }
+    Node rhs = nameNode.getFirstChild();
     if (NodeUtil.isNamespaceDecl(nameNode)
+        || (GlobalTypeInfo.isCtorDefinedByCall(nameNode)
+            && !isFunctionBind(rhs.getFirstChild(), inEnv, true))
         || nameNode.getParent().getBooleanProp(Node.ANALYZED_DURING_GTI)) {
       Preconditions.checkNotNull(declType,
           "Can't skip var declaration with undeclared type at: %s", nameNode);
       maybeSetTypeI(nameNode, declType);
       return envPutType(inEnv, varName, declType);
     }
-
-    Node rhs = nameNode.getFirstChild();
     TypeEnv outEnv = inEnv;
     JSType rhsType;
     if (rhs == null) {
@@ -1793,7 +1798,9 @@ final class NewTypeInference implements CompilerPass {
     if (lhs.getBooleanProp(Node.ANALYZED_DURING_GTI)) {
       lhs.removeProp(Node.ANALYZED_DURING_GTI);
       JSType declType = markAndGetTypeOfPreanalyzedNode(lhs, inEnv, true);
-      if (rhs.matchesQualifiedName(ABSTRACT_METHOD_NAME)) {
+      if (rhs.matchesQualifiedName(ABSTRACT_METHOD_NAME)
+          || (GlobalTypeInfo.isCtorDefinedByCall(lhs)
+              && !isFunctionBind(rhs.getFirstChild(), inEnv, true))) {
         return new EnvTypePair(inEnv, requiredType);
       }
       EnvTypePair rhsPair = analyzeExprFwd(rhs, inEnv, declType);
@@ -2515,8 +2522,7 @@ final class NewTypeInference implements CompilerPass {
     Node arg = firstArg;
     int i = 0;
     while (arg != null) {
-      EnvTypePair pair =
-          isFwd ? analyzeExprFwd(arg, typeEnv) : analyzeExprBwd(arg, typeEnv);
+      EnvTypePair pair = isFwd ? analyzeExprFwd(arg, typeEnv) : analyzeExprBwd(arg, typeEnv);
       unifyWithSubtypeWarnIfFail(funType.getFormalType(i), pair.type,
           typeParameters, typeMultimap, arg, isFwd);
       arg = arg.getNext();
@@ -2709,7 +2715,7 @@ final class NewTypeInference implements CompilerPass {
     }
     String pname = NodeUtil.getObjectLitKeyName(objLit.getFirstChild());
     JSType enumeratedType =
-        requiredType.getProp(new QualifiedName(pname)).getEnumeratedType();
+        requiredType.getProp(new QualifiedName(pname)).getEnumeratedTypeOfEnumElement();
     if (enumeratedType == null) {
       // enumeratedType is null only if there is some other type error
       return new EnvTypePair(inEnv, requiredType);
@@ -3077,8 +3083,8 @@ final class NewTypeInference implements CompilerPass {
     JSType recvReqType, recvSpecType;
 
     // First, analyze the receiver object.
-    if (NodeUtil.isPropertyTest(compiler, propAccessNode)
-        && !specializedType.isFalseOrFalsy()
+    if ((NodeUtil.isPropertyTest(compiler, propAccessNode) && !specializedType.isFalseOrFalsy())
+        || (NodeUtil.isPropertyAbsenceTest(propAccessNode) && !specializedType.isTrueOrTruthy())
         // The NodeUtil method doesn't use types, so it can't see that the
         // else branch of "if (!x.prop)" is a property test.
         || specializedType.isTrueOrTruthy()) {
@@ -3123,7 +3129,7 @@ final class NewTypeInference implements CompilerPass {
         // This catches calls that are a few nodes away, and also warns on .call/.apply
         // accesses that do not result in calls (these should be very rare).
         String funName = receiver.isQualifiedName() ? receiver.getQualifiedName() : "";
-        warnings.add(JSError.make(propAccessNode, ABSTRACT_METHOD_NOT_CALLABLE, funName));
+        warnings.add(JSError.make(propAccessNode, ABSTRACT_SUPER_METHOD_NOT_CALLABLE, funName));
       }
       return new EnvTypePair(pair.env,
           pname.equals("call")
@@ -3175,10 +3181,8 @@ final class NewTypeInference implements CompilerPass {
       // Tighten the inferred type and don't warn.
       // See analyzeNameFwd for explanation about types as lower/upper bounds.
       resultType = resultType.specialize(requiredType);
-      LValueResultFwd lvr =
-          analyzeLValueFwd(propAccessNode, inEnv, resultType);
-      TypeEnv updatedEnv =
-          updateLvalueTypeInEnv(lvr.env, propAccessNode, lvr.ptr, resultType);
+      LValueResultFwd lvr = analyzeLValueFwd(propAccessNode, inEnv, resultType);
+      TypeEnv updatedEnv = updateLvalueTypeInEnv(lvr.env, propAccessNode, lvr.ptr, resultType);
       return new EnvTypePair(updatedEnv, resultType);
     }
     // We've already warned about missing props, and never want to return null.
@@ -3816,7 +3820,7 @@ final class NewTypeInference implements CompilerPass {
     }
     String pname = NodeUtil.getObjectLitKeyName(objLit.getFirstChild());
     JSType enumeratedType =
-        requiredType.getProp(new QualifiedName(pname)).getEnumeratedType();
+        requiredType.getProp(new QualifiedName(pname)).getEnumeratedTypeOfEnumElement();
     if (enumeratedType == null) {
       return new EnvTypePair(outEnv, requiredType);
     }
@@ -4202,7 +4206,7 @@ final class NewTypeInference implements CompilerPass {
         obj, lvalue.type, null, lvalue.env);
     JSType lvalueType = pair.type;
     if (lvalueType.isEnumElement()) {
-      lvalueType = lvalueType.getEnumeratedType();
+      lvalueType = lvalueType.getEnumeratedTypeOfEnumElement();
     }
     if (!lvalueType.isSubtypeOf(TOP_OBJECT)) {
       warnings.add(JSError.make(obj, ADDING_PROPERTY_TO_NON_OBJECT,

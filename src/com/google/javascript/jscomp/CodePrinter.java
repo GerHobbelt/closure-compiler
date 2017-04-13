@@ -81,6 +81,12 @@ public final class CodePrinter {
       Node node;
       FilePosition start;
       FilePosition end;
+
+      @Override
+      public String toString() {
+        // This toString() representation is used for debugging purposes only.
+        return "Mapping: start " + start + ", end " + end + ", node " + node;
+      }
     }
 
     /**
@@ -254,11 +260,11 @@ public final class CodePrinter {
         return endPosition;
       }
 
-      // TODO(nbeloglazov): fix cases where Precondition fails and reenable it.
-      // Preconditions.checkState(
-      //   endPosition.getColumn() <= lineLengths.get(line),
-      //    "End position " + endPosition + " points to a column larger than line length "
-      //     + lineLengths.get(line));
+      Preconditions.checkState(
+          endPosition.getColumn() <= lineLengths.get(line),
+          "End position %s points to a column larger than line length %s",
+          endPosition,
+          lineLengths.get(line));
 
       // if end position points to the column just after the last character on the line -
       // change it to point the first character on the next line
@@ -470,29 +476,27 @@ public final class CodePrinter {
      */
     @Override
     boolean breakAfterBlockFor(Node n,  boolean isStatementContext) {
-      Preconditions.checkState(n.isBlock(), n);
+      Preconditions.checkState(n.isNormalBlock(), n);
       Node parent = n.getParent();
-      if (parent != null) {
-        Token type = parent.getToken();
-        switch (type) {
-          case DO:
-            // Don't break before 'while' in DO-WHILE statements.
-            return false;
-          case FUNCTION:
-            // FUNCTIONs are handled separately, don't break here.
-            return false;
-          case TRY:
-            // Don't break before catch
-            return n != parent.getFirstChild();
-          case CATCH:
-            // Don't break before finally
-            return !NodeUtil.hasFinally(getTryForCatch(parent));
-          case IF:
-            // Don't break before else
-            return n == parent.getLastChild();
-          default:
-            break;
-        }
+      Token type = parent.getToken();
+      switch (type) {
+        case DO:
+          // Don't break before 'while' in DO-WHILE statements.
+          return false;
+        case FUNCTION:
+          // FUNCTIONs are handled separately, don't break here.
+          return false;
+        case TRY:
+          // Don't break before catch
+          return n != parent.getFirstChild();
+        case CATCH:
+          // Don't break before finally
+          return !NodeUtil.hasFinally(getTryForCatch(parent));
+        case IF:
+          // Don't break before else
+          return n == parent.getLastChild();
+        default:
+          break;
       }
       return true;
     }
@@ -648,6 +652,7 @@ public final class CodePrinter {
           reportLineCut(lineIndex, position - lineStartPosition, true);
           lineIndex++;
           lineLength -= (position - lineStartPosition);
+          prevLineStartPosition = lineStartPosition;
           lineStartPosition = position + 1;
         } else {
           startNewLine();
@@ -677,7 +682,9 @@ public final class CodePrinter {
         code.setCharAt(prevCutPosition, ' ');
         lineStartPosition = prevLineStartPosition;
         lineLength = code.length() - lineStartPosition;
-        reportLineCut(lineIndex, prevCutPosition + 1, false);
+        // We need +1 to account for the space added few lines above.
+        int prevLineEndPosition = prevCutPosition - prevLineStartPosition + 1;
+        reportLineCut(lineIndex, prevLineEndPosition, false);
         lineIndex--;
         prevCutPosition = 0;
         prevLineStartPosition = 0;
@@ -724,7 +731,7 @@ public final class CodePrinter {
      */
     public Builder setCompilerOptions(CompilerOptions options) {
       this.options = options;
-      this.prettyPrint = options.prettyPrint;
+      this.prettyPrint = options.isPrettyPrint();
       this.lineBreak = options.lineBreak;
       return this;
     }

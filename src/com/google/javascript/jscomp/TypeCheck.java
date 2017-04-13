@@ -137,9 +137,9 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "JSC_CONSTRUCTOR_NOT_CALLABLE",
           "Constructor {0} should be called with the \"new\" keyword");
 
-  static final DiagnosticType ABSTRACT_METHOD_NOT_CALLABLE =
+  static final DiagnosticType ABSTRACT_SUPER_METHOD_NOT_CALLABLE =
       DiagnosticType.warning(
-          "JSC_ABSTRACT_METHOD_NOT_CALLABLE", "Abstract method {0} cannot be called");
+          "JSC_ABSTRACT_SUPER_METHOD_NOT_CALLABLE", "Abstract super method {0} cannot be called");
 
   static final DiagnosticType FUNCTION_MASKS_VARIABLE =
       DiagnosticType.warning("JSC_FUNCTION_MASKS_VARIABLE", "function {0} masks variable (IE bug)");
@@ -307,7 +307,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           ILLEGAL_OBJLIT_KEY,
           NON_STRINGIFIABLE_OBJECT_KEY,
           ABSTRACT_METHOD_IN_CONCRETE_CLASS,
-          ABSTRACT_METHOD_NOT_CALLABLE,
+          ABSTRACT_SUPER_METHOD_NOT_CALLABLE,
           ES5_CLASS_EXTENDING_ES6_CLASS,
           RhinoErrorReporter.TYPE_PARSE_ERROR,
           TypedScopeCreator.UNKNOWN_LENDS,
@@ -1439,10 +1439,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     // At this stage, we need to determine whether this is a leaf
     // node in an expression (which therefore needs to have a type
     // assigned for it) versus some other decorative node that we
-    // can safely ignore.  Function names, arguments (children of LP nodes) and
+    // can safely ignore.  Function names, arguments (children of PARAM_LIST nodes) and
     // variable declarations are ignored.
     // TODO(user): remove this short-circuiting in favor of a
-    // pre order traversal of the FUNCTION, CATCH, LP and VAR nodes.
+    // pre order traversal of the FUNCTION, CATCH, PARAM_LIST and VAR nodes.
     Token parentNodeType = parent.getToken();
     if (parentNodeType == Token.FUNCTION ||
         parentNodeType == Token.CATCH ||
@@ -1874,13 +1874,33 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   /** Check that @abstract methods are not called */
   private void checkAbstractMethodCall(NodeTraversal t, Node call) {
-    if (!NodeUtil.isFunctionObjectCall(call) && !NodeUtil.isFunctionObjectApply(call)) {
-      return;
-    }
-
-    FunctionType methodType = call.getFirstFirstChild().getJSType().toMaybeFunctionType();
-    if (methodType != null && methodType.isAbstract() && !methodType.isConstructor()) {
-      report(t, call, ABSTRACT_METHOD_NOT_CALLABLE, methodType.getDisplayName());
+    if (NodeUtil.isFunctionObjectCall(call) || NodeUtil.isFunctionObjectApply(call)) {
+      Node method = call.getFirstFirstChild();
+      // this.foo.apply(this) should be allowed
+      if (method.isGetProp() && method.getFirstChild().isThis()) {
+        return;
+      }
+      FunctionType methodType = method.getJSType().toMaybeFunctionType();
+      if (methodType != null && methodType.isAbstract() && !methodType.isConstructor()) {
+        report(t, call, ABSTRACT_SUPER_METHOD_NOT_CALLABLE, methodType.getDisplayName());
+      }
+    } else {
+      // Check for cases like Base.prototype.foo() where foo is abstract
+      Node maybeGetProp = call.getFirstChild();
+      if (maybeGetProp.isGetProp() && maybeGetProp.isQualifiedName()) {
+        Node rootOfQName = NodeUtil.getRootOfQualifiedName(maybeGetProp);
+        if (rootOfQName.isName()) {
+          Node maybePrototype = rootOfQName.getNext();
+          if (maybePrototype.isString() && maybePrototype.getString().equals("prototype")) {
+            FunctionType methodType = maybeGetProp.getJSType().toMaybeFunctionType();
+            if (methodType != null && methodType.isAbstract() && !methodType.isConstructor()
+                && rootOfQName.getJSType() != null && methodType.getTypeOfThis().equals(
+                    rootOfQName.getJSType().toMaybeFunctionType().getInstanceType())) {
+                report(t, call, ABSTRACT_SUPER_METHOD_NOT_CALLABLE, methodType.getDisplayName());
+              }
+          }
+        }
+      }
     }
   }
 

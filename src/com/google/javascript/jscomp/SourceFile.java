@@ -26,7 +26,6 @@ import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
 import com.google.javascript.rhino.StaticSourceFile;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,6 +35,7 @@ import java.io.Serializable;
 import java.io.StringReader;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -46,9 +46,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * An abstract representation of a source file that provides access to
- * language-neutral features. The source file can be loaded from various
- * locations, such as from disk or from a preloaded string.
+ * An abstract representation of a source file that provides access to language-neutral features.
+ * The source file can be loaded from various locations, such as from disk or from a preloaded
+ * string.
  *
  * @author nicksantos@google.com (Nick Santos)
  */
@@ -93,9 +93,9 @@ public class SourceFile implements StaticSourceFile, Serializable {
   /**
    * Construct a new abstract source file.
    *
-   * @param fileName The file name of the source file. It does not necessarily
-   *     need to correspond to a real path. But it should be unique. Will
-   *     appear in warning messages emitted by the compiler.
+   * @param fileName The file name of the source file. It does not necessarily need to correspond to
+   *     a real path. But it should be unique. Will appear in warning messages emitted by the
+   *     compiler.
    */
   public SourceFile(String fileName) {
     if (isNullOrEmpty(fileName)) {
@@ -368,11 +368,14 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return sourceFiles;
   }
 
+  static final String BANG_SLASH = "!/";
+  static final String JAR_URL_PREFIX = "jar:file:";
+
   @GwtIncompatible("java.net.URL")
   public static SourceFile fromZipEntry(
       String originalZipPath, String absoluteZipPath, String entryPath, Charset inputCharset)
       throws MalformedURLException {
-    String zipEntryPath = "jar:file:" + absoluteZipPath + "!/" + entryPath;
+    String zipEntryPath = JAR_URL_PREFIX + absoluteZipPath + BANG_SLASH + entryPath;
     URL zipEntryUrl = new URL(zipEntryPath);
 
     return builder()
@@ -382,8 +385,18 @@ public class SourceFile implements StaticSourceFile, Serializable {
   }
 
   @GwtIncompatible("java.io.File")
-  public static SourceFile fromFile(String fileName, Charset c) {
-    return builder().withCharset(c).buildFromFile(fileName);
+  public static SourceFile fromFile(String fileName, Charset charset) {
+    if (fileName.contains(BANG_SLASH)) {
+      String[] components = fileName.split(BANG_SLASH);
+      try {
+        String zipPath = components[0];
+        String relativePath = components[1];
+        return fromZipEntry(zipPath, zipPath, relativePath, charset);
+      } catch (MalformedURLException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    return builder().withCharset(charset).buildFromFile(fileName);
   }
 
   public static SourceFile fromFile(String fileName) {
@@ -669,7 +682,15 @@ public class SourceFile implements StaticSourceFile, Serializable {
       String cachedCode = super.getCode();
 
       if (cachedCode == null) {
-        cachedCode = Resources.toString(url, this.getCharset());
+        URLConnection urlConnection = url.openConnection();
+        // Perform the read through the URL connection while making sure that it does not internally
+        // cache, because its default internal caching would defeat our own cache management.
+        urlConnection.setUseCaches(false);
+        InputStream inputStream = urlConnection.getInputStream();
+        cachedCode = CharStreams.toString(new InputStreamReader(inputStream, this.getCharset()));
+        // Must close the stream or else the cache won't be cleared.
+        inputStream.close();
+
         super.setCode(cachedCode, this.getCharset() == StandardCharsets.UTF_8);
         // Byte Order Mark can be removed by setCode
         cachedCode = super.getCode();

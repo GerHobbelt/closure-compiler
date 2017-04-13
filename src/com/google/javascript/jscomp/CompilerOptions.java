@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Ascii;
 import com.google.common.base.MoreObjects;
@@ -38,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Properties;
+import javax.annotation.Nullable;
 
 /**
  * Compiler options
@@ -723,14 +726,12 @@ public class CompilerOptions {
   /** Do not strip goog.provide()/goog.require() calls from the code. */
   private boolean preserveGoogProvidesAndRequires;
 
-  /** Processes jQuery aliases */
-  public boolean jqueryPass;
-
   /** Processes AngularJS-specific annotations */
   boolean angularPass;
 
-  /** Processes Polymer calls */
-  boolean polymerPass;
+  /** If non-null, processes Polymer code */
+  @Nullable
+  Integer polymerVersion;
 
   /** Processes cr.* functions */
   boolean chromePass;
@@ -885,7 +886,7 @@ public class CompilerOptions {
   public boolean preserveTypeAnnotations;
 
   /** Output in pretty indented format */
-  public boolean prettyPrint;
+  private boolean prettyPrint;
 
   /** Line break the output a bit more aggressively */
   public boolean lineBreak;
@@ -1099,10 +1100,13 @@ public class CompilerOptions {
    */
   private boolean isStrictModeInput = true;
 
+  /** Which algorithm to use for locating ES6 and CommonJS modules */
+  ModuleLoader.ResolutionMode moduleResolutionMode;
+
   /**
    * Should the compiler print its configuration options to stderr when they are initialized?
    *
-   * <p> Default {@code false}.
+   * <p>Default {@code false}.
    */
   public void setPrintConfig(boolean printConfig) {
     this.printConfig = printConfig;
@@ -1121,6 +1125,9 @@ public class CompilerOptions {
 
     // Which environment to use
     environment = Environment.BROWSER;
+
+    // Modules
+    moduleResolutionMode = ModuleLoader.ResolutionMode.LEGACY;
 
     // Checks
     skipNonTranspilationPasses = false;
@@ -1205,9 +1212,8 @@ public class CompilerOptions {
     markAsCompiled = false;
     closurePass = false;
     preserveGoogProvidesAndRequires = false;
-    jqueryPass = false;
     angularPass = false;
-    polymerPass = false;
+    polymerVersion = null;
     dartPass = false;
     j2clPassMode = J2clPassMode.OFF;
     removeAbstractMethods = false;
@@ -1676,8 +1682,10 @@ public class CompilerOptions {
     this.angularPass = angularPass;
   }
 
-  public void setPolymerPass(boolean polymerPass) {
-    this.polymerPass = polymerPass;
+  public void setPolymerVersion(Integer polymerVersion) {
+    checkArgument(polymerVersion == null || polymerVersion == 1 || polymerVersion == 2,
+        "Invalid Polymer version:", polymerVersion);
+    this.polymerVersion = polymerVersion;
   }
 
   public void setDartPass(boolean dartPass) {
@@ -1806,7 +1814,7 @@ public class CompilerOptions {
    * Sets ECMAScript version to use.
    */
   public void setLanguage(LanguageMode language) {
-    Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
+    Preconditions.checkState(language != LanguageMode.NO_TRANSPILE);
     this.languageIn = language;
     this.languageOut = language;
   }
@@ -2479,6 +2487,10 @@ public class CompilerOptions {
     this.prettyPrint = prettyPrint;
   }
 
+  public boolean isPrettyPrint() {
+    return this.prettyPrint;
+  }
+
   public void setLineBreak(boolean lineBreak) {
     this.lineBreak = lineBreak;
   }
@@ -2665,6 +2677,14 @@ public class CompilerOptions {
     return this;
   }
 
+  public ModuleLoader.ResolutionMode getModuleResolutionMode() {
+    return this.moduleResolutionMode;
+  }
+
+  public void setModuleResolutionMode(ModuleLoader.ResolutionMode mode) {
+    this.moduleResolutionMode = mode;
+  }
+
   @Override
   public String toString() {
     String strValue =
@@ -2762,7 +2782,6 @@ public class CompilerOptions {
             .add("instrumentForCoverage", instrumentForCoverage)
             .add("instrumentBranchCoverage", instrumentBranchCoverage)
             .add("j2clPassMode", j2clPassMode)
-            .add("jqueryPass", jqueryPass)
             .add("labelRenaming", labelRenaming)
             .add("languageIn", getLanguageIn())
             .add("languageOut", getLanguageOut())
@@ -2788,7 +2807,7 @@ public class CompilerOptions {
                 "parentModuleCanSeeSymbolsDeclaredInChildren",
                 parentModuleCanSeeSymbolsDeclaredInChildren)
             .add("parseJsDocDocumentation", isParseJsDocDocumentation())
-            .add("polymerPass", polymerPass)
+            .add("polymerVersion", polymerVersion)
             .add("preferLineBreakAtEndOfFile", preferLineBreakAtEndOfFile)
             .add("preferSingleQuotes", preferSingleQuotes)
             .add("preferStableNames", preferStableNames)

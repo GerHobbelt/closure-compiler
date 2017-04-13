@@ -288,6 +288,10 @@ function RTCRtpSender() {}
  */
 RTCRtpSender.prototype.track;
 
+/**
+ * @param {!MediaStreamTrack} track
+ */
+RTCRtpSender.prototype.replaceTrack = function(track) {};
 
 /**
  * @interface
@@ -770,6 +774,31 @@ RTCStatsReport.prototype.type;
  */
 RTCStatsReport.prototype.id;
 
+// Note: Below are Map like methods supported by WebRTC statistics
+// specification-compliant RTCStatsReport. Currently only implemented by
+// Mozilla.
+// See https://www.w3.org/TR/webrtc/#rtcstatsreport-object for definition.
+/**
+ * @param {function(this:SCOPE, Object)} callback
+ * @param {SCOPE=} opt_thisObj The value of "this" inside callback function.
+ * @template SCOPE
+ * @readonly
+ */
+RTCStatsReport.prototype.forEach = function(callback, opt_thisObj) {};
+
+/**
+ * @param {string} key
+ * @return {Object}
+ * @readonly
+ */
+RTCStatsReport.prototype.get = function(key) {};
+
+/**
+ * @return {!Iterator<string>}
+ * @readonly
+ */
+RTCStatsReport.prototype.keys = function() {};
+
 /**
  * TODO(bemasc): Remove this type once it is no longer in use.  It has already
  * been removed from the specification.
@@ -1148,10 +1177,10 @@ RTCPeerConnection.prototype.removeTrack = function(sender) {};
 
 /**
  * Firefox' getstats is synchronous and returns a much simpler
- * {!Object<string, !Object>} dictionary.
+ * {!RTCStatsReport} Map-like object.
  * @param {!RTCStatsCallback=} successCallback
  * @param {MediaStreamTrack=} selector
- * @return {undefined|!Object<string, !Object>}
+ * @return {undefined|!RTCStatsReport}
  */
 RTCPeerConnection.prototype.getStats = function(successCallback, selector) {};
 

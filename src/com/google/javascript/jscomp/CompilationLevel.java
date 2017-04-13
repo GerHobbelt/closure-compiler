@@ -208,6 +208,7 @@ public enum CompilationLevel {
     options.setCheckGlobalThisLevel(CheckLevel.WARNING);
     options.setRewriteFunctionExpressions(false);
     options.setSmartNameRemoval(true);
+    options.setExtraSmartNameRemoval(true);
     options.setInlineConstantVars(true);
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);

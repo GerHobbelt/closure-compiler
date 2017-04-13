@@ -284,10 +284,14 @@ public class CommandLineRunner extends
         + "Options: NONE, IIFE")
     private IsolationMode isolationMode = IsolationMode.NONE;
 
-    @Option(name = "--output_wrapper",
-        usage = "Interpolate output into this string at the place denoted"
-        + " by the marker token %output%. Use marker token %output|jsstring%"
-        + " to do js string escaping on the output.")
+    @Option(
+      name = "--output_wrapper",
+      usage =
+          "Interpolate output into this string at the place denoted"
+              + " by the marker token %output%. Use marker token %output|jsstring%"
+              + " to do js string escaping on the output."
+              + " Consider using the --isolation_mode flag instead."
+    )
     private String outputWrapper = "";
 
     @Option(name = "--output_wrapper_file",
@@ -413,6 +417,13 @@ public class CommandLineRunner extends
         usage = "Don't generate output. Run checks, but no optimization passes.")
     private boolean checksOnly = false;
 
+    @Option(
+      name = "--incremental_check_mode",
+      usage = "Generate or check externs-like .i.js files representing individual libraries."
+    )
+    private CompilerOptions.IncrementalCheckMode incrementalCheckMode =
+        CompilerOptions.IncrementalCheckMode.OFF;
+
     @Option(name = "--continue_after_errors",
         handler = BooleanOptionHandler.class,
         usage = "Continue trying to compile after an error is encountered.")
@@ -520,13 +531,6 @@ public class CommandLineRunner extends
       usage = "Deprecated: use --entry_point.")
     private List<String> closureEntryPoint = new ArrayList<>();
 
-    @Option(name = "--process_jquery_primitives",
-        hidden = true,
-        handler = BooleanOptionHandler.class,
-        usage = "Processes built-ins from the Jquery library, such as "
-        + "jQuery.fn and jQuery.extend()")
-    private boolean processJqueryPrimitives = false;
-
     @Option(name = "--angular_pass",
         handler = BooleanOptionHandler.class,
         usage = "Generate $inject properties for AngularJS for functions "
@@ -535,8 +539,13 @@ public class CommandLineRunner extends
 
     @Option(name = "--polymer_pass",
         handler = BooleanOptionHandler.class,
-        usage = "Rewrite Polymer classes to be compiler-friendly.")
+        usage = "Equivalent to --polymer_version=1")
+    @Deprecated
     private boolean polymerPass = false;
+
+    @Option(name = "--polymer_version",
+        usage = "Which version of Polymer is being used (1 or 2).")
+    private Integer polymerVersion = null;
 
     @Option(name = "--chrome_pass",
         handler = BooleanOptionHandler.class,
@@ -714,10 +723,23 @@ public class CommandLineRunner extends
         usage = "Rewrite ES6 library calls to use polyfills provided by the compiler's runtime.")
     private boolean rewritePolyfills = true;
 
-    @Option(name = "--print_source_after_each_pass",
-        hidden = true,
-        usage = "Whether to iteratively print resulting JS source per pass.")
-        private boolean printSourceAfterEachPass = false;
+    @Option(
+      name = "--print_source_after_each_pass",
+      hidden = true,
+      usage = "Whether to iteratively print resulting JS source per pass."
+    )
+    private boolean printSourceAfterEachPass = false;
+
+    @Option(
+      name = "--module_resolution",
+      hidden = false,
+      usage =
+          "Specifies how the compiler locates modules. BROWSER requires all module imports "
+              + "to begin with a '.' or '/' and have a file extension. NODE uses the node module "
+              + "rules. LEGACY prepends a '/' to any import not already beginning with a "
+              + "'.' or '/'."
+    )
+    private ModuleLoader.ResolutionMode moduleResolutionMode = ModuleLoader.ResolutionMode.LEGACY;
 
     @Option(name = "--custom_options_file",
         usage = "File listing special option overrides. One option per line, " +
@@ -790,13 +812,17 @@ public class CommandLineRunner extends
                     "export_local_property_definitions",
                     "formatting",
                     "generate_exports",
+                    "isolation_mode",
                     "output_wrapper",
                     "output_wrapper_file"))
             .putAll("Dependency Management", ImmutableList.of("dependency_mode", "entry_point"))
             .putAll(
                 "JS Modules",
                 ImmutableList.of(
-                    "js_module_root", "process_common_js_modules", "transform_amd_modules"))
+                    "js_module_root",
+                    "module_resolution",
+                    "process_common_js_modules",
+                    "transform_amd_modules"))
             .putAll(
                 "Library and Framework Specific",
                 ImmutableList.of(
@@ -1170,7 +1196,7 @@ public class CommandLineRunner extends
     private void applyToOptions(CompilerOptions options) {
       switch (this) {
         case PRETTY_PRINT:
-          options.prettyPrint = true;
+          options.setPrettyPrint(true);
           break;
         case PRINT_INPUT_DELIMITER:
           options.printInputDelimiter = true;
@@ -1420,8 +1446,6 @@ public class CommandLineRunner extends
       CodingConvention conv;
       if (flags.thirdParty) {
         conv = CodingConventions.getDefault();
-      } else if (flags.processJqueryPrimitives) {
-        conv = new JqueryCodingConvention();
       } else if (flags.chromePass) {
         conv = new ChromeCodingConvention();
       } else {
@@ -1570,11 +1594,7 @@ public class CommandLineRunner extends
       }
     }
 
-    if (flags.processJqueryPrimitives) {
-      options.setCodingConvention(new JqueryCodingConvention());
-    } else {
-      options.setCodingConvention(new ClosureCodingConvention());
-    }
+    options.setCodingConvention(new ClosureCodingConvention());
 
     options.setExtraAnnotationNames(flags.extraAnnotationName);
 
@@ -1602,6 +1622,8 @@ public class CommandLineRunner extends
       options.setOutputJs(CompilerOptions.OutputJs.NONE);
     }
 
+    options.setIncrementalChecks(flags.incrementalCheckMode);
+
     options.setContinueAfterErrors(flags.continueAfterErrors);
 
     if (flags.useTypesForOptimization) {
@@ -1628,12 +1650,13 @@ public class CommandLineRunner extends
 
     options.closurePass = flags.processClosurePrimitives;
 
-    options.jqueryPass = CompilationLevel.ADVANCED_OPTIMIZATIONS == level &&
-        flags.processJqueryPrimitives;
-
     options.angularPass = flags.angularPass;
 
-    options.polymerPass = flags.polymerPass;
+    if (flags.polymerPass) {
+      options.polymerVersion = 1;
+    } else {
+      options.polymerVersion = flags.polymerVersion;
+    }
 
     options.chromePass = flags.chromePass;
 
@@ -1711,6 +1734,7 @@ public class CommandLineRunner extends
     options.setStrictModeInput(flags.strictModeInput);
     options.setEmitUseStrict(flags.emitUseStrict);
     options.setSourceMapIncludeSourcesContent(flags.sourceMapIncludeSourcesContent);
+    options.setModuleResolutionMode(flags.moduleResolutionMode);
 
     return options;
   }

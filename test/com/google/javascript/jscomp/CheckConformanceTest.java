@@ -453,6 +453,27 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         null);
   }
 
+  public void testDontCrashOnNonConstructorWithPrototype() {
+    configuration =
+        LINE_JOINER.join(
+            "requirement: {",
+            "  type: BANNED_PROPERTY_WRITE",
+            "  value: 'Bar.prototype.method'",
+            "  error_message: 'asdf'",
+            "  report_loose_type_violations: false",
+            "}");
+
+    testSame(
+        DEFAULT_EXTERNS + LINE_JOINER.join(
+            "/** @constructor */",
+            "function Bar() {}",
+            "Bar.prototype.method = function() {};"),
+        LINE_JOINER.join(
+            "function Foo() {}",
+            "Foo.prototype.method = function() {};"),
+        null, null);
+  }
+
   private void testConformance(String src, DiagnosticType warning) {
     testConformance(src, "", warning);
   }
@@ -620,6 +641,17 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
 
     testConformance(cdecl, ddecl,
         CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+  }
+
+  public void testBannedProperty5() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'Array.prototype.push'",
+        "  error_message: 'banned Array.prototype.push'",
+        "}");
+
+    testConformance("[1, 2, 3].push(4);\n", CheckConformance.CONFORMANCE_VIOLATION);
   }
 
   public void testBannedPropertyWrite() {
@@ -1415,88 +1447,6 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         "  * @package\n" +
         "  */\n" +
         "var foo = function() {};");
-  }
-
-  public void testNoImplicitlyPublicDecls() {
-    configuration =
-        "requirement: {\n" +
-        "  type: CUSTOM\n" +
-        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$" +
-                       "NoImplicitlyPublicDecls'\n" +
-        "  error_message: 'NoImplicitlyPublicDecls Message'\n" +
-        "}";
-
-    testWarning(
-        "goog.provide('foo.bar');\n" +
-        "/** @constructor */foo.bar.Baz = function() {};",
-        CheckConformance.CONFORMANCE_VIOLATION,
-        "Violation: NoImplicitlyPublicDecls Message");
-    testNoWarning(
-        "/** @package\n@fileoverview */\n" +
-        "goog.provide('foo.bar');\n" +
-        "/** @constructor */foo.bar.Baz = function(){};");
-    testNoWarning(
-        "goog.provide('foo.bar');\n" +
-        "/** @package @constructor */foo.bar.Baz = function(){};");
-
-    testWarning(
-        "goog.provide('foo.bar');\n" +
-        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
-        "/** @type {number} */foo.bar.Baz.prototype.quux = 42;",
-        CheckConformance.CONFORMANCE_VIOLATION,
-        "Violation: NoImplicitlyPublicDecls Message");
-    testNoWarning(
-        "/** @fileoverview\n@package*/\n" +
-        "goog.provide('foo.bar');\n" +
-        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
-        "/** @type {number} */foo.bar.Baz.prototype.quux = 42;");
-    testNoWarning(
-        "goog.provide('foo.bar');\n" +
-        "/** @public @constructor */foo.bar.Baz = function(){};\n" +
-        "/** @package {number} */foo.bar.Baz.prototype.quux = 42;");
-
-    testWarning(
-        "goog.provide('foo');\n" +
-        "/** @public @constructor */\n" +
-        "foo.Bar = function() {\n" +
-        "  /** @type {number} */ this.baz = 52;\n" +
-        "};",
-        CheckConformance.CONFORMANCE_VIOLATION,
-        "Violation: NoImplicitlyPublicDecls Message");
-    testNoWarning(
-        "goog.provide('foo');\n" +
-        "/** @public @constructor */\n" +
-        "foo.Bar = function() {\n" +
-        "  /** @package {number} */ this.baz = 52;\n" +
-        "};");
-    testNoWarning(
-        "/** @fileoverview\n@package */\n" +
-        "goog.provide('foo');\n" +
-        "/** @constructor */\n" +
-        "foo.Bar = function() {\n" +
-        "  /** @type {number} */ this.baz = 52;\n" +
-        "};");
-
-    testNoWarning("goog.provide('foo.bar');");
-
-    testNoWarning(
-        "goog.provide('foo');\n" +
-        "/** @public @constructor */" +
-        "foo.Bar = function() {};\n" +
-        "/** @public */foo.Bar.prototype.baz = function() {};\n" +
-        "/** @public @constructor @extends {foo.Bar} */\n" +
-        "foo.Quux = function() {};\n" +
-        "/** @override */foo.Quux.prototype.baz = function() {};");
-
-    // These kinds of declarations aren't currently caught by
-    // NoImplicitlyPublicDecls, but they could be.
-    testNoWarning("var foo");
-    testNoWarning("var foo = 42;");
-    testNoWarning("goog.provide('foo');\n" +
-        "/** @constructor @public */foo.Bar = function() {};\n" +
-        "foo.Bar.prototype = {\n" +
-        "  baz: function(){}\n" +
-        "};");
   }
 
   public void testCustomBanUnresolvedType() {

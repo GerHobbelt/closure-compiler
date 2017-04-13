@@ -115,6 +115,10 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertRedeclare("function f() { var a = 2; var a = 3; }");
     assertRedeclare("function f(a) { var a = 2; }");
     assertRedeclare("function f(a) { if (!a) var a = 6; }");
+    // NOTE: We decided to not give warnings to the following cases. The function won't be
+    // overwritten at runtime anyway.
+    assertNoWarning("function f() { var f = 1; }");
+    assertNoWarningEs6("function f() { let f = 1; }");
   }
 
   public void testIssue166a() {
@@ -234,6 +238,11 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertNoWarningEs6("function g() { if (false) { function f() { f(); g(); }}}");
   }
 
+  public void testForOf() {
+    assertEarlyReferenceError("for (let x of []) { console.log(x); let x = 123; }");
+    assertNoWarningEs6("for (let x of []) { let x; }");
+  }
+
   public void testDestructuringInFor() {
     testSameEs6("for (let [key, val] of X){}");
     testSameEs6("for (let [key, [nestKey, nestVal], val] of X){}");
@@ -302,6 +311,17 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
   public void testUnusedGlobalNoWarning() {
     enableUnusedLocalAssignmentCheck = true;
     assertNoWarning("var a = 2;");
+  }
+
+  public void testUnusedGlobalInBlockNoWarning() {
+    enableUnusedLocalAssignmentCheck = true;
+    assertNoWarning("if (true) { var a = 2; }");
+  }
+
+  public void testUnusedLocalInBlock() {
+    enableUnusedLocalAssignmentCheck = true;
+    assertUnusedEs6("if (true) { let a = 2; }");
+    assertUnusedEs6("if (true) { const a = 2; }");
   }
 
   public void testUnusedAssignedInInnerFunction() {
@@ -374,10 +394,35 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertNoWarning("goog.module('example'); var X = goog.require('foo.X');");
   }
 
+  public void testGoogModule_forwardDeclare() {
+    enableUnusedLocalAssignmentCheck = true;
+    assertNoWarning(
+        LINE_JOINER.join(
+            "goog.module('example');",
+            "",
+            "var X = goog.forwardDeclare('foo.X');",
+            "",
+            "/** @type {X} */ var x = 0;",
+            "alert(x);"));
+
+    assertNoWarning("goog.module('example'); var X = goog.forwardDeclare('foo.X');");
+  }
+
   public void testGoogModule_usedInTypeAnnotation() {
     enableUnusedLocalAssignmentCheck = true;
     assertNoWarning(
         "goog.module('example'); var X = goog.require('foo.X'); /** @type {X} */ var y; use(y);");
+  }
+
+  public void testGoogModule_duplicateRequire() {
+    assertRedeclareError(
+        "goog.module('bar'); const X = goog.require('foo.X'); const X = goog.require('foo.X');");
+    assertRedeclareError(
+        "goog.module('bar'); let X = goog.require('foo.X'); let X = goog.require('foo.X');");
+    assertRedeclareError(
+        "goog.module('bar'); const X = goog.require('foo.X'); let X = goog.require('foo.X');");
+    assertRedeclareError(
+        "goog.module('bar'); let X = goog.require('foo.X'); const X = goog.require('foo.X');");
   }
 
   public void testUndeclaredLet() {

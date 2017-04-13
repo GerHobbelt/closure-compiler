@@ -16,10 +16,11 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticScope;
-
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,14 +43,13 @@ public class Scope implements StaticScope {
   /**
    * Creates a Scope given the parent Scope and the root node of the scope.
    * @param parent  The parent Scope. Cannot be null.
-   * @param rootNode  Typically the FUNCTION node.
+   * @param rootNode
    */
   Scope(Scope parent, Node rootNode) {
     Preconditions.checkNotNull(parent);
     Preconditions.checkNotNull(rootNode);
     Preconditions.checkArgument(
-        rootNode != parent.rootNode,
-        "Root node: %s\nParent's root node: %s", rootNode, parent.rootNode);
+        rootNode != parent.rootNode, "rootNode should not be the parent's root node", rootNode);
 
     this.parent = parent;
     this.rootNode = rootNode;
@@ -69,6 +69,13 @@ public class Scope implements StaticScope {
   }
 
   static Scope createGlobalScope(Node rootNode) {
+    // TODO(tbreisacher): Can we tighten this to allow only ROOT nodes?
+    checkArgument(
+        rootNode.isRoot()
+            || rootNode.isScript()
+            || rootNode.isModuleBody()
+            || rootNode.isFunction(),
+        rootNode);
     return new Scope(rootNode);
   }
 
@@ -125,7 +132,7 @@ public class Scope implements StaticScope {
    */
   void undeclare(Var var) {
     Preconditions.checkState(var.scope == this);
-    Preconditions.checkState(vars.get(var.name) == var);
+    Preconditions.checkState(vars.get(var.name).equals(var));
     vars.remove(var.name);
   }
 
@@ -227,7 +234,7 @@ public class Scope implements StaticScope {
   }
 
   public boolean isFunctionBlockScope() {
-    return isBlockScope() && parent != null && parent.getRootNode().isFunction();
+    return NodeUtil.isFunctionBlock(getRootNode());
   }
 
   public boolean isFunctionScope() {

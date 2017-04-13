@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.base.Preconditions;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
@@ -150,6 +151,10 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
       return n.getFirstChild();
     }
 
+    if (n.isGetterDef() || n.isSetterDef()) {
+      return n.getFirstChild();
+    }
+
     return null;
   }
 
@@ -213,7 +218,10 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
     }
 
     if (!info.isConstructor()
-        && (!n.isMemberFunctionDef() && !n.isStringKey())
+        && !n.isMemberFunctionDef()
+        && !n.isStringKey()
+        && !n.isGetterDef()
+        && !n.isSetterDef()
         && !NodeUtil.isPrototypeMethod(functionNode)) {
       // @abstract annotation on a non-method (or static method) in ES5
       report(
@@ -283,9 +291,6 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
       // with a function as the RHS, etc.
       switch (n.getToken()) {
         case FUNCTION:
-        case VAR:
-        case LET:
-        case CONST:
         case GETTER_DEF:
         case SETTER_DEF:
         case MEMBER_FUNCTION_DEF:
@@ -299,7 +304,15 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
             return;
           }
           break;
+        case VAR:
+        case LET:
+        case CONST:
         case ASSIGN: {
+          Node lhs = n.getFirstChild();
+          Node rhs = NodeUtil.getRValueOfLValue(lhs);
+          if (rhs != null && isClass(rhs) && !info.isConstructor()) {
+            break;
+          }
           // TODO(tbreisacher): Check that the RHS of the assignment is a
           // function. Note that it can be a FUNCTION node, but it can also be
           // a call to goog.abstractMethod, goog.functions.constant, etc.
@@ -331,22 +344,19 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
     if (info.getDescription() != null || info.isHidden() || info.getMeaning() != null) {
       boolean descOkay = false;
       switch (n.getToken()) {
-        case ASSIGN: {
-          Node lhs = n.getFirstChild();
-          if (lhs.isName()) {
-            descOkay = lhs.getString().startsWith("MSG_");
-          } else if (lhs.isQualifiedName()) {
-            descOkay = lhs.getLastChild().getString().startsWith("MSG_");
-          }
-          break;
-        }
+        case ASSIGN:
         case VAR:
         case LET:
         case CONST:
-          descOkay = n.getFirstChild().getString().startsWith("MSG_");
+          descOkay = isValidMsgName(n.getFirstChild());
           break;
         case STRING_KEY:
-          descOkay = n.getString().startsWith("MSG_");
+          descOkay = isValidMsgName(n);
+          break;
+        case GETPROP:
+          if (n.isFromExterns() && n.isQualifiedName()) {
+            descOkay = isValidMsgName(n);
+          }
           break;
         default:
           break;
@@ -354,6 +364,16 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
       if (!descOkay) {
         report(n, MISPLACED_MSG_ANNOTATION);
       }
+    }
+  }
+
+  /** Returns whether of not the given name is valid target for the result of goog.getMsg */
+  private boolean isValidMsgName(Node nameNode) {
+    if (nameNode.isName() || nameNode.isStringKey()) {
+      return nameNode.getString().startsWith("MSG_");
+    } else {
+      Preconditions.checkState(nameNode.isQualifiedName());
+      return nameNode.getLastChild().getString().startsWith("MSG_");
     }
   }
 

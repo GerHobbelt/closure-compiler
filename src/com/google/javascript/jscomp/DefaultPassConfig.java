@@ -312,10 +312,6 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(checkProvides);
     }
 
-    if (options.jqueryPass) {
-      checks.add(jqueryAliases);
-    }
-
     if (options.angularPass) {
       checks.add(angularPass);
     }
@@ -338,7 +334,7 @@ public final class DefaultPassConfig extends PassConfig {
 
     // It's important that the PolymerPass run *after* the ClosurePrimitives and ChromePass rewrites
     // and *before* the suspicious code checks. This is enforced in the assertValidOrder method.
-    if (options.polymerPass) {
+    if (options.polymerVersion != null) {
       checks.add(polymerPass);
     }
 
@@ -946,7 +942,7 @@ public final class DefaultPassConfig extends PassConfig {
         // getters/setters for many properties in compiled code. Dead property assignment
         // elimination is only safe when it knows about getters/setters. Therefore, we skip
         // it if the polymer pass is enabled.
-        if (!options.polymerPass) {
+        if (options.polymerVersion == null) {
           passes.add(deadPropertyAssignmentElimination);
         }
       }
@@ -1296,14 +1292,6 @@ public final class DefaultPassConfig extends PassConfig {
           pass.hotSwapScript(scriptRoot, originalRoot);
         }
       };
-    }
-  };
-
-  /** Expand jQuery Primitives and Aliases pass. */
-  private final PassFactory jqueryAliases = new PassFactory("jqueryAliases", true) {
-    @Override
-    protected CompilerPass create(AbstractCompiler compiler) {
-      return new ExpandJqueryAliases(compiler);
     }
   };
 
@@ -2080,11 +2068,13 @@ public final class DefaultPassConfig extends PassConfig {
   /** Special case optimizations for closure functions. */
   private final PassFactory closureOptimizePrimitives =
       new PassFactory("closureOptimizePrimitives", true) {
-    @Override
-    protected CompilerPass create(final AbstractCompiler compiler) {
-      return new ClosureOptimizePrimitives(compiler);
-    }
-  };
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new ClosureOptimizePrimitives(
+              compiler,
+              compiler.getOptions().propertyRenaming == PropertyRenamingPolicy.ALL_UNQUOTED);
+        }
+      };
 
   /** Puts global symbols into a single object. */
   private final PassFactory rescopeGlobalSymbols =

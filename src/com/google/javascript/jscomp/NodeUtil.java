@@ -774,6 +774,7 @@ public final class NodeUtil {
         if (val.isQualifiedName()) {
           return defines.contains(val.getQualifiedName());
         }
+        break;
       default:
         break;
     }
@@ -786,7 +787,7 @@ public final class NodeUtil {
    * @param block The node.
    */
   static boolean isEmptyBlock(Node block) {
-    if (!block.isBlock()) {
+    if (!block.isNormalBlock()) {
       return false;
     }
 
@@ -2506,7 +2507,7 @@ public final class NodeUtil {
    * @return Whether the node is of a type that contain other statements.
    */
   public static boolean isStatementBlock(Node n) {
-    return n.isScript() || n.isBlock() || n.isModuleBody();
+    return n.isRoot() || n.isScript() || n.isNormalBlock() || n.isModuleBody();
   }
 
   /**
@@ -2637,7 +2638,7 @@ public final class NodeUtil {
       Node tryNode = node.getParent();
       Preconditions.checkState(NodeUtil.hasFinally(tryNode));
       node.detachChildren();
-    } else if (node.isBlock()) {
+    } else if (node.isNormalBlock()) {
       // Simply empty the block.  This maintains source location and
       // "synthetic"-ness.
       node.detachChildren();
@@ -2719,7 +2720,7 @@ public final class NodeUtil {
    * @return Whether the block was removed.
    */
   public static boolean tryMergeBlock(Node block) {
-    Preconditions.checkState(block.isBlock());
+    Preconditions.checkState(block.isNormalBlock());
     Node parent = block.getParent();
     // Try to remove the block if its parent is a block/script or if its
     // parent is label and it has exactly one child.
@@ -2806,7 +2807,7 @@ public final class NodeUtil {
   }
 
   static boolean isFunctionBlock(Node n) {
-    return n.isBlock() && n.getParent() != null && n.getParent().isFunction();
+    return n.isNormalBlock() && n.getParent() != null && n.getParent().isFunction();
   }
 
   /**
@@ -2851,8 +2852,11 @@ public final class NodeUtil {
    * that bleeds into the inner scope).
    */
   static boolean isBleedingFunctionName(Node n) {
-    return n.isName() && !n.getString().isEmpty() &&
-        isFunctionExpression(n.getParent());
+    if (!n.isName() || n.getString().isEmpty()) {
+      return false;
+    }
+    Node parent = n.getParent();
+    return isFunctionExpression(parent) && n == parent.getFirstChild();
   }
 
   /**
@@ -3271,8 +3275,8 @@ public final class NodeUtil {
     }
 
     // make sure that the adding root looks ok
-    Preconditions.checkState(addingRoot.isBlock() || addingRoot.isModuleBody()
-        || addingRoot.isScript());
+    Preconditions.checkState(
+        addingRoot.isNormalBlock() || addingRoot.isModuleBody() || addingRoot.isScript());
     Preconditions.checkState(addingRoot.getFirstChild() == null ||
         !addingRoot.getFirstChild().isScript());
     return addingRoot;
@@ -3734,6 +3738,20 @@ public final class NodeUtil {
     return false;
   }
 
+  static boolean isPropertyAbsenceTest(Node propAccess) {
+    Node parent = propAccess.getParent();
+    switch (parent.getToken()) {
+      case EQ:
+      case SHEQ: {
+        Node other = parent.getFirstChild() == propAccess
+            ? parent.getSecondChild() : parent.getFirstChild();
+        return isUndefined(other);
+      }
+      default:
+        return false;
+    }
+  }
+
   /**
    * @param qName A qualified name node representing a class prototype, or a property on that
    *     prototype, e.g. foo.Bar.prototype, or foo.Bar.prototype.toString.
@@ -3870,10 +3888,10 @@ public final class NodeUtil {
     @Override
     public boolean apply(Node n) {
       Node parent = n.getParent();
-      return n.isBlock()
-          || (!n.isFunction() && (parent == null
-              || isControlStructure(parent)
-              || isStatementBlock(parent)));
+      return n.isRoot()
+          || n.isNormalBlock()
+          || (!n.isFunction()
+              && (parent == null || isControlStructure(parent) || isStatementBlock(parent)));
     }
   }
 
@@ -4020,7 +4038,7 @@ public final class NodeUtil {
    * @see NodeUtil#getCatchBlock
    */
   static boolean hasCatchHandler(Node n) {
-    Preconditions.checkArgument(n.isBlock());
+    Preconditions.checkArgument(n.isNormalBlock());
     return n.hasChildren() && n.getFirstChild().isCatch();
   }
 
@@ -4029,7 +4047,6 @@ public final class NodeUtil {
     * @return The Node containing the Function parameters.
     */
   public static Node getFunctionParameters(Node fnNode) {
-    // Function NODE: [ FUNCTION -> NAME, LP -> ARG1, ARG2, ... ]
     Preconditions.checkArgument(fnNode.isFunction());
     return fnNode.getSecondChild();
   }
@@ -4367,7 +4384,7 @@ public final class NodeUtil {
   /** Return declared JSDoc type for the given name declaration, or null if none present. */
   @Nullable
   static JSTypeExpression getDeclaredTypeExpression(Node declaration) {
-    Preconditions.checkArgument(declaration.isName());
+    Preconditions.checkArgument(declaration.isName() || declaration.isStringKey());
     JSDocInfo nameJsdoc = getBestJSDocInfo(declaration);
     if (nameJsdoc != null) {
       return nameJsdoc.getType();
@@ -4811,7 +4828,7 @@ public final class NodeUtil {
   }
 
   private static boolean isBundledGoogModuleScopeRoot(Node n) {
-    if (!n.isBlock() || !n.hasChildren() || !isGoogModuleCall(n.getFirstChild())) {
+    if (!n.isNormalBlock() || !n.hasChildren() || !isGoogModuleCall(n.getFirstChild())) {
       return false;
     }
     Node function = n.getParent();

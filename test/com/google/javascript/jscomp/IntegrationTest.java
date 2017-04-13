@@ -27,6 +27,7 @@ import com.google.javascript.jscomp.CompilerOptions.J2clPassMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CompilerOptions.Reach;
 import com.google.javascript.jscomp.deps.ModuleLoader;
+import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -268,6 +269,21 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, source, ConstParamCheck.CONST_NOT_ASSIGNED_STRING_LITERAL_ERROR);
   }
 
+  public void testAdvancedModeIncludesExtraSmartNameRemoval() {
+    CompilerOptions options = new CompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    test(
+        options,
+        LINE_JOINER.join(
+            "(function() {",
+            "  /** @constructor} */",
+            "  function Bar() {}",
+            "  var y = Bar;",
+            "  new y();",
+            "})();"),
+        "");
+  }
+
   public void testBug2410122() {
     CompilerOptions options = createCompilerOptions();
     options.setGenerateExports(true);
@@ -363,7 +379,7 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testConstPolymerNotAllowed() {
     CompilerOptions options = createCompilerOptions();
-    options.setPolymerPass(true);
+    options.setPolymerVersion(1);
     options.setLanguageIn(LanguageMode.ECMASCRIPT6_STRICT);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
 
@@ -617,10 +633,11 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-    test(options,
+    options.setModuleResolutionMode(ResolutionMode.LEGACY);
+    test(
+        options,
         new String[] {
-          "import {x} from 'i1'; alert(x);",
-          "export var x = 5;",
+          "import {x} from './i1'; alert(x);", "export var x = 5;",
         },
         new String[] {
           "goog.require('module$i1'); alert(module$i1.x);",
@@ -636,10 +653,11 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-    test(options,
+    options.setModuleResolutionMode(ResolutionMode.LEGACY);
+    test(
+        options,
         new String[] {
-          "import {x} from 'i2'; alert(x);",
-          "export var x = 5;",
+          "import {x} from './i2'; alert(x);", "export var x = 5;",
         },
         ModuleLoader.LOAD_WARNING);
   }
@@ -1597,6 +1615,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setLanguageIn(LanguageMode.ECMASCRIPT6);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setExtraSmartNameRemoval(false);
     test(options, code, expected);
   }
 
@@ -3032,11 +3051,11 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testSuppressEs5StrictWarning() {
     CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     options.setWarningLevel(DiagnosticGroups.ES5_STRICT, CheckLevel.WARNING);
     test(options,
-        "/** @suppress{es5Strict} */\n" +
-        "function f() { var arguments; }",
-        "function f() {}");
+        "/** @suppress{es5Strict} */ function f() { var arguments; }",
+        "");
   }
 
   public void testCheckProvidesWarning() {

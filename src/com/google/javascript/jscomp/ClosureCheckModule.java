@@ -22,7 +22,9 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Checks that goog.module() is used correctly.
@@ -43,6 +45,12 @@ public final class ClosureCheckModule extends AbstractModuleCallback
           "@export is not allowed here in a non-legacy goog.module."
           + " Consider using goog.exportSymbol instead.");
 
+  // TODO(tbreisacher): Make this an error when existing violations are fixed.
+  static final DiagnosticType GOOG_MODULE_IN_NON_MODULE =
+      DiagnosticType.disabled(
+          "JSC_GOOG_MODULE_IN_NON_MODULE",
+          "goog.module() call must be the first statement in a module.");
+
   static final DiagnosticType GOOG_MODULE_REFERENCES_THIS = DiagnosticType.error(
       "JSC_GOOG_MODULE_REFERENCES_THIS",
       "The body of a goog.module cannot reference 'this'.");
@@ -55,6 +63,11 @@ public final class ClosureCheckModule extends AbstractModuleCallback
       "JSC_GOOG_MODULE_USES_GOOG_MODULE_GET",
       "It's illegal to use a 'goog.module.get' at the module top-level."
       + " Did you mean to use goog.require instead?");
+
+  static final DiagnosticType DUPLICATE_NAME_SHORT_REQUIRE =
+      DiagnosticType.error(
+          "JSC_DUPLICATE_NAME_SHORT_REQUIRE",
+          "Found multiple goog.require statements importing identifier ''{0}''.");
 
   static final DiagnosticType INVALID_DESTRUCTURING_REQUIRE =
       DiagnosticType.error(
@@ -128,9 +141,22 @@ public final class ClosureCheckModule extends AbstractModuleCallback
 
   private final AbstractCompiler compiler;
 
-  private String currentModuleName = null;
-  private Map<String, String> shortRequiredNamespaces = new HashMap<>();
-  private Node defaultExportNode = null;
+  private static class ModuleInfo {
+    // Name of the module in question (i.e. the argument to goog.module)
+    private final String name;
+    // Mapping from fully qualified goog.required names to the import LHS node
+    private final Map<String, Node> importsByLongRequiredName = new HashMap<>();
+    // Module-local short names for goog.required symbols.
+    private final Set<String> shortImportNames = new HashSet<>();
+    // The node of the default (non-named) export of this module, if it exists.
+    private Node defaultExportNode = null;
+
+    ModuleInfo(String moduleName) {
+      this.name = moduleName;
+    }
+  }
+
+  private ModuleInfo currentModule = null;
 
   public ClosureCheckModule(AbstractCompiler compiler) {
     this.compiler = compiler;
@@ -153,22 +179,28 @@ public final class ClosureCheckModule extends AbstractModuleCallback
       Node call = firstStatement.getFirstChild();
       Node callee = call.getFirstChild();
       if (callee.matchesQualifiedName("goog.module")) {
-        Preconditions.checkState(currentModuleName == null);
-        currentModuleName = extractFirstArgumentName(call);
+        Preconditions.checkState(currentModule == null);
+        String moduleName = extractFirstArgumentName(call);
+        if (moduleName == null) {
+          t.report(scopeRoot, ClosureRewriteModule.INVALID_MODULE_NAMESPACE);
+        } else {
+          currentModule = new ModuleInfo(moduleName);
+        }
       }
     }
   }
 
   @Override
   public void exitModule(NodeTraversal t, Node scopeRoot) {
-    currentModuleName = null;
-    shortRequiredNamespaces.clear();
-    defaultExportNode = null;
+    currentModule = null;
   }
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
-    if (currentModuleName == null) {
+    if (currentModule == null) {
+      if (NodeUtil.isCallTo(n, "goog.module")) {
+        t.report(n, GOOG_MODULE_IN_NON_MODULE);
+      }
       return;
     }
     JSDocInfo jsDoc = n.getJSDocInfo();
@@ -179,7 +211,7 @@ public final class ClosureCheckModule extends AbstractModuleCallback
       case CALL:
         Node callee = n.getFirstChild();
         if (callee.matchesQualifiedName("goog.module")
-            && !currentModuleName.equals(extractFirstArgumentName(n))) {
+            && !currentModule.name.equals(extractFirstArgumentName(n))) {
           t.report(n, MULTIPLE_MODULES_IN_FILE);
         } else if (callee.matchesQualifiedName("goog.provide")) {
           t.report(n, MODULE_AND_PROVIDES);
@@ -224,15 +256,15 @@ public final class ClosureCheckModule extends AbstractModuleCallback
         }
         break;
       case GETPROP:
-        if (currentModuleName != null && n.matchesQualifiedName(currentModuleName)) {
+        if (n.matchesQualifiedName(currentModule.name)) {
           t.report(n, REFERENCE_TO_MODULE_GLOBAL_NAME);
-        } else if (shortRequiredNamespaces.containsKey(n.getQualifiedName())) {
-          String shortName = shortRequiredNamespaces.get(n.getQualifiedName());
-          if (shortName == null) {
+        } else if (currentModule.importsByLongRequiredName.containsKey(n.getQualifiedName())) {
+          Node importLhs = currentModule.importsByLongRequiredName.get(n.getQualifiedName());
+          if (importLhs == null || !importLhs.isName()) {
             t.report(n, REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME, n.getQualifiedName());
           } else {
             t.report(n, REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME,
-                n.getQualifiedName(), shortName);
+                n.getQualifiedName(), importLhs.getQualifiedName());
           }
         }
         break;
@@ -240,6 +272,7 @@ public final class ClosureCheckModule extends AbstractModuleCallback
         break;
     }
   }
+
   private void checkJSDoc(NodeTraversal t, JSDocInfo jsDoc) {
     for (Node typeNode : jsDoc.getTypeNodes()) {
       checkTypeExpression(t, typeNode);
@@ -257,16 +290,16 @@ public final class ClosureCheckModule extends AbstractModuleCallback
             }
             String type = node.getString();
             while (true) {
-              if (shortRequiredNamespaces.containsKey(type)) {
-                String shortName = shortRequiredNamespaces.get(type);
-                if (shortName == null) {
+              if (currentModule.importsByLongRequiredName.containsKey(type)) {
+                Node importLhs = currentModule.importsByLongRequiredName.get(type);
+                if (importLhs == null || !importLhs.isName()) {
                   t.report(node, JSDOC_REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME, type);
-                } else if (!shortName.equals(type)) {
+                } else if (!importLhs.getString().equals(type)) {
                   t.report(
                       node,
                       JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME,
                       type,
-                      shortName);
+                      importLhs.getString());
                 }
               }
               if (type.contains(".")) {
@@ -293,16 +326,17 @@ public final class ClosureCheckModule extends AbstractModuleCallback
     Preconditions.checkArgument(n.isAssign());
     Node lhs = n.getFirstChild();
     Preconditions.checkState(isExportLhs(lhs));
-    if (defaultExportNode == null && (!t.inModuleScope() || !parent.isExprResult())) {
+    if (currentModule.defaultExportNode == null && (!t.inModuleScope() || !parent.isExprResult())) {
       // Invalid export location.
       t.report(n, EXPORT_NOT_A_MODULE_LEVEL_STATEMENT);
     }
     if (lhs.isName()) {
-      if  (defaultExportNode != null) {
+      if  (currentModule.defaultExportNode != null) {
         // Multiple exports
-        t.report(n, EXPORT_REPEATED_ERROR, String.valueOf(defaultExportNode.getLineno()));
+        int previousLine = currentModule.defaultExportNode.getLineno();
+        t.report(n, EXPORT_REPEATED_ERROR, String.valueOf(previousLine));
       }
-      defaultExportNode = lhs;
+      currentModule.defaultExportNode = lhs;
     }
     if ((lhs.isName() || !NodeUtil.isPrototypeProperty(lhs))
         && !NodeUtil.isLegacyGoogModuleFile(NodeUtil.getEnclosingScript(n))) {
@@ -325,7 +359,7 @@ public final class ClosureCheckModule extends AbstractModuleCallback
     Preconditions.checkState(callNode.isCall());
     switch (parent.getToken()) {
       case EXPR_RESULT:
-        checkShortGoogRequireCall(t, callNode, parent);
+        currentModule.importsByLongRequiredName.put(extractFirstArgumentName(callNode), parent);
         return;
       case NAME:
       case DESTRUCTURING_LHS:
@@ -338,22 +372,25 @@ public final class ClosureCheckModule extends AbstractModuleCallback
   }
 
   private void checkShortGoogRequireCall(NodeTraversal t, Node callNode, Node declaration) {
-    String shortName = null;
-    if (NodeUtil.isNameDeclaration(declaration)) {
-      if (declaration.isLet()
-          && !callNode.getFirstChild().matchesQualifiedName("goog.forwardDeclare")) {
-        t.report(declaration, LET_GOOG_REQUIRE);
-      }
-      if (!declaration.hasOneChild()) {
-        t.report(declaration, ONE_REQUIRE_PER_DECLARATION);
-      }
-      Node lhs = declaration.getFirstChild();
-      if (lhs.isDestructuringLhs() && !isValidDestructuringImport(lhs)) {
-        t.report(declaration, INVALID_DESTRUCTURING_REQUIRE);
-      }
-      shortName = lhs.isName() ? lhs.getString() : null;
+    if (declaration.isLet()
+        && !callNode.getFirstChild().matchesQualifiedName("goog.forwardDeclare")) {
+      t.report(declaration, LET_GOOG_REQUIRE);
     }
-    shortRequiredNamespaces.put(extractFirstArgumentName(callNode), shortName);
+    if (!declaration.hasOneChild()) {
+      t.report(declaration, ONE_REQUIRE_PER_DECLARATION);
+      return;
+    }
+    Node lhs = declaration.getFirstChild();
+    if (lhs.isDestructuringLhs() && !isValidDestructuringImport(lhs)) {
+      t.report(declaration, INVALID_DESTRUCTURING_REQUIRE);
+    }
+    currentModule.importsByLongRequiredName.put(extractFirstArgumentName(callNode), lhs);
+    for (Node nameNode : NodeUtil.getLhsNodesOfDeclaration(declaration)) {
+      String name = nameNode.getString();
+      if (!currentModule.shortImportNames.add(name)) {
+         t.report(nameNode, DUPLICATE_NAME_SHORT_REQUIRE, name);
+      }
+    }
   }
 
   private static boolean isValidDestructuringImport(Node destructuringLhs) {

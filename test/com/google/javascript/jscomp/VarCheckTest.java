@@ -190,6 +190,11 @@ public final class VarCheckTest extends Es6CompilerTestCase {
     testSame("var asdf;", "asdf;", null);
   }
 
+  public void testFunctionDeclarationInExterns() {
+    testSameEs6("function foo(x = 7) {}", "foo();", null);
+    testSameEs6("function foo(...rest) {}", "foo(1,2,3);", null);
+  }
+
   public void testVarAssignmentInExterns() {
     testSame("/** @type{{foo:string}} */ var foo; var asdf = foo;", "asdf.foo;", null);
   }
@@ -266,8 +271,8 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testFunctionDeclaredInBlock() {
-    testErrorEs6("if (true) {function foo() {}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
-    testErrorEs6("foo(); if (true) {function foo() {}}", VarCheck.UNDEFINED_VAR_ERROR);
+    testError("if (true) {function foo() {}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
+    testError("foo(); if (true) {function foo() {}}", VarCheck.UNDEFINED_VAR_ERROR);
 
     testSameEs6("if (true) {var foo = ()=>{}} foo();");
     testErrorEs6("if (true) {let foo = ()=>{}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
@@ -574,7 +579,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
 
     testError("var f = function arguments() {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
     testError("var f = function (arguments) {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
-    testError("function f() {try {} catch(arguments) {}}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testSame("function f() {try {} catch(arguments) {}}");
 
     sanityCheck = true;
     testSame("function f() {var arguments}");

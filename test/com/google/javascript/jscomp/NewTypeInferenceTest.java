@@ -12202,6 +12202,18 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "/** @const */",
         "var g = f;",
         "g(function(x) { return x - 1; });"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @param {function(this:Array)} x */",
+        "Foo.prototype.method = function(x) {};",
+        "function f(/** !Foo */ obj) {",
+        "  obj.method(function() {",
+        "    var /** null */ n = this;",
+        "  });",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
   }
 
   public void testNamespacesWithNonEmptyObjectLiteral() {
@@ -13298,6 +13310,21 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "    y = { focus: 123 };",
         "  }",
         "  return y.focus;",
+        "}"));
+  }
+
+  public void testJoinOfGenericNominalTypes() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "/** @constructor */",
+        "function Bar() {}",
+        "/**",
+        " * @param {(!Array<number>| !Array<!Foo> | !Array<!Bar>)} x",
+        " * @param {!Array<number>} y",
+        " */",
+        "function f(x, y, z) {",
+        "  x = y;",
         "}"));
   }
 
@@ -18148,8 +18175,23 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "}",
         "function f(x) {",
         "  var y = x ? new Foo(123) : new Foo('asdf');",
-        // prop is typed ?, no warning
         "  var /** null */ n = y.prop;",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " * @param {T} x",
+        " */",
+        "function Foo(x) {",
+        "  /** @type {T} */",
+        "  this.prop = x;",
+        "}",
+        "function f(x) {",
+        "  var y = x ? new Foo(123) : new Foo('asdf');",
+        "  var /** (number|string) */ n = y.prop;",
         "}"));
 
     typeCheck(LINE_JOINER.join(
@@ -18514,7 +18556,7 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
             "/** @override */ ns.B.prototype.foo = function() {",
             "  ns.B.superClass_.foo.call(this);",
             "};"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
 
     typeCheck(
         LINE_JOINER.join(
@@ -18526,7 +18568,7 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
             "/** @override */ ns.B.prototype.foo = function() {",
             "  ns.B.superClass_.foo.apply(this);",
             "};"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
 
     typeCheck(
         LINE_JOINER.join(
@@ -18535,7 +18577,7 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
             "A.prototype.foo = function() {};",
             "/** @constructor @extends {A} */ var B = function() {};",
             "/** @override */ B.prototype.foo = function() { A.prototype.foo['call'](this); };"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
 
     typeCheck(
         LINE_JOINER.join(
@@ -18556,7 +18598,7 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
             "/** @override */ B.prototype.foo = function() {};",
             "var abstractMethod = A.prototype.foo;",
             "abstractMethod.call(new B);"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
 
     typeCheck(
         LINE_JOINER.join(
@@ -18571,7 +18613,7 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
             "/** @override */ B.prototype.foo = function() {};",
             "var abstractMethod = A.prototype.foo;",
             "(0, abstractMethod).call(new B);"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
   }
 
   public void testDontRemoveLooseObjects() {
@@ -18852,5 +18894,254 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "  return c;",
         "}"),
         NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testDontCrashWhenUnifyingNominalTypeWithEmptyTypemap() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template SCOPE",
+        " */",
+        "function MyEventHandler() {}",
+        "/**",
+        " * @template T",
+        " * @this {T}",
+        " * @return {!MyEventHandler<T>}",
+        " */",
+        "MyEventHandler.prototype.getHandler = function() {",
+        "  return /** @type {!MyEventHandler<T>} */ (new MyEventHandler);",
+        "};",
+        "/**",
+        " * @param {function(this: SCOPE, EVENTOBJ)} x",
+        " * @template EVENTOBJ",
+        " */",
+        "MyEventHandler.prototype.listen = function(x) {};",
+        "MyEventHandler.prototype.foobar = function() {",
+        "  this.getHandler().listen(MyEventHandler.prototype.listen);",
+        "};"));
+  }
+
+  public void testSpecializeFunctionReturnType() {
+    typeCheck(LINE_JOINER.join(
+        "/** @return {?Object} */",
+        "function f() { return {}; }",
+        "function g(/** ?Object */ x) {",
+        "  if ((x = f()) !== null) {",
+        "    var /** !Object */ y = x;",
+        "  }",
+        "}"));
+  }
+
+  public void testDontWarnAboutUnknownExtends() {
+    typeCheck(LINE_JOINER.join(
+        "function f(/** function(new: Object) */ clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** function(new: ?) */ clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** !Function */ clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"),
+        JSTypeCreatorFromJSDoc.EXTENDS_NON_OBJECT);
+
+    typeCheck(LINE_JOINER.join(
+        "function f(/** number */ clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"),
+        JSTypeCreatorFromJSDoc.EXTENDS_NON_OBJECT);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @template T",
+        " * @param {function(new: T)} clazz",
+        " */",
+        "function f(clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Foo() {}",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {",
+        "  /** @type {number} */",
+        "  this.prop = 123;",
+        "}",
+        "function f(/** function(new: Foo) */ clazz) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {clazz}",
+        "   */",
+        "  function Bar() {}",
+        "  var /** string */ s = (new Bar).prop;",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
+
+  public void testMixinApplication() {
+    String defs = LINE_JOINER.join(
+        "/** @constructor */",
+        "function MyElement() {",
+        "  /** @type {string} */",
+        "  this.elemprop = 'asdf';",
+        "}",
+        "/** @record */",
+        "function Toggle() {}",
+        "/**",
+        " * @param {string} x",
+        " * @return {string}",
+        " */",
+        "Toggle.prototype.foobar = function(x) {};",
+        "/**",
+        " * @template T",
+        " * @param {function(new:T)} superclass",
+        " */",
+        "function addToggle(superclass) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {superclass}",
+        "   * @implements {Toggle}",
+        "   */",
+        "  function Clazz() {",
+        "    Superclass.apply(this, arguments);;",
+        "  }",
+        "  Clazz.prototype = Object.create(Superclass.prototype);",
+        "  /** @override */",
+        "  Clazz.prototype.foobar = function(x) { return 'foobar ' + x; };",
+        "  return Clazz;",
+        "}");
+
+    typeCheck(LINE_JOINER.join(
+        defs,
+        "/**",
+        " * @constructor",
+        " * @extends {MyElement}",
+        " * @implements {Toggle}",
+        " */",
+        "var MyElementWithToogle = addToggle(MyElement);",
+        "(new MyElementWithToogle).foobar(123);"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+
+    typeCheck(LINE_JOINER.join(
+        defs,
+        "/**",
+        " * @constructor",
+        " * @extends {MyElement}",
+        " * @implements {Toggle}",
+        " */",
+        "var MyElementWithToogle = addToggle(MyElement);",
+        "(new MyElementWithToogle).elemprop = 123;"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        defs,
+        "var MyElementWithToogle = addToggle(MyElement);",
+        "(new MyElementWithToogle).foobar(123);",
+        // The MyElementWithToogle type is unknown
+        "/** @type {MyElementWithToogle} */ var x = 123;"),
+        NewTypeInference.INVALID_ARGUMENT_TYPE);
+  }
+
+  public void testSpecializeAfterPropAbsenceTest() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @param {{foo:(number|undefined)}} x",
+        " * @return {number}",
+        " */",
+        "function f(x) {",
+        "  return (x.foo === undefined ? 123 : x.foo);",
+        "}"));
+  }
+
+  public void testMixedClassInheritance() {
+    typeCheck(LINE_JOINER.join(
+        "/** @record */",
+        "function IToggle() {}",
+        "/** @return {number} */",
+        "IToggle.prototype.foo = function() {};",
+        "/**",
+        " * @param {function(new:T)} superClass",
+        " * @template T",
+        " */",
+        "function addToggle(superClass) {",
+        "  /**",
+        "   * @constructor",
+        "   * @extends {superClass}",
+        "   * @implements {IToggle}",
+        "   */",
+        "  var Toggle = function() {};",
+        "  Toggle.prototype.foo = function() { return 5; };",
+        "  return Toggle;",
+        "}",
+        "/** @struct @constructor */",
+        "var Bar = function() {};",
+        "/**",
+        " * @constructor",
+        " * @extends {Bar}",
+        " * @implements {IToggle}",
+        " */",
+        "var ToggleBar = addToggle(Bar);",
+        "/**",
+        " * @constructor",
+        " * @extends {ToggleBar}",
+        " */",
+        "var Foo = function() {};",
+        "/** @override @return {string} */",
+        "Foo.prototype.foo = function() { return ''; };"),
+        GlobalTypeInfo.INVALID_PROP_OVERRIDE);
+  }
+
+  public void testConstructorProperty() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "var /** !Foo */ x = new Foo.prototype.constructor;"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "var /** null */ x = new Foo.prototype.constructor;"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    // Resolves to the Object.prototype.constructor property, not to Foo.prototype.constructor
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "var ctor = (new Foo).constructor;",
+        "if (ctor != null) {",
+        "  var /** null */ n = new ctor;",
+        "}"));
   }
 }

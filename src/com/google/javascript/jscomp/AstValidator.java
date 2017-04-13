@@ -726,7 +726,7 @@ public final class AstValidator implements CompilerPass {
     if (n.isArrowFunction()) {
       validateEs6Feature("arrow functions", n);
       validateEmptyName(name);
-      if (body.isBlock()) {
+      if (body.isNormalBlock()) {
         validateBlock(body);
       } else {
         validateExpression(body);
@@ -1067,7 +1067,14 @@ public final class AstValidator implements CompilerPass {
   private void validateCatch(Node n) {
     validateNodeType(Token.CATCH, n);
     validateChildCount(n);
-    validateName(n.getFirstChild());
+    Node caught = n.getFirstChild();
+    if (caught.isName()) {
+      validateName(caught);
+    } else if (n.isArrayPattern()) {
+      validateArrayPattern(Token.CATCH, caught);
+    } else {
+      validateObjectPattern(Token.CATCH, caught);
+    }
     validateBlock(n.getLastChild());
   }
 

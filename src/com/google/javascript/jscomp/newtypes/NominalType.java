@@ -60,6 +60,12 @@ public final class NominalType {
     return this.rawType;
   }
 
+  // This is used for DisambiguateProperties. Do not call during NewTypeInference.
+  // See note for getRawNominalType.
+  public RawNominalType getRawNominalTypeAfterTypeChecking() {
+    return this.rawType;
+  }
+
   // NOTE(dimvar): we need this to get access to the static properties of the class.
   // It'd be good if these properties were on the type returned by getConstructorFunction,
   // but there are some circularity issues when we're computing the namespace types.
@@ -509,8 +515,25 @@ public final class NominalType {
     return true;
   }
 
-  // A special-case of join
-  static NominalType pickSuperclass(NominalType c1, NominalType c2) {
+  private static ImmutableMap<String, JSType> joinTypeMaps(
+      Set<String> domain, ImmutableMap<String, JSType> m1, ImmutableMap<String, JSType> m2) {
+    ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+    for (String typevar : domain) {
+      JSType t1 = m1.get(typevar);
+      JSType t2 = m2.get(typevar);
+      if (t1 == null) {
+        builder.put(typevar, Preconditions.checkNotNull(t2));
+      } else if (t2 == null) {
+        builder.put(typevar, t1);
+      } else {
+        builder.put(typevar, JSType.join(t1, t2));
+      }
+    }
+    return builder.build();
+  }
+
+  // A special-case of join. One of the raw types must be a subtype of the other
+  static NominalType join(NominalType c1, NominalType c2) {
     if (c1 == null || c2 == null) {
       return null;
     }
@@ -518,13 +541,13 @@ public final class NominalType {
       return c2;
     }
     if (c1.isRawSubtypeOf(c2)) {
-      return c2.instantiateGenericsWithUnknown();
+      return new NominalType(joinTypeMaps(c2.typeMap.keySet(), c1.typeMap, c2.typeMap), c2.rawType);
     }
     if (c2.isNominalSubtypeOf(c1)) {
       return c1;
     }
     if (c2.isRawSubtypeOf(c1)) {
-      return c1.instantiateGenericsWithUnknown();
+      return new NominalType(joinTypeMaps(c1.typeMap.keySet(), c1.typeMap, c2.typeMap), c1.rawType);
     }
     return null;
   }
@@ -555,10 +578,9 @@ public final class NominalType {
     }
     // Most of the time, both nominal types are already instantiated when
     // unifyWith is called. Rarely, when we call a polymorphic function from the
-    // body of a method of a polymorphic class, then other.typeMap is
-    // empty. For now, don't do anything fancy in that case.
-    Preconditions.checkState(!typeMap.isEmpty());
-    if (other.typeMap.isEmpty()) {
+    // body of a method of a polymorphic class, then this.typeMap and/or other.typeMap
+    // can be empty. For now, don't do anything fancy in that case.
+    if (this.typeMap.isEmpty() || other.typeMap.isEmpty()) {
       return true;
     }
     boolean hasUnified = true;
@@ -598,6 +620,11 @@ public final class NominalType {
   boolean isPropDefinedOnSubtype(QualifiedName pname) {
     Preconditions.checkArgument(pname.isIdentifier());
     return this.rawType.isPropDefinedOnSubtype(pname.getLeftmostName());
+  }
+
+  Set<JSType> getSubtypesWithProperty(QualifiedName pname) {
+    Preconditions.checkArgument(pname.isIdentifier());
+    return this.rawType.getSubtypesWithProperty(pname.getLeftmostName());
   }
 
   static boolean equalRawTypes(NominalType n1, NominalType n2) {

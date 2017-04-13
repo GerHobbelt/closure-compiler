@@ -313,6 +313,15 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
         "function f({ myprop1: { myprop2: prop } }) {",
         "  return prop;",
         "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @param {{prop: (number|undefined)}} x",
+        " * @return {number}",
+        " */",
+        "function f({prop = 1} = {}) {",
+        "  return prop;",
+        "}"));
   }
 
   public void testAbstractMethodCalls() {
@@ -325,7 +334,7 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
         "class B extends A {",
         "  foo() { super.foo(); }",
         "}"),
-        NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE);
+        NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE);
 
     typeCheck(LINE_JOINER.join(
         "/** @abstract */",
@@ -334,6 +343,149 @@ public final class NewTypeInferenceWithTranspilationTest extends NewTypeInferenc
         "}",
         "class B extends A {",
         "  foo() { super.foo(); }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "  bar() {",
+        "    this.foo();",
+        "  }",
+        "}",
+        "class B extends A {",
+        "  foo() {}",
+        "  bar() {",
+        "    this.foo();",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "}",
+        "class B extends A {",
+        "  foo() {}",
+        "  /** @param {!Array} arr */",
+        "  bar(arr) {",
+        "    this.foo(...arr);",
+        "  }",
+        "}"));
+
+    // This should generate a warning
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "}",
+        "class B extends A {",
+        "  foo() {}",
+        "  bar() {",
+        "    A.prototype.foo();",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "}",
+        "class B extends A {",
+        "  foo() {}",
+        "  bar() {",
+        "    B.prototype.foo();",
+        "  }",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/** @abstract */",
+        "class A {",
+        "  /** @abstract */",
+        "  foo() {}",
+        "  bar() {}",
+        "}",
+        "class B extends A {",
+        "  foo() {}",
+        "  bar() {",
+        "    A.prototype.bar();",
+        "  }",
+        "}"));
+  }
+
+  // super is handled natively in both type checkers, which results in ASTs that
+  // are temporarily invalid: a super call that is not in a class.
+  // Avoid crashing.
+  public void testDontCrashWithInvalidIntermediateASTwithSuper() {
+    typeCheck(LINE_JOINER.join(
+        "class Foo {}",
+        "function g(x) {}",
+        "g(function f(x) { return class extends Foo {} });"));
+  }
+
+  public void testDontWarnAboutUnknownExtends() {
+    typeCheck(LINE_JOINER.join(
+        "function f(clazz) {",
+        "  class Foo extends clazz {}",
+        "}"));
+  }
+
+  public void testMixedClassInheritance() {
+    typeCheck(LINE_JOINER.join(
+        "/** @record */",
+        "function IToggle(){}",
+        "/** @return {number} */",
+        "IToggle.prototype.foo = function(){};",
+        "/**",
+        " * @template T",
+        " * @param {function(new:T)} superClass",
+        " */",
+        "function addToggle(superClass) {",
+        "  /** @implements {IToggle} */",
+        "  class Toggle extends superClass {",
+        "    foo() {",
+        "      return 5;",
+        "    }",
+        "  }",
+        "  return Toggle;",
+        "}",
+        "class Bar {}",
+        "/**",
+        " * @constructor",
+        " * @extends {Bar}",
+        " * @implements {IToggle}",
+        " */",
+        "const ToggleBar = addToggle(Bar);",
+        "class Foo extends ToggleBar {}",
+        "const instance = new Foo();",
+        "const number = instance.foo();"));
+  }
+
+  public void testLoopVariableTranspiledToProperty() {
+    typeCheck(LINE_JOINER.join(
+        "function f() {",
+        "  for (let i = 0; i < 1; ++i) {",
+        "    const x = 1;",
+        "    function b() {",
+        "      return x;",
+        "    }",
+        "  }",
+        "}"));
+
+    // TODO(dimvar): catch this warning once we typecheck ES6 natively.
+    typeCheck(LINE_JOINER.join(
+        "function f() {",
+        "  for (let i = 0; i < 1; ++i) {",
+        "    const x = 1;",
+        "    x = 2;",
+        "    function b() {",
+        "      return x;",
+        "    }",
+        "  }",
         "}"));
   }
 }

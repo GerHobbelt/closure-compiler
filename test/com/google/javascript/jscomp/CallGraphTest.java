@@ -16,6 +16,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.jscomp.testing.NodeSubject.assertNode;
 
 import com.google.javascript.jscomp.CallGraph.Callsite;
 import com.google.javascript.jscomp.CallGraph.Function;
@@ -626,7 +627,7 @@ public final class CallGraphTest extends CompilerTestCase {
 
     assertTrue(mainFunction.isMain());
     assertNotNull(mainFunction.getBodyNode());
-    assertTrue(mainFunction.getBodyNode().isBlock());
+    assertNode(mainFunction.getBodyNode()).hasType(Token.ROOT);
 
     CallGraph.Function functionA = callgraph.getUniqueFunctionWithName("A");
 
@@ -642,8 +643,8 @@ public final class CallGraphTest extends CompilerTestCase {
 
     CallGraph.Function mainFunction = callgraph.getMainFunction();
 
-    // Main function's AST node should be the global block
-    assertTrue(mainFunction.getAstNode().isBlock());
+    // Main function's AST node should be the global root
+    assertNode(mainFunction.getAstNode()).hasType(Token.ROOT);
 
     CallGraph.Function functionA = callgraph.getUniqueFunctionWithName("A");
 
@@ -667,7 +668,7 @@ public final class CallGraphTest extends CompilerTestCase {
     CallGraph.Function functionA = callgraph.getUniqueFunctionWithName("A");
 
     // Regular function's body node should be the block for A
-    assertTrue(functionA.getBodyNode().isBlock());
+    assertNode(functionA.getBodyNode()).hasType(Token.BLOCK);
     assertEquals(NodeUtil.getFunctionBody(functionA.getAstNode()),
         functionA.getBodyNode());
   }

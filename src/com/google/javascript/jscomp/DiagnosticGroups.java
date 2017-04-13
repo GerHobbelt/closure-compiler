@@ -47,7 +47,8 @@ public class DiagnosticGroups {
       DiagnosticType.warning("JSC_UNUSED", "{0}");
 
   public static final Set<String> wildcardExcludedGroups = ImmutableSet.of(
-      "reportUnknownTypes", "analyzerChecks", "oldReportUnknownTypes");
+      "reportUnknownTypes", "analyzerChecks", "oldReportUnknownTypes",
+      "newCheckTypes", "newCheckTypesCompatibility", "newCheckTypesExtraChecks");
 
   public DiagnosticGroups() {}
 
@@ -142,8 +143,9 @@ public class DiagnosticGroups {
           + "visibility";
 
   public static final DiagnosticGroup COMMON_JS_MODULE_LOAD =
-      DiagnosticGroups.registerGroup(
-          "commonJsModuleLoad", ProcessCommonJSModules.COMMON_JS_MODULE_LOAD_ERROR);
+      DiagnosticGroups.registerGroup("commonJsModuleLoad",
+          ProcessCommonJSModules.SUSPICIOUS_EXPORTS_ASSIGNMENT,
+          ProcessCommonJSModules.UNKNOWN_REQUIRE_ENSURE);
 
   public static final DiagnosticGroup GLOBAL_THIS =
       DiagnosticGroups.registerGroup("globalThis",
@@ -211,7 +213,6 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup AMBIGUOUS_FUNCTION_DECL =
       DiagnosticGroups.registerGroup("ambiguousFunctionDecl",
-          VariableReferenceCheck.AMBIGUOUS_FUNCTION_DECL,
           StrictModeCheck.BAD_FUNCTION_DECLARATION);
 
   public static final DiagnosticGroup UNKNOWN_DEFINES =
@@ -337,7 +338,7 @@ public class DiagnosticGroups {
           GlobalTypeInfo.SUPER_INTERFACES_HAVE_INCOMPATIBLE_PROPERTIES,
           GlobalTypeInfo.UNKNOWN_OVERRIDE,
           GlobalTypeInfo.UNRECOGNIZED_TYPE_NAME,
-          NewTypeInference.ABSTRACT_METHOD_NOT_CALLABLE,
+          NewTypeInference.ABSTRACT_SUPER_METHOD_NOT_CALLABLE,
           NewTypeInference.ASSERT_FALSE,
           NewTypeInference.CANNOT_BIND_CTOR,
           NewTypeInference.CONST_REASSIGNED,
@@ -586,6 +587,7 @@ public class DiagnosticGroups {
               CheckRequiresAndProvidesSorted.PROVIDES_AFTER_REQUIRES,
               CheckUnusedLabels.UNUSED_LABEL,
               CheckUselessBlocks.USELESS_BLOCK,
+              ClosureCheckModule.GOOG_MODULE_IN_NON_MODULE,
               ClosureCheckModule.LET_GOOG_REQUIRE,
               ClosureCheckModule.JSDOC_REFERENCE_TO_FULLY_QUALIFIED_IMPORT_NAME,
               ClosureCheckModule.JSDOC_REFERENCE_TO_SHORT_IMPORT_BY_LONG_NAME_INCLUDING_SHORT_NAME,

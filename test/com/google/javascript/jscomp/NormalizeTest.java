@@ -172,6 +172,38 @@ public final class NormalizeTest extends Es6CompilerTestCase {
             "}"));
   }
 
+  public void testVarReferencedInHoistedFunction() {
+    test(
+        LINE_JOINER.join(
+            "var f1 = function() {",
+            "  var x;",
+            "};",
+            "",
+            "(function () {",
+            "  {",
+            "    var x = 0;",
+            "  }",
+            "  function f2() {",
+            "    alert(x);",
+            "  }",
+            "  f2();",
+            "})();"),
+        LINE_JOINER.join(
+            "var f1 = function() {",
+            "  var x;",
+            "};",
+            "",
+            "(function () {",
+            "  function f2() {",
+            "    alert(x$jscomp$1);",
+            "  }",
+            "  {",
+            "    var x$jscomp$1 = 0;",
+            "  }",
+            "  f2();",
+            "})();"));
+  }
+
   public void testAssignShorthand() {
     test("x |= 1;", "x = x | 1;");
     test("x ^= 1;", "x = x ^ 1;");
@@ -378,10 +410,10 @@ public final class NormalizeTest extends Es6CompilerTestCase {
          "function f() { var a = 1; a = 2 }");
     test("var a = 1; function f(){ var a = 2 }",
          "var a = 1; function f(){ var a$jscomp$1 = 2 }");
-    test("function f() { var a = 1; lable1:var a = 2 }",
-         "function f() { var a = 1; lable1:{a = 2}}");
-    test("function f() { var a = 1; lable1:var a }",
-         "function f() { var a = 1; lable1:{} }");
+    test("function f() { var a = 1; label1:var a = 2 }",
+         "function f() { var a = 1; label1:{a = 2}}");
+    test("function f() { var a = 1; label1:var a }",
+         "function f() { var a = 1; label1:{} }");
     test("function f() { var a = 1; for(var a in b); }",
          "function f() { var a = 1; for(a in b); }");
   }
@@ -461,6 +493,20 @@ public final class NormalizeTest extends Es6CompilerTestCase {
              "}"));
   }
 
+  public void testIssue166g() {
+    test(
+        LINE_JOINER.join(
+            "function a() {",
+            "  try { throw 1 } catch(e) {}",
+            "  var e = 2;",
+            "}"),
+        LINE_JOINER.join(
+             "function a() {",
+             "  try { throw 1 } catch(e$jscomp$1) {}",
+             "  var e = 2;",
+             "}"));
+  }
+
   public void testLetsInSeparateBlocks() {
     testEs6(
         LINE_JOINER.join(
@@ -514,6 +560,22 @@ public final class NormalizeTest extends Es6CompilerTestCase {
             "  } catch (e$jscomp$1) {",
             "    alert(e$jscomp$1);",
             "  }",
+            "}"));
+  }
+
+  public void testDeclInCatchBlock() {
+    testEs6(
+        LINE_JOINER.join(
+            "var x;",
+            "try {",
+            "} catch (e) {",
+            "  let x;",
+            "}"),
+        LINE_JOINER.join(
+            "var x;",
+            "try {",
+            "} catch (e) {",
+            "  let x$jscomp$1",
             "}"));
   }
 
@@ -599,6 +661,20 @@ public final class NormalizeTest extends Es6CompilerTestCase {
   public void testExposeComplex() {
     test("var x = {/** @expose */ a: 1, b: 2}; x.a = 3; /** @expose */ x.b = 5;",
          "var x = {/** @expose */ 'a': 1, 'b': 2}; x['a'] = 3; /** @expose */ x['b'] = 5;");
+  }
+
+  public void testShadowFunctionName() {
+    test(
+        LINE_JOINER.join(
+            "function f() {",
+            "  var f = 'test';",
+            "  console.log(f);",
+            "}"),
+        LINE_JOINER.join(
+            "function f() {",
+            "  var f$jscomp$1 = 'test';",
+            "  console.log(f$jscomp$1);",
+            "}"));
   }
 
   private Set<Node> findNodesWithProperty(Node root, final int prop) {
