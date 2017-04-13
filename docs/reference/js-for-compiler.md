@@ -5,7 +5,7 @@
 The Closure Compiler can use data type information about JavaScript variables to provide enhance
 optimization and warnings. JavaScript, however, has no way to declare types.
 
-Because JavaScript has no syntax for declaring the type of a variable, you must use comments in th
+Because JavaScript has no syntax for declaring the type of a variable, you must use comments in the
 code to specify the data type.
 
 The Closure Compiler's type language derives from the annotations used by the JSDoc
