@@ -374,8 +374,7 @@ public class CompilerOptions implements Serializable {
     this.legacyCodeCompile = legacy;
   }
 
-  // TODO(bradfordcsmith): Resolve the closure managed dependencies case where we don't really want
-  // to fully parse all input files, then investigate how can we use multi-threads as default.
+  // TODO(bradfordcsmith): Investigate how can we use multi-threads as default.
   int numParallelThreads = 1;
 
   /**
@@ -740,8 +739,9 @@ public class CompilerOptions implements Serializable {
   /** A CodingConvention to use during the compile. */
   private CodingConvention codingConvention;
 
+  @Nullable
   public String syntheticBlockStartMarker;
-
+  @Nullable
   public String syntheticBlockEndMarker;
 
   /** Compiling locale */
@@ -907,6 +907,16 @@ public class CompilerOptions implements Serializable {
   /** Runtime libraries to never inject. */
   boolean preventLibraryInjection = false;
 
+  boolean assumeForwardDeclaredForMissingTypes = false;
+
+  /**
+   * If {@code true}, considers all missing types to be forward declared (useful for partial
+   * compilation).
+   */
+  public void setAssumeForwardDeclaredForMissingTypes(
+      boolean assumeForwardDeclaredForMissingTypes) {
+    this.assumeForwardDeclaredForMissingTypes = assumeForwardDeclaredForMissingTypes;
+  }
 
   //--------------------------------
   // Output options

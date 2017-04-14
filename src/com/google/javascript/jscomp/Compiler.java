@@ -32,6 +32,7 @@ import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.CompilerOptions.DevMode;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.WarningsGuard.DiagnosticGroupState;
+import com.google.javascript.jscomp.deps.JsFileParser;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
 import com.google.javascript.jscomp.parsing.Config;
@@ -54,10 +55,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.FileSystems;
+import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -222,7 +225,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private DefinitionUseSiteFinder defFinder = null;
 
   // Types that have been forward declared
-  private final Set<String> forwardDeclaredTypes = new HashSet<>();
+  private Set<String> forwardDeclaredTypes = new HashSet<>();
 
   // For use by the new type inference
   private GlobalTypeInfo symbolTable;
@@ -261,6 +264,19 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private Set<String> externProperties = null;
 
   private static final Joiner pathJoiner = Joiner.on(File.separator);
+
+  // TODO(johnlenz): remove "currentScope".
+  // Used as a shortcut for change tracking.  This is the current scope being
+  // visited by the "current" NodeTraversal.  This can't be thread safe so
+  // we should move it into the NodeTraversal and require explicit changed
+  // nodes elsewhere so we aren't blocked from doing this elsewhere.
+  private Node currentScope = null;
+
+  // Starts at 0, increases as "interesting" things happen.
+  // Nothing happens at time START_TIME, the first pass starts at time 1.
+  // The correctness of scope-change tracking relies on Node/getIntProp
+  // returning 0 if the custom attribute on a node hasn't been set.
+  private int changeStamp = 1;
 
   /**
    * Creates a Compiler that reports errors and warnings to its logger.
@@ -348,6 +364,31 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       options.setDisambiguateProperties(false);
       options.setAmbiguateProperties(false);
       options.useNonStrictWarningsGuard();
+    }
+
+    if (options.assumeForwardDeclaredForMissingTypes) {
+      this.forwardDeclaredTypes =
+          new AbstractSet<String>() {
+            @Override
+            public boolean contains(Object o) {
+              return true; // Report all types as forward declared types.
+            }
+
+            @Override
+            public boolean add(String e) {
+              return false;
+            }
+
+            @Override
+            public Iterator<String> iterator() {
+              return Collections.<String>emptySet().iterator();
+            }
+
+            @Override
+            public int size() {
+              return 0;
+            }
+          };
     }
 
     initWarningsGuard(options.getWarningsGuard());
@@ -1526,17 +1567,15 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     try {
       // Parse externs sources.
+      if (options.numParallelThreads > 1) {
+        new PrebuildAst(this, options.numParallelThreads).prebuild(externs);
+      }
       for (CompilerInput input : externs) {
         Node n = input.getAstRoot(this);
         if (hasErrors()) {
           return null;
         }
         externsRoot.addChildToBack(n);
-      }
-
-      if (options.numParallelThreads > 1) {
-        // Pre-build AST using multiple thread if we can.
-        new PrebuildAst(this, options.numParallelThreads).prebuild(inputs);
       }
 
       if (options.lowerFromEs6()
@@ -1549,10 +1588,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
                 options.moduleRoots,
                 inputs,
                 ModuleLoader.PathResolver.RELATIVE,
-                options.moduleResolutionMode);
+                options.moduleResolutionMode,
+                null);
 
         if (options.moduleResolutionMode == ModuleLoader.ResolutionMode.NODE) {
-          this.moduleLoader.setPackageJsonMainEntries(processJsonInputs(inputs));
+          // processJsonInputs requires a module loader to already be defined
+          // so we redefine it afterwards with the package.json inputs
+          this.moduleLoader =
+              new ModuleLoader(
+                  this,
+                  options.moduleRoots,
+                  inputs,
+                  ModuleLoader.PathResolver.RELATIVE,
+                  options.moduleResolutionMode,
+                  processJsonInputs(inputs));
         }
 
         if (options.lowerFromEs6()) {
@@ -1569,10 +1618,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         Map<String, CompilerInput> inputModuleIdentifiers = new HashMap<>();
         for (CompilerInput input : inputs) {
           if (input.getKnownProvides().isEmpty()) {
-            ModuleIdentifier modInfo =
-                ModuleIdentifier.forFile(input.getSourceFile().getOriginalPath());
-
-            inputModuleIdentifiers.put(modInfo.getClosureNamespace(), input);
+            ModuleLoader.ModulePath modPath =
+                moduleLoader.resolve(input.getSourceFile().getOriginalPath());
+            inputModuleIdentifiers.put(modPath.toModuleName(), input);
           }
         }
 
@@ -1604,6 +1652,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
 
       // Build the AST.
+      if (options.numParallelThreads > 1) {
+        new PrebuildAst(this, options.numParallelThreads).prebuild(inputs);
+      }
+
       for (CompilerInput input : inputs) {
         Node n = input.getAstRoot(this);
         if (n == null) {
@@ -1826,7 +1878,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   void processEs6Modules(List<CompilerInput> inputsToProcess, boolean forceRewrite) {
+    List<CompilerInput> filteredInputs = new ArrayList<>();
     for (CompilerInput input : inputsToProcess) {
+      // Only process files that are detected as ES6 modules or forced to be rewritten
+      if (forceRewrite
+          || !JsFileParser.isSupported()
+          || (input.getLoadFlags().containsKey("module")
+              && input.getLoadFlags().get("module").equals("es6"))) {
+        filteredInputs.add(input);
+      }
+    }
+    if (options.numParallelThreads > 1) {
+      new PrebuildAst(this, options.numParallelThreads).prebuild(filteredInputs);
+    }
+    for (CompilerInput input : filteredInputs) {
       input.setCompiler(this);
       Node root = input.getAstRoot(this);
       if (root == null) {
@@ -2293,13 +2358,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     codeChangeHandlers.remove(handler);
   }
 
-  @Override
-  void setScope(Node n) {
-    if (phaseOptimizer != null) {
-      phaseOptimizer.setScope(n);
-    }
-  }
-
   Node getExternsRoot() {
     return externsRoot;
   }
@@ -2307,26 +2365,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   @Override
   Node getJsRoot() {
     return jsRoot;
-  }
-
-  @Override
-  boolean hasScopeChanged(Node n) {
-    if (phaseOptimizer == null) {
-      return true;
-    }
-    return phaseOptimizer.hasScopeChanged(n);
-  }
-
-  @Override
-  void reportChangeToEnclosingScope(Node n) {
-    if (phaseOptimizer != null) {
-      phaseOptimizer.reportChangeToEnclosingScope(n);
-      phaseOptimizer.startCrossScopeReporting();
-      reportCodeChange();
-      phaseOptimizer.endCrossScopeReporting();
-    } else {
-      reportCodeChange();
-    }
   }
 
   /**
@@ -2340,7 +2378,73 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
+  public int getChangeStamp() {
+    return changeStamp;
+  }
+
+  @Override
+  public void incrementChangeStamp() {
+    changeStamp++;
+  }
+
+  @Override
+  void setScope(Node n) {
+    currentScope = (n.isFunction() || n.isScript()) ? n : getEnclosingChangeScope(n);
+  }
+
+  private Node getEnclosingChangeScope(Node n) {
+    /**
+     * Compiler change reporting usually occurs after the AST change has already occurred. In the
+     * case of node removals those nodes are already removed from the tree and so have no parent
+     * chain to walk. In these situations changes are reported instead against what (used to be)
+     * their parent. If that parent is itself a script node then it's important to be able to
+     * recognize it as the enclosing scope without first stepping to its parent as well.
+     */
+    if (n.isScript()) {
+      return n;
+    }
+
+    while (n.getParent() != null) {
+      n = n.getParent();
+      if (n.isFunction() || n.isScript()) {
+        return n;
+      }
+    }
+    return n;
+  }
+
+  private void recordChange(Node n) {
+    n.setChangeTime(changeStamp);
+    // Every code change happens at a different time
+    changeStamp++;
+  }
+
+  @Override
+  boolean hasScopeChanged(Node n) {
+    if (phaseOptimizer == null) {
+      return true;
+    }
+    return phaseOptimizer.hasScopeChanged(n);
+  }
+
+  @Override
   public void reportCodeChange() {
+    // TODO(johnlenz): if this is called with a null scope we need to invalidate everything
+    // but this isn't done, so we need to make this illegal or record this as having
+    // invalidated everything.
+    if (currentScope != null) {
+      recordChange(currentScope);
+      notifyChangeHandlers();
+    }
+  }
+
+  @Override
+  void reportChangeToEnclosingScope(Node n) {
+    recordChange(getEnclosingChangeScope(n));
+    notifyChangeHandlers();
+  }
+
+  private void notifyChangeHandlers() {
     for (CodeChangeHandler handler : codeChangeHandlers) {
       handler.reportChange();
     }

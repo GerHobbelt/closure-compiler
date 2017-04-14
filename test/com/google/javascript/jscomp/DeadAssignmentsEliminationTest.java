@@ -159,7 +159,11 @@ public final class DeadAssignmentsEliminationTest extends CompilerTestCase {
         "var x; try{1;throw 1;x} finally{x=2}; x");
   }
 
-  public void testDeadVarDeclarations() {
+  public void testDeadVarDeclarations1() {
+    inFunction("var x=1; x=2; x", "var x; 1; x=2; x");
+  }
+
+  public void testDeadVarDeclarations2() {
     inFunction("var x=1;");
     inFunction("var x=1; x=2; x", "var x; 1; x=2; x");
     inFunction("var x=1, y=10; x=2; x", "var x, y; 1; 10; x=2; x");
@@ -456,6 +460,9 @@ public final class DeadAssignmentsEliminationTest extends CompilerTestCase {
          "};");
   }
 
+  public void testInExpression0() {
+    inFunction("var a; return a=(a=(a=a));", "var a; return a;");
+  }
 
   public void testInExpression1() {
     inFunction("var a; return a=(a=(a=3));", "var a; return 3;");

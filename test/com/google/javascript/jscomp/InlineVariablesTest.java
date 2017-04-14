@@ -34,6 +34,12 @@ public final class InlineVariablesTest extends CompilerTestCase {
   }
 
   @Override
+  protected void setUp() throws Exception {
+    super.setUp();
+    validateAstChangeMarking(false);
+  }
+
+  @Override
   protected CompilerPass getProcessor(final Compiler compiler) {
     return new InlineVariables(
         compiler,
@@ -811,35 +817,37 @@ public final class InlineVariablesTest extends CompilerTestCase {
 
   public void testInlineCatchAlias1() {
     test(
-      "try {" +
-      "} catch (e) {" +
-      "  var y = e;" +
-      "  g();" +
-      "  y;y;" +
-      "}",
-      "try {" +
-      "} catch (e) {" +
-      "  g();" +
-      "  e;e;" +
-      "}"
-      );
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  var y = e;",
+            "  g();" ,
+            "  y;y;" ,
+            "}"),
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  g();",
+            "  e;e;",
+            "}"));
   }
 
   public void testInlineCatchAlias2() {
     test(
-      "try {" +
-      "} catch (e) {" +
-      "  var y; y = e;" +
-      "  g();" +
-      "  y;y;" +
-      "}",
-      "try {" +
-      "} catch (e) {" +
-      "  e;" +
-      "  g();" +
-      "  e;e;" +
-      "}"
-      );
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  var y; y = e;",
+            "  g();",
+            "  y;y;",
+            "}"),
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  e;",
+            "  g();",
+            "  e;e;",
+            "}"));
   }
 
   public void testLocalsOnly1() {

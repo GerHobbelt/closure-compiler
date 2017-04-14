@@ -32,6 +32,7 @@ import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.TernaryValue;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import junit.framework.TestCase;
 
@@ -1172,9 +1173,10 @@ public final class NodeUtilTest extends TestCase {
 
     // We can't know if new objects are local unless we know
     // that they don't alias themselves.
+    // TODO(tdeegan): Revisit this.
     assertFalse(testLocalValue("new x()"));
 
-    // property references are assume to be non-local
+    // property references are assumed to be non-local
     assertFalse(testLocalValue("(new x()).y"));
     assertFalse(testLocalValue("(new x())['y']"));
 
@@ -1190,9 +1192,17 @@ public final class NodeUtilTest extends TestCase {
     assertTrue(testLocalValue("[]"));
     assertTrue(testLocalValue("{}"));
 
-    // The contents of arrays and objects don't matter
-    assertTrue(testLocalValue("[x]"));
-    assertTrue(testLocalValue("{'a':x}"));
+    assertFalse(testLocalValue("[x]"));
+    assertFalse(testLocalValue("{'a':x}"));
+    assertTrue(testLocalValue("{'a': {'b': 2}}"));
+    assertFalse(testLocalValue("{'a': {'b': global}}"));
+    assertTrue(testLocalValue("{get someGetter() { return 1; }}"));
+    assertTrue(testLocalValue("{get someGetter() { return global; }}"));
+    assertTrue(testLocalValue("{set someSetter(value) {}}"));
+    assertTrue(testLocalValue("{[someComputedProperty]: {}}"));
+    assertFalse(testLocalValue("{[someComputedProperty]: global}"));
+    assertFalse(testLocalValue("{[someComputedProperty]: {'a':x}}"));
+    assertTrue(testLocalValue("{[someComputedProperty]: {'a':1}}"));
 
     // increment/decrement results in primitive number, the previous value is
     // always coersed to a number (even in the post.
@@ -2479,6 +2489,24 @@ public final class NodeUtilTest extends TestCase {
         getCallNode("Object.defineProperty(this);")));
     assertFalse(NodeUtil.isObjectDefinePropertyDefinition(
         getCallNode("Object.defineProperty();")));
+  }
+
+  public void testCorrectValidationOfScriptWithChangeAfterFunction() {
+    Node script = parse("function A() {} if (0) { A(); }");
+    Preconditions.checkState(script.isScript());
+
+    Node clone = script.cloneTree();
+    Map<Node, Node> mtoc = NodeUtil.mapMainToClone(script, clone);
+
+    // Here we make a change in that doesn't change the script node
+    // child count.
+    getCallNode(script).detach();
+
+    // Mark the script as changed
+    script.setChangeTime(100);
+
+    // will throw if no change is detected.
+    NodeUtil.verifyScopeChanges("test", mtoc, script);
   }
 
   private boolean executedOnceTestCase(String code) {

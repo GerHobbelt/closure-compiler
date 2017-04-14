@@ -58,10 +58,11 @@ public class ModuleNames {
 
   static String toJSIdentifier(String path) {
     return stripJsExtension(path)
-        .replaceAll("^\\." + Pattern.quote(MODULE_SLASH), "")
+        .replaceFirst("^\\." + Pattern.quote(MODULE_SLASH), "")
         .replace(MODULE_SLASH, "$")
         .replace('\\', '$')
         .replace('@', '$')
+        .replace('+', '$')
         .replace('-', '_')
         .replace(':', '_')
         .replace('.', '_')
@@ -69,6 +70,10 @@ public class ModuleNames {
   }
 
   static String toModuleName(String path) {
+    if (path.startsWith(MODULE_SLASH)) {
+      path = path.substring(1);
+    }
+
     return "module$" + toJSIdentifier(path);
   }
 

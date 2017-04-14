@@ -73,17 +73,20 @@ class PureFunctionIdentifier implements CompilerPass {
   private final Map<String, FunctionInformation> functionInfoByName = new HashMap<>();
 
   /**
-   * <p>Mapping from function node to side effects for all names associated with that node.
+   * Mapping from function node to side effects for all names associated with that node.
+   *
    * <p>This is a multimap because you can construct situations in which a function node represents
-   * the side effects for two different FunctionInformation instances.  For example:
+   * the side effects for two different FunctionInformation instances. For example:
+   *
    * <pre>
    *   // Not enough type information to collapse/disambiguate properties on "staticMethod".
    *   SomeClass.staticMethod = function anotherName() {};
    *   OtherClass.staticMethod = function() {global++}
    * </pre>
+   *
    * <p>In this situation we want to keep the side effects for "X.staticMethod()" which are "global"
-   * separate from "anotherName()". Hence the function node should point to the
-   * {@link FunctionInformation} for both "staticMethod" and "anotherName".
+   * separate from "anotherName()". Hence the function node should point to the {@link
+   * FunctionInformation} for both "staticMethod" and "anotherName".
    */
   private final Multimap<Node, FunctionInformation> functionSideEffectMap;
 
@@ -129,8 +132,11 @@ class PureFunctionIdentifier implements CompilerPass {
 
   /**
    * Compute debug report that includes:
-   *  - List of all pure functions.
-   *  - Reasons we think the remaining functions have side effects.
+   *
+   * <ul>
+   *   <li>List of all pure functions.
+   *   <li>Reasons we think the remaining functions have side effects.
+   * </ul>
    */
   @VisibleForTesting
   String getDebugReport() {
@@ -444,7 +450,7 @@ class PureFunctionIdentifier implements CompilerPass {
       if (node.isFunction()) {
         if (!functionSideEffectMap.containsKey(node)) {
           // This function was not part of a definition which is why it was not created by
-          // {@link buildGraph}. For example an anonymous function.
+          // {@link buildGraph}. For example, an anonymous function.
           FunctionInformation functionInfo = new FunctionInformation();
           functionSideEffectMap.put(node, functionInfo);
           functionInfo.graphNode = sideEffectGraph.createNode(functionInfo);
@@ -596,6 +602,8 @@ class PureFunctionIdentifier implements CompilerPass {
     private void visitAssignmentOrUnaryOperator(
         FunctionInformation sideEffectInfo, Scope scope, Node op, Node enclosingFunction) {
       Node lhs = op.getFirstChild();
+      Preconditions.checkState(
+          lhs.isName() || NodeUtil.isGet(lhs), "Unexpected LHS expression:", lhs);
       if (lhs.isName()) {
         Var var = scope.getVar(lhs.getString());
         if (isVarDeclaredInScope(var, scope)) {
@@ -613,32 +621,25 @@ class PureFunctionIdentifier implements CompilerPass {
         } else {
           sideEffectInfo.setTaintsGlobalState();
         }
-      } else if (NodeUtil.isGet(lhs)) {
+      } else if (NodeUtil.isGet(lhs)) { // a['elem'] or a.elem
         if (lhs.getFirstChild().isThis()) {
           sideEffectInfo.setTaintsThis();
         } else {
-          Var var = null;
           Node objectNode = lhs.getFirstChild();
           if (objectNode.isName()) {
-            var = scope.getVar(objectNode.getString());
-          }
-          if (isVarDeclaredInScope(var, scope)) {
-            // Maybe a local object modification.  We won't know for sure until
-            // we exit the scope and can validate the value of the local.
-            taintedVarsByFunction.put(enclosingFunction, var);
+            Var var = scope.getVar(objectNode.getString());
+            if (isVarDeclaredInScope(var, scope)) {
+              // Maybe a local object modification.  We won't know for sure until
+              // we exit the scope and can validate the value of the local.
+              taintedVarsByFunction.put(enclosingFunction, var);
+            } else {
+              sideEffectInfo.setTaintsGlobalState();
+            }
           } else {
+            // TODO(tdeegan): Perhaps handle multi level locals: local.prop.prop2++;
             sideEffectInfo.setTaintsGlobalState();
           }
         }
-      } else {
-        // TODO(johnlenz): track down what is inserting NULL on the LHS
-        // of an assign.
-
-        // The only valid LHS expressions are NAME, GETELEM, or GETPROP.
-        // throw new IllegalStateException(
-        //     "Unexpected LHS expression:" + lhs.toStringTree()
-        //    + ", parent: " + op.toStringTree() );
-        sideEffectInfo.setTaintsGlobalState();
       }
     }
 

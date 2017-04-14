@@ -186,6 +186,7 @@ public abstract class JSType implements TypeI, Serializable {
     return false;
   }
 
+  @Override
   public boolean isNumberValueType() {
     return false;
   }
@@ -686,6 +687,9 @@ public abstract class JSType implements TypeI, Serializable {
   boolean checkEquivalenceHelper(final JSType that, EquivalenceMethod eqMethod,
       EqCache eqCache) {
     if (this == that) {
+      return true;
+    }
+    if (this.isNoResolvedType() && that.isNoResolvedType()) {
       return true;
     }
 

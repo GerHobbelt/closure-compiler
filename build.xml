@@ -119,6 +119,7 @@
       <include name="gson.jar"/>
       <include name="jsr305.jar"/>
       <include name="protobuf-java.jar"/>
+      <include name="jsinterop-annotations.jar"/>
     </fileset>
   </path>
 

@@ -17,8 +17,9 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticScope;
 import java.util.Collections;
@@ -46,9 +47,9 @@ public class Scope implements StaticScope {
    * @param rootNode
    */
   Scope(Scope parent, Node rootNode) {
-    Preconditions.checkNotNull(parent);
-    Preconditions.checkNotNull(rootNode);
-    Preconditions.checkArgument(
+    checkNotNull(parent);
+    checkArgument(NodeUtil.createsScope(rootNode), rootNode);
+    checkArgument(
         rootNode != parent.rootNode, "rootNode should not be the parent's root node", rootNode);
 
     this.parent = parent;
@@ -57,7 +58,9 @@ public class Scope implements StaticScope {
   }
 
   protected Scope(Node rootNode) {
-    Preconditions.checkNotNull(rootNode);
+    // TODO(tbreisacher): Can we tighten this to just NodeUtil.createsScope?
+    checkArgument(
+        NodeUtil.createsScope(rootNode) || rootNode.isScript() || rootNode.isRoot(), rootNode);
     this.parent = null;
     this.rootNode = rootNode;
     this.depth = 0;
@@ -70,12 +73,7 @@ public class Scope implements StaticScope {
 
   static Scope createGlobalScope(Node rootNode) {
     // TODO(tbreisacher): Can we tighten this to allow only ROOT nodes?
-    checkArgument(
-        rootNode.isRoot()
-            || rootNode.isScript()
-            || rootNode.isModuleBody()
-            || rootNode.isFunction(),
-        rootNode);
+    checkArgument(rootNode.isRoot() || rootNode.isScript(), rootNode);
     return new Scope(rootNode);
   }
 
@@ -118,9 +116,9 @@ public class Scope implements StaticScope {
    * @param input the input in which this variable is defined.
    */
   Var declare(String name, Node nameNode, CompilerInput input) {
-    Preconditions.checkState(name != null && !name.isEmpty());
+    checkState(name != null && !name.isEmpty());
     // Make sure that it's declared only once
-    Preconditions.checkState(vars.get(name) == null);
+    checkState(vars.get(name) == null);
     Var var = new Var(name, nameNode, this, vars.size(), input);
     vars.put(name, var);
     return var;
@@ -131,8 +129,8 @@ public class Scope implements StaticScope {
    * a variable and removes it from the scope.
    */
   void undeclare(Var var) {
-    Preconditions.checkState(var.scope == this);
-    Preconditions.checkState(vars.get(var.name).equals(var));
+    checkState(var.scope == this);
+    checkState(vars.get(var.name).equals(var));
     vars.remove(var.name);
   }
 
@@ -169,6 +167,13 @@ public class Scope implements StaticScope {
    * Get a unique VAR object to represents "arguments" within this scope
    */
   public Var getArgumentsVar() {
+    if (isGlobal() || isModuleScope()) {
+      throw new IllegalStateException("No arguments var for scope: " + this);
+    }
+    if (!isFunctionScope() || rootNode.isArrowFunction()) {
+      return parent.getArgumentsVar();
+    }
+
     if (arguments == null) {
       arguments = Var.makeArgumentsVar(this);
     }
