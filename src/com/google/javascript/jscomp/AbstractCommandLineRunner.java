@@ -316,7 +316,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
   /**
    * Sets options based on the configurations set flags API.
-   * Called during the run() run() method.
+   * Called during the run() method.
    * If you want to ignore the flags API, or interpret flags your own way,
    * then you should override this method.
    */
