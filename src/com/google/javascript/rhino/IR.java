@@ -684,7 +684,6 @@ public class IR {
       case THROW:
       case TRY:
       case VAR:
-      case LET:
       case WHILE:
       case WITH:
         return true;

@@ -250,7 +250,7 @@ public enum CompilationLevel {
     options.removeDeadCode = true;
     options.optimizeArgumentsArray = true;
     options.collapseObjectLiterals = true;
-    options.protectHiddenSideEffects = true;
+    options.setProtectHiddenSideEffects(true);
 
     // All the advanced optimizations.
     options.removeClosureAsserts = true;
@@ -307,7 +307,7 @@ public enum CompilationLevel {
     options.removeDeadCode = true;
     options.optimizeArgumentsArray = true;
     options.collapseObjectLiterals = true;
-    options.protectHiddenSideEffects = true;
+    options.setProtectHiddenSideEffects(true);
 
     // All the advanced optimizations.
     options.removeClosureAsserts = true;
@@ -391,7 +391,7 @@ public enum CompilationLevel {
     options.removeDeadCode = getBoolProperty(options, "removeDeadCode");
     options.optimizeArgumentsArray = getBoolProperty(options, "optimizeArgumentsArray");
     options.collapseObjectLiterals = getBoolProperty(options, "collapseObjectLiterals");
-    options.protectHiddenSideEffects = getBoolProperty(options, "protectHiddenSideEffects");
+    options.setProtectHiddenSideEffects(getBoolProperty(options, "protectHiddenSideEffects"));
 
     // All the advanced optimizations.
     options.removeClosureAsserts = getBoolProperty(options, "removeClosureAsserts");
