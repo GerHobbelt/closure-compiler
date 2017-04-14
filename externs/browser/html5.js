@@ -4069,6 +4069,8 @@ HTMLOutputElement.prototype.reportValidity = function() {};
 /** @param {string} message */
 HTMLOutputElement.prototype.setCustomValidity = function(message) {};
 
+
+
 /**
  * @see https://html.spec.whatwg.org/multipage/forms.html#the-progress-element
  * @constructor
