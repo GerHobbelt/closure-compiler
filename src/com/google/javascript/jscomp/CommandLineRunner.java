@@ -758,14 +758,19 @@ public class CommandLineRunner extends
 
     private static final ImmutableMap<String, CompilationLevel> COMPILATION_LEVEL_MAP =
         ImmutableMap.<String, CompilationLevel>builder()
+            .put("WHITESPACE", CompilationLevel.WHITESPACE_ONLY)
             .put("WHITESPACE_ONLY", CompilationLevel.WHITESPACE_ONLY)
             .put("SIMPLE", CompilationLevel.SIMPLE_OPTIMIZATIONS)
             .put("SIMPLE_OPTIMIZATIONS", CompilationLevel.SIMPLE_OPTIMIZATIONS)
             .put("ADVANCED", CompilationLevel.ADVANCED_OPTIMIZATIONS)
             .put("ADVANCED_OPTIMIZATIONS", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("SHUMWAY", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
             .put("SHUMWAY_OPTIMIZATIONS", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
+            .put("J2ME", CompilationLevel.J2ME_OPTIMIZATIONS)
             .put("J2ME_OPTIMIZATIONS", CompilationLevel.J2ME_OPTIMIZATIONS)
+            .put("J2ME_AOT", CompilationLevel.J2ME_AOT_OPTIMIZATIONS)
             .put("J2ME_AOT_OPTIMIZATIONS", CompilationLevel.J2ME_AOT_OPTIMIZATIONS)
+            .put("FROM_FILE", CompilationLevel.FROM_CONFIG_FILE)
             .put("FROM_CONFIG_FILE", CompilationLevel.FROM_CONFIG_FILE)
             .build();
 

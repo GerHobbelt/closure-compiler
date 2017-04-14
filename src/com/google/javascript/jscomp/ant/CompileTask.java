@@ -228,6 +228,14 @@ public final class CompileTask
       this.compilationLevel = CompilationLevel.ADVANCED_OPTIMIZATIONS;
     } else if ("whitespace".equalsIgnoreCase(value)) {
       this.compilationLevel = CompilationLevel.WHITESPACE_ONLY;
+    } else if ("shumway".equalsIgnoreCase(value)) {
+      this.compilationLevel = CompilationLevel.SHUMWAY_OPTIMIZATIONS;
+    } else if ("j2me".equalsIgnoreCase(value)) {
+      this.compilationLevel = CompilationLevel.J2ME_OPTIMIZATIONS;
+    } else if ("j2me_aot".equalsIgnoreCase(value)) {
+      this.compilationLevel = CompilationLevel.J2ME_AOT_OPTIMIZATIONS;
+    } else if ("from_file".equalsIgnoreCase(value)) {
+      this.compilationLevel = CompilationLevel.FROM_CONFIG_FILE;
     } else {
       throw new BuildException(
           "Unrecognized 'compilation' option value (" + value + ")");
