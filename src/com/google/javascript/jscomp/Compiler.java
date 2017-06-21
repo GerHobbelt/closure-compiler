@@ -108,8 +108,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // Used in PerformanceTracker
   static final String READING_PASS_NAME = "readInputs";
   static final String PARSING_PASS_NAME = "parseInputs";
-  static final String CROSS_MODULE_CODE_MOTION_NAME = "crossModuleCodeMotion";
-  static final String CROSS_MODULE_METHOD_MOTION_NAME = "crossModuleMethodMotion";
   static final String PEEPHOLE_PASS_NAME = "peepholeOptimizations";
   static final String UNREACHABLE_CODE_ELIM_NAME = "removeUnreachableCode";
 
@@ -126,8 +124,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // The JS source modules
   private List<JSModule> modules;
 
-  // The graph of the JS source modules. Must be null if there are less than
-  // 2 modules, because we use this as a signal for which passes to run.
   private JSModuleGraph moduleGraph;
 
   // The module loader for resolving paths into module URIs.
@@ -536,18 +532,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // Generate the module graph, and report any errors in the module
     // specification as errors.
     this.modules = modules;
-    if (modules.size() > 1) {
-      try {
-        this.moduleGraph = new JSModuleGraph(modules);
-      } catch (JSModuleGraph.ModuleDependenceException e) {
-        // problems with the module format.  Report as an error.  The
-        // message gives all details.
-        report(JSError.make(MODULE_DEPENDENCY_ERROR,
-                e.getModule().getName(), e.getDependentModule().getName()));
-        return;
-      }
-    } else {
-      this.moduleGraph = null;
+    try {
+      this.moduleGraph = new JSModuleGraph(modules);
+    } catch (JSModuleGraph.ModuleDependenceException e) {
+      // problems with the module format.  Report as an error.  The
+      // message gives all details.
+      report(JSError.make(MODULE_DEPENDENCY_ERROR,
+          e.getModule().getName(), e.getDependentModule().getName()));
+      return;
     }
 
     this.inputs = getAllInputsFromModules(modules);
@@ -557,6 +549,16 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     initInputsByIdMap();
 
     initAST();
+  }
+
+  /**
+   * Exists only for some tests that want to reuse JSModules.
+   * @deprecated Fix those tests.
+   */
+  @Deprecated
+  public void breakThisCompilerSoItsModulesCanBeReused() {
+    moduleGraph.breakThisGraphSoItsModulesCanBeReused();
+    moduleGraph = null;
   }
 
   /**
@@ -919,30 +921,35 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
   }
 
-  public void check() {
-    runCustomPasses(CustomPassExecutionTime.BEFORE_CHECKS);
-
-    // We are currently only interested in check-passes for progress reporting
-    // as it is used for IDEs, that's why the maximum progress is set to 1.0.
-    phaseOptimizer = new PhaseOptimizer(this, tracker,
-        new PhaseOptimizer.ProgressRange(getProgress(), 1.0));
+  private PhaseOptimizer createPhaseOptimizer() {
+    PhaseOptimizer phaseOptimizer = new PhaseOptimizer(this, tracker);
     if (options.devMode == DevMode.EVERY_PASS) {
       phaseOptimizer.setSanityCheck(sanityCheck);
     }
     if (options.getCheckDeterminism()) {
       phaseOptimizer.setPrintAstHashcodes(true);
     }
+    return phaseOptimizer;
+  }
+
+  public void check() {
+    runCustomPasses(CustomPassExecutionTime.BEFORE_CHECKS);
+
+    // We are currently only interested in check-passes for progress reporting
+    // as it is used for IDEs, that's why the maximum progress is set to 1.0.
+    phaseOptimizer = createPhaseOptimizer().withProgress(
+        new PhaseOptimizer.ProgressRange(getProgress(), 1.0));
     phaseOptimizer.consume(getPassConfig().getChecks());
     phaseOptimizer.process(externsRoot, jsRoot);
     if (hasErrors()) {
       return;
     }
 
-    if (options.getTweakProcessing().shouldStrip() ||
-        !options.stripTypes.isEmpty() ||
-        !options.stripNameSuffixes.isEmpty() ||
-        !options.stripTypePrefixes.isEmpty() ||
-        !options.stripNamePrefixes.isEmpty()) {
+    if (options.getTweakProcessing().shouldStrip()
+        || !options.stripTypes.isEmpty()
+        || !options.stripNameSuffixes.isEmpty()
+        || !options.stripTypePrefixes.isEmpty()
+        || !options.stripNamePrefixes.isEmpty()) {
       stripCode(options.stripTypes, options.stripNameSuffixes,
           options.stripTypePrefixes, options.stripNamePrefixes);
     }
@@ -1337,9 +1344,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return true;
   }
 
+  /**
+   * The graph of the JS source modules.
+   *
+   * <p>Must return null if there are less than 2 modules,
+   * because we use this as a signal for which passes to run.
+   * TODO(bradfordcsmith): Just check for a single module instead of null.
+   */
   @Override
   JSModuleGraph getModuleGraph() {
-    return moduleGraph;
+    if (moduleGraph != null && modules.size() > 1) {
+      return moduleGraph;
+    } else {
+      return null;
+    }
   }
 
   /**
@@ -1347,7 +1365,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * in the degenerate case when there's only one module.
    */
   JSModuleGraph getDegenerateModuleGraph() {
-    return moduleGraph == null ? new JSModuleGraph(modules) : moduleGraph;
+    return moduleGraph;
   }
 
   @Override
@@ -2285,14 +2303,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       return;
     }
 
-
-    phaseOptimizer = new PhaseOptimizer(this, tracker, null);
-    if (options.devMode == DevMode.EVERY_PASS) {
-      phaseOptimizer.setSanityCheck(sanityCheck);
-    }
-    if (options.getCheckDeterminism()) {
-      phaseOptimizer.setPrintAstHashcodes(true);
-    }
+    phaseOptimizer = createPhaseOptimizer();
     phaseOptimizer.consume(optimizations);
     phaseOptimizer.process(externsRoot, jsRoot);
     phaseOptimizer = null;
@@ -2431,6 +2442,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return phaseOptimizer.hasScopeChanged(n);
   }
 
+  /**
+   * @deprecated
+   * Use #reportChangeToEnclosingScope or NodeTraversal#reportCodeChange instead
+   */
+  @Deprecated
   @Override
   public void reportCodeChange() {
     // TODO(johnlenz): if this is called with a null scope we need to invalidate everything
@@ -3051,7 +3067,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     lastInjectedLibrary = lastChild;
     injectedLibraries.put(resourceName, lastChild);
 
-    reportCodeChange();
+    reportChangeToEnclosingScope(parent);
     return lastChild;
   }
 

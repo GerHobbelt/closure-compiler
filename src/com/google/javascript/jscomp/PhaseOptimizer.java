@@ -47,7 +47,7 @@ class PhaseOptimizer implements CompilerPass {
 
   private double progress = 0.0;
   private double progressStep = 0.0;
-  private final ProgressRange progressRange;
+  private ProgressRange progressRange;
 
   // These fields are used during optimization loops.
   // They are declared here for two reasons:
@@ -115,16 +115,20 @@ class PhaseOptimizer implements CompilerPass {
    * @param range the progress range for the process function or null
    *        if progress should not be reported.
    */
-  PhaseOptimizer(AbstractCompiler comp, PerformanceTracker tracker, ProgressRange range) {
+  PhaseOptimizer(AbstractCompiler comp, PerformanceTracker tracker) {
     this.compiler = comp;
     this.jsRoot = comp.getJsRoot();
     this.tracker = tracker;
     this.passes = new ArrayList<>();
-    this.progressRange = range;
     this.inLoop = false;
     this.lastChange = START_TIME;
     this.useSizeHeuristicToStopOptimizationLoop =
         comp.getOptions().useSizeHeuristicToStopOptimizationLoop;
+  }
+
+  PhaseOptimizer withProgress(ProgressRange range) {
+    this.progressRange = range;
+    return this;
   }
 
   /**
@@ -189,11 +193,8 @@ class PhaseOptimizer implements CompilerPass {
   }
 
   private void setSanityCheckState() {
-    // TODO(johnlenz): change this to always validate. See b/37164291
-    if (inLoop) {
-      lastAst = jsRoot.cloneTree();
-      mtoc = NodeUtil.mapMainToClone(jsRoot, lastAst);
-    }
+    lastAst = jsRoot.cloneTree();
+    mtoc = NodeUtil.mapMainToClone(jsRoot, lastAst);
   }
 
   /**
@@ -247,14 +248,7 @@ class PhaseOptimizer implements CompilerPass {
   private void maybeSanityCheck(String passName, Node externs, Node root) {
     if (sanityCheck != null) {
       sanityCheck.create(compiler).process(externs, root);
-      // The cross-module passes are loopable and ran together, but do not
-      // participate in the other optimization loops, and are not relevant to
-      // tracking changed scopes.
-      if (inLoop
-          && !currentPass.name.equals(Compiler.CROSS_MODULE_CODE_MOTION_NAME)
-          && !currentPass.name.equals(Compiler.CROSS_MODULE_METHOD_MOTION_NAME)) {
-        NodeUtil.verifyScopeChanges(passName, mtoc, jsRoot);
-      }
+      NodeUtil.verifyScopeChanges(passName, mtoc, jsRoot);
     }
   }
 
