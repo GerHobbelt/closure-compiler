@@ -663,6 +663,17 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       if (file.flag == JsSourceType.JS_ZIP) {
         if (!"-".equals(filename)) {
           List<SourceFile> newFiles = SourceFile.fromZipFile(filename, inputCharset);
+          // Update the manifest maps for new zip entries.
+          if (rootRelativePathsMap.containsKey(filename)) {
+            String rootFilename = rootRelativePathsMap.get(filename);
+            for (SourceFile zipEntry : newFiles) {
+              String zipEntryName = zipEntry.getName();
+              Preconditions.checkState(zipEntryName.contains(filename));
+              String zipmap = zipEntryName.replace(filename, rootFilename);
+              rootRelativePathsMap.put(zipEntryName, zipmap);
+            }
+          }
+
           inputs.addAll(newFiles);
           if (jsModuleSpec != null) {
             jsModuleSpec.numJsFiles += newFiles.size() - 1;
@@ -1026,6 +1037,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     setRunOptions(options);
 
+    rootRelativePathsMap = constructRootRelativePathsMap();
+
     boolean writeOutputToFile = !config.jsOutputFile.isEmpty();
     List<String> outputFileNames = new ArrayList<>();
     if (writeOutputToFile) {
@@ -1156,8 +1169,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         return 0;
       }
     }
-
-    rootRelativePathsMap = constructRootRelativePathsMap();
 
     if (config.skipNormalOutputs) {
       // Output the manifest and bundle files if requested.
@@ -1909,7 +1920,8 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    * Prints a list of input names (using root-relative paths), delimited by
    * newlines, to the manifest file.
    */
-  private void printManifestTo(Iterable<CompilerInput> inputs, Appendable out)
+  @VisibleForTesting
+  void printManifestTo(Iterable<CompilerInput> inputs, Appendable out)
       throws IOException {
     for (CompilerInput input : inputs) {
       String rootRelativePath = rootRelativePathsMap.get(input.getName());

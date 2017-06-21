@@ -77,6 +77,7 @@ import javax.annotation.Nullable;
  * </pre>
  *
  * @author johnlenz@google.com (John Lenz)
+ * @author stalcup@google.com (John Stalcup)
  */
 final class ClosureRewriteModule implements HotSwapCompilerPass {
 
@@ -964,6 +965,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     if (currentScript.declareLegacyNamespace) {
       // Rewrite "goog.module('Foo');" as "goog.provide('Foo');".
       call.getFirstChild().getLastChild().setString("provide");
+      compiler.reportChangeToEnclosingScope(call);
     }
 
     // If this script file isn't going to eventually create it's own exports object, then we know
@@ -976,14 +978,13 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
 
     if (!currentScript.declareLegacyNamespace) {
       // Otherwise it's a regular module and the goog.module() line can be removed.
+      compiler.reportChangeToEnclosingScope(call);
       NodeUtil.getEnclosingStatement(call).detach();
     }
     Node callee = call.getFirstChild();
     Node arg = callee.getNext();
     maybeAddToSymbolTable(callee);
     maybeAddToSymbolTable(createNamespaceNode(arg));
-
-    compiler.reportCodeChange();
   }
 
   private void updateGoogDeclareLegacyNamespace(Node call) {
@@ -1036,6 +1037,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     if (currentScript.isModule || targetIsNonLegacyGoogModule) {
       if (isDestructuring) {
         // Delete the goog.require() because we're going to inline its alias later.
+        compiler.reportChangeToEnclosingScope(statementNode);
         statementNode.detach();
       } else if (targetIsNonLegacyGoogModule) {
         if (!isTopLevel(t, statementNode, ScopeType.EXEC_CONTEXT)) {
@@ -1045,8 +1047,10 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
           Node binaryNamespaceName = IR.name(rewriteState.getBinaryNamespace(legacyNamespace));
           binaryNamespaceName.putProp(Node.ORIGINALNAME_PROP, legacyNamespace);
           call.replaceWith(binaryNamespaceName);
+          compiler.reportChangeToEnclosingScope(binaryNamespaceName);
         } else if (importHasAlias || !rewriteState.isLegacyModule(legacyNamespace)) {
           // Delete the goog.require() because we're going to inline its alias later.
+          compiler.reportChangeToEnclosingScope(statementNode);
           statementNode.detach();
         }
       } else {
@@ -1057,6 +1061,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
         // ProcessClosurePrimitives is going to want to see this legacy require.
         call.detach();
         statementNode.replaceWith(IR.exprResult(call));
+        compiler.reportChangeToEnclosingScope(call);
       }
       if (targetIsNonLegacyGoogModule) {
         // Add goog.require() and namespace name to preprocessor table because they're removed
@@ -1067,7 +1072,6 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
         maybeAddToSymbolTable(callee);
         maybeAddToSymbolTable(createNamespaceNode(arg));
       }
-      compiler.reportCodeChange();
     }
   }
 
@@ -1105,6 +1109,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     Node legacyNamespaceNode = call.getSecondChild();
     String legacyNamespace = legacyNamespaceNode.getString();
 
+    compiler.reportChangeToEnclosingScope(call);
     if (currentScript.isModule) {
       // In a module each goog.module.get() will have a paired goog.forwardDeclare() and the module
       // alias importing will be handled there so that the alias is available in the entire module
@@ -1119,7 +1124,6 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       exportedNamespaceName.putProp(Node.ORIGINALNAME_PROP, legacyNamespace);
       call.replaceWith(exportedNamespaceName);
     }
-    compiler.reportCodeChange();
   }
 
   private void recordExportsPropertyAssignment(NodeTraversal t, Node getpropNode) {
@@ -1324,7 +1328,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
       currentScript.hasCreatedExportObject = true;
     }
     markConstAndCopyJsDoc(assignNode, jsdocNode);
-    compiler.reportCodeChange();
+    compiler.reportChangeToEnclosingScope(jsdocNode);
 
     maybeUpdateExportObjectLiteral(t, rhs);
     return;
@@ -1428,7 +1432,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     binaryNamespaceExportNode.putBooleanProp(Node.IS_NAMESPACE, true);
     binaryNamespaceExportNode.srcrefTree(atNode);
     markConst(binaryNamespaceExportNode);
-    compiler.reportCodeChange();
+    compiler.reportChangeToEnclosingScope(binaryNamespaceExportNode);
     currentScript.hasCreatedExportObject = true;
   }
 
@@ -1540,7 +1544,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     if (n.getOriginalName() == null) {
       n.setOriginalName(originalName);
     }
-    compiler.reportCodeChange();
+    compiler.reportChangeToEnclosingScope(n);
   }
 
   private void safeSetMaybeQualifiedString(Node nameNode, String newString) {
@@ -1588,7 +1592,7 @@ final class ClosureRewriteModule implements HotSwapCompilerPass {
     Node newQualifiedNameNode = NodeUtil.newQName(compiler, newString);
     newQualifiedNameNode.srcrefTree(nameNode);
     nameParent.replaceChild(nameNode, newQualifiedNameNode);
-    compiler.reportCodeChange();
+    compiler.reportChangeToEnclosingScope(newQualifiedNameNode);
   }
 
   private boolean isTopLevel(NodeTraversal t, Node n, ScopeType scopeType) {

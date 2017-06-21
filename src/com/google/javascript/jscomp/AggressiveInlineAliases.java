@@ -53,7 +53,8 @@ class AggressiveInlineAliases implements CompilerPass {
    * @param depth The chain depth.
    * @param newNodes Expression nodes that have been updated.
    */
-  private static void rewriteAliasProps(Name name, Node value, int depth, Set<AstChange> newNodes) {
+  private void rewriteAliasProps(
+      Name name, Node value, int depth, Set<AstChange> newNodes) {
     if (name.props == null) {
       return;
     }
@@ -85,7 +86,9 @@ class AggressiveInlineAliases implements CompilerPass {
           }
         }
         Preconditions.checkState(target.isGetProp() || target.isName());
-        target.replaceWith(value.cloneTree());
+        Node newValue = value.cloneTree();
+        target.replaceWith(newValue);
+        compiler.reportChangeToEnclosingScope(newValue);
         prop.removeRef(ref);
         // Rescan the expression root.
         newNodes.add(new AstChange(ref.module, ref.scope, ref.node));
@@ -99,11 +102,6 @@ class AggressiveInlineAliases implements CompilerPass {
   AggressiveInlineAliases(AbstractCompiler compiler) {
     this.compiler = compiler;
     this.codeChanged = true;
-  }
-
-  private void reportCodeChange() {
-    this.codeChanged = true;
-    this.compiler.reportCodeChange();
   }
 
   @Override
@@ -239,7 +237,8 @@ class AggressiveInlineAliases implements CompilerPass {
 
         // just set the original alias to null.
         aliasParent.replaceChild(alias.node, IR.nullNode());
-        reportCodeChange();
+        codeChanged = true;
+        compiler.reportChangeToEnclosingScope(aliasParent);
 
         // Inlining the variable may have introduced new references
         // to descendants of {@code name}. So those need to be collected now.
@@ -307,7 +306,8 @@ class AggressiveInlineAliases implements CompilerPass {
 
         // just set the original alias to null.
         aliasParent.replaceChild(alias.node, IR.nullNode());
-        reportCodeChange();
+        codeChanged = true;
+        compiler.reportChangeToEnclosingScope(aliasParent);
 
         // Inlining the variable may have introduced new references
         // to descendants of {@code name}. So those need to be collected now.

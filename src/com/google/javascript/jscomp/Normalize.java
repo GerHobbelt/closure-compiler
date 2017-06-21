@@ -324,12 +324,12 @@ class Normalize implements CompilerPass {
       this.assertOnChange = assertOnChange;
     }
 
-    private void reportCodeChange(String changeDescription) {
+    private void reportCodeChange(Node n, String changeDescription) {
       if (assertOnChange) {
         throw new IllegalStateException(
             "Normalize constraints violated:\n" + changeDescription);
       }
-      compiler.reportCodeChange();
+      compiler.reportChangeToEnclosingScope(n);
     }
 
     @Override
@@ -349,12 +349,12 @@ class Normalize implements CompilerPass {
           empty.useSourceInfoIfMissingFrom(n);
           n.addChildBefore(empty, expr);
           n.addChildAfter(empty.cloneNode(), expr);
-          reportCodeChange("WHILE node");
+          reportCodeChange(n, "WHILE node");
           break;
 
         case FUNCTION:
-          if (maybeNormalizeFunctionDeclaration(n)) {
-            reportCodeChange("Function declaration");
+          if (maybeNormalizeFunctionDeclaration(n, compiler)) {
+            reportCodeChange(n, "Function declaration");
           }
           break;
 
@@ -423,10 +423,10 @@ class Normalize implements CompilerPass {
      *
      * @see https://github.com/google/closure-compiler/pull/429
      */
-    static boolean maybeNormalizeFunctionDeclaration(Node n) {
+    static boolean maybeNormalizeFunctionDeclaration(Node n, AbstractCompiler compiler) {
       Preconditions.checkState(n.isFunction(), n);
       if (NodeUtil.isFunctionDeclaration(n) && !NodeUtil.isHoistedFunctionDeclaration(n)) {
-        rewriteFunctionDeclaration(n);
+        rewriteFunctionDeclaration(n, compiler);
         return true;
       }
       return false;
@@ -448,7 +448,7 @@ class Normalize implements CompilerPass {
      *         PARAM_LIST
      *         BLOCK
      */
-    private static void rewriteFunctionDeclaration(Node n) {
+    private static void rewriteFunctionDeclaration(Node n, AbstractCompiler compiler) {
       // Prepare a spot for the function.
       Node oldNameNode = n.getFirstChild();
       Node fnNameNode = oldNameNode.cloneNode();
@@ -456,6 +456,7 @@ class Normalize implements CompilerPass {
 
       // Prepare the function
       oldNameNode.setString("");
+      compiler.reportChangeToEnclosingScope(oldNameNode);
 
       // Move the function if it's not the child of a label node
       Node parent = n.getParent();
@@ -465,6 +466,7 @@ class Normalize implements CompilerPass {
         parent.removeChild(n);
         parent.addChildToFront(var);
       }
+      compiler.reportChangeToEnclosingScope(var);
       fnNameNode.addChildToFront(n);
     }
 
@@ -522,7 +524,7 @@ class Normalize implements CompilerPass {
           block.useSourceInfoIfMissingFrom(last);
           n.replaceChild(last, block);
           block.addChildToFront(last);
-          reportCodeChange("LABEL normalization");
+          reportCodeChange(n, "LABEL normalization");
           return;
       }
     }
@@ -561,7 +563,7 @@ class Normalize implements CompilerPass {
               Node name = newStatement.getFirstChild().cloneNode();
               first.replaceWith(name);
               insertBeforeParent.addChildBefore(newStatement, insertBefore);
-              reportCodeChange("FOR-IN var declaration");
+              reportCodeChange(n, "FOR-IN var declaration");
             }
             break;
           case FOR:
@@ -586,7 +588,7 @@ class Normalize implements CompilerPass {
               }
 
               insertBeforeParent.addChildBefore(newStatement, insertBefore);
-              reportCodeChange("FOR initializer");
+              reportCodeChange(n, "FOR initializer");
             }
             break;
           default:
@@ -616,7 +618,7 @@ class Normalize implements CompilerPass {
             c.removeChild(name);
             Node newVar = new Node(c.getToken(), name).srcref(n);
             n.addChildBefore(newVar, c);
-            reportCodeChange("VAR with multiple children");
+            reportCodeChange(n, "VAR with multiple children");
           }
         }
       }
@@ -649,7 +651,7 @@ class Normalize implements CompilerPass {
           // Read the function at the top of the function body (after any
           // previous declarations).
           insertAfter = addToFront(functionBody, current, insertAfter);
-          reportCodeChange("Move function declaration not at top of function");
+          reportCodeChange(functionBody, "Move function declaration not at top of function");
         }
         current = next;
       }
