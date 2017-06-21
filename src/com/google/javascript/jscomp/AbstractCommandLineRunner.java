@@ -48,6 +48,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.Flushable;
 import java.io.IOException;
@@ -121,6 +122,14 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   static final DiagnosticType OUTPUT_SAME_AS_INPUT_ERROR = DiagnosticType.error(
       "JSC_OUTPUT_SAME_AS_INPUT_ERROR",
       "Bad output file (already listed as input file): {0}");
+
+  static final DiagnosticType COULD_NOT_SERIALIZE_AST = DiagnosticType.error(
+      "JSC_COULD_NOT_SERIALIZE_AST",
+      "Could not serialize ast to: {0}");
+
+  static final DiagnosticType COULD_NOT_DESERIALIZE_AST = DiagnosticType.error(
+      "JSC_COULD_NOT_DESERIALIZE_AST",
+      "Could not deserialize ast from: {0}");
 
   static final DiagnosticType NO_TREE_GENERATED_ERROR = DiagnosticType.error(
       "JSC_NO_TREE_GENERATED_ERROR",
@@ -1104,19 +1113,33 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         outputFileNames.add(getModuleOutputFileName(m));
       }
 
-      if (config.skipNormalOutputs) {
-        compiler.initModules(externs, modules, options);
-        compiler.orderInputsWithLargeStack();
-      } else {
-        result = performFullCompilationWithModules(options, externs, modules);
-      }
+      compiler.initModules(externs, modules, options);
     } else {
-      if (config.skipNormalOutputs) {
-        compiler.init(externs, inputs, options);
-        compiler.orderInputsWithLargeStack();
-      } else {
-        result = performFullCompilation(options, externs, inputs);
-      }
+      compiler.init(externs, inputs, options);
+    }
+
+    if (options.printConfig) {
+      compiler.printConfig(System.err);
+    }
+
+
+    String saveAfterChecksFilename = config.getSaveAfterChecksFileName();
+    String continueSavedCompilationFilename = config.getContinueSavedCompilationFileName();
+    if (config.skipNormalOutputs) {
+      // TODO(bradfordcsmith): Should we be ignoring possible init/initModules() errors here?
+      compiler.orderInputsWithLargeStack();
+    } else if (compiler.hasErrors()) {
+      // init() or initModules() encountered an error.
+      compiler.generateReport();
+      result = compiler.getResult();
+    } else if (options.getInstrumentForCoverageOnly()) {
+      result = instrumentForCoverage();
+    } else if (saveAfterChecksFilename != null) {
+      result = performStage1andSave(saveAfterChecksFilename);
+    } else if (continueSavedCompilationFilename != null) {
+      result = restoreAndPerformStage2(continueSavedCompilationFilename);
+    } else {
+      result = performFullCompilation();
     }
 
     if (createCommonJsModules) {
@@ -1139,28 +1162,54 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     return processResults(result, modules, options);
   }
 
-  private Result performFullCompilationWithModules(
-      B options, List<SourceFile> externs, List<JSModule> modules) {
-    try {
-      compiler.initModules(externs, modules, options);
+  private Result performStage1andSave(String filename) {
+    Result result;
+    try (FileOutputStream serializedOutputStream = new FileOutputStream(filename)){
+      compiler.parseForCompilation();
       if (!compiler.hasErrors()) {
-        compiler.checkAndTranspileAndOptimize();
+        compiler.stage1Passes();
         compiler.completeCompilation();
+        compiler.saveState(serializedOutputStream);
       }
+    } catch (IOException e) {
+      compiler.report(JSError.make(COULD_NOT_SERIALIZE_AST, filename));
     } finally {
       // Make sure we generate a report of errors and warnings even if the compiler throws an
       // exception somewhere.
       compiler.generateReport();
     }
-    return compiler.getResult();
+    result = compiler.getResult();
+    return result;
   }
 
-  private Result performFullCompilation(
-      B options, List<SourceFile> externs, List<SourceFile> inputs) {
-    try {
-      compiler.init(externs, inputs, options);
+  private Result restoreAndPerformStage2(String filename) {
+    Result result;
+    try (FileInputStream serializedInputStream = new FileInputStream(filename)){
+      compiler.restoreState(serializedInputStream);
       if (!compiler.hasErrors()) {
-        compiler.checkAndTranspileAndOptimize();
+          compiler.stage2Passes();
+      }
+      compiler.completeCompilation();
+    } catch (Exception e) {
+      compiler.report(JSError.make(COULD_NOT_DESERIALIZE_AST, filename));
+    } finally {
+      // Make sure we generate a report of errors and warnings even if the compiler throws an
+      // exception somewhere.
+      compiler.generateReport();
+    }
+    result = compiler.getResult();
+    return result;
+  }
+
+  private Result performFullCompilation() {
+    Result result;
+    try {
+      compiler.parseForCompilation();
+      if (!compiler.hasErrors()) {
+        compiler.stage1Passes();
+        if (!compiler.hasErrors()) {
+          compiler.stage2Passes();
+        }
         compiler.completeCompilation();
       }
     } finally {
@@ -1168,7 +1217,22 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       // exception somewhere.
       compiler.generateReport();
     }
-    return compiler.getResult();
+    result = compiler.getResult();
+    return result;
+  }
+
+  private Result instrumentForCoverage() {
+    Result result;
+    try {
+      compiler.parseForCompilation();
+      if (!compiler.hasErrors()) {
+        compiler.instrumentForCoverage();
+      }
+    } finally {
+      compiler.generateReport();
+    }
+    result = compiler.getResult();
+    return result;
   }
 
   /**
@@ -2146,6 +2210,34 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     public CommandLineConfig setJsOutputFile(String jsOutputFile) {
       this.jsOutputFile = jsOutputFile;
       return this;
+    }
+
+    private String continueSavedCompilationFileName = null;
+
+    /**
+     * Set the compiler to resume a saved compilation state from a file.
+     */
+    public CommandLineConfig setContinueSavedCompilationFileName(String fileName) {
+      continueSavedCompilationFileName = fileName;
+      return this;
+    }
+
+    String getContinueSavedCompilationFileName() {
+      return continueSavedCompilationFileName;
+    }
+
+    private String saveAfterChecksFileName = null;
+
+    /**
+     * Set the compiler to perform the first phase and save the intermediate result to a file.
+     */
+    public CommandLineConfig setSaveAfterChecksFileName(String fileName) {
+      saveAfterChecksFileName = fileName;
+      return this;
+    }
+
+    public String getSaveAfterChecksFileName() {
+      return saveAfterChecksFileName;
     }
 
     private final List<String> module = new ArrayList<>();

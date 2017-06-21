@@ -1654,6 +1654,38 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, code, expected);
   }
 
+  public void testExportOnClassGetter() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setGenerateExports(true);
+    options.setExportLocalPropertyDefinitions(true);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    test(options,
+        "class C { /** @export @return {string} */ get exportedName() {} }; (new C).exportedName;",
+        ""
+            + "function a(){}(\"undefined\"!=typeof window&&"
+            + "window===this?this:\"undefined\"!=typeof global&&"
+            + "null!=global?global:this).a.defineProperties("
+            + "a.prototype,{exportedName:{b:!0,c:!0,get:function(){}}});(new a).exportedName");
+  }
+
+  public void testExportOnClassSetter() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setGenerateExports(true);
+    options.setExportLocalPropertyDefinitions(true);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    test(options,
+        "class C { /** @export @return {string} */ set exportedName(x) {} }; (new C).exportedName;",
+        ""
+            + "function a(){}(\"undefined\"!=typeof window&&"
+            + "window===this?this:\"undefined\"!=typeof global&&"
+            + "null!=global?global:this).a.defineProperties("
+            + "a.prototype,{exportedName:{b:!0,c:!0,set:function(){}}});(new a).exportedName");
+  }
+
   public void testSmartNamePassBug11163486() {
     CompilerOptions options = createCompilerOptions();
 
@@ -2774,23 +2806,46 @@ public final class IntegrationTest extends IntegrationTestCase {
     test(options, source, expected);
   }
 
-  public void testAddFunctionProperties2() throws Exception {
+  public void testAddFunctionProperties2a() throws Exception {
     String source =
-        "/** @constructor */ function F() {}" +
-        "var x = new F();" +
-        "/** @this {F} */" +
-        "function g() { this.bar = function() { alert(3); }; }" +
-        "g.call(x);" +
-        "x.bar();";
+        ""
+            + "/** @constructor */ function F() {}"
+            + "var x = new F();"
+            + "/** @this {F} */"
+            + "function g() { this.bar = function() { alert(3); }; }"
+            + "g.call(x);"
+            + "x.bar();";
     String expected =
-        "var x = new function() {};" +
-        "/** @this {F} */" +
-        "(function () { this.bar = function() { alert(3); }; }).call(x);" +
-        "x.bar();";
+        ""
+            + "var x = new function() {};"
+            + "/** @this {F} */"
+            + "(function () { this.bar = function() { alert(3); }; }).call(x);"
+            + "x.bar();";
 
     CompilerOptions options = createCompilerOptions();
-    CompilationLevel.ADVANCED_OPTIMIZATIONS
-        .setOptionsForCompilationLevel(options);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setStrictModeInput(false);
+    options.setAssumeStrictThis(false);
+    options.setRenamingPolicy(VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    test(options, source, expected);
+  }
+
+  public void testAddFunctionProperties2b() throws Exception {
+    String source =
+        ""
+            + "/** @constructor */ function F() {}"
+            + "var x = new F();"
+            + "/** @this {F} */"
+            + "function g() { this.bar = function() { alert(3); }; }"
+            + "g.call(x);"
+            + "x.bar();";
+    String expected =
+        ""
+            + "var x = new function() {};"
+            + "x.bar=function(){alert(3)};x.bar()";
+
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     options.setRenamingPolicy(
         VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
     test(options, source, expected);
@@ -3927,8 +3982,7 @@ public final class IntegrationTest extends IntegrationTestCase {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
     } catch (RuntimeException e) {
-      Throwable t = e.getCause();
-      if (!(t instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
+      if (!(e instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
         fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
       }
     }
@@ -3942,8 +3996,7 @@ public final class IntegrationTest extends IntegrationTestCase {
       test(options, "", "");
       fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
     } catch (RuntimeException e) {
-      Throwable t = e.getCause();
-      if (!(t instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
+      if (!(e instanceof CompilerOptionsPreprocessor.InvalidOptionsException)) {
         fail("Expected CompilerOptionsPreprocessor.InvalidOptionsException");
       }
     }

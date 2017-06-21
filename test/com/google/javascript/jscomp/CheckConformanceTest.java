@@ -453,14 +453,9 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: Setting content of <script> is dangerous.");
 
-    // NOTE(aravindpg): we define a random extra property on HTMLScriptElement.prototype so
-    // as to differentiate from any old (new Element), otherwise NTI is unable to distinguish them
-    // and treats this case exactly like the case right above.
-    // This limitation is arguably never a problem in practice since we always define/redefine
-    // properties on a subclass.
     testSame(
         externs,
-        "HTMLScriptElement.prototype.randomProp; (new Element).textContent = 'safe'",
+        "(new Element).textContent = 'safe'",
         null);
   }
 
@@ -693,6 +688,36 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         "    /** @type {Function} */ this.config;",
         "  }",
         "}"),
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+  }
+
+  public void testBannedProperty_namespacedType() {
+    configuration = LINE_JOINER.join(
+        "requirement: {",
+        "  type: BANNED_PROPERTY",
+        "  value: 'ns.C.prototype.p'",
+        "  error_message: 'ns.C.p is not allowed'",
+        "  whitelist: 'SRC1'",
+        "}");
+
+    String declarations = LINE_JOINER.join(
+        "/** @const */",
+        "var ns = {};",
+        "/** @constructor */ function SC() {}",
+        "/** @constructor @extends {SC} */",
+        "ns.C = function() {}",
+        "/** @type {string} */",
+        "ns.C.prototype.p;",
+        "/** @constructor */ function D() {}",
+        "/** @type {string} */",
+        "D.prototype.p;");
+
+    testConformance(declarations, "var d = new D(); d.p = 'boo';");
+
+    testConformance(declarations, "var c = new ns.C(); c.p = 'boo';",
+        CheckConformance.CONFORMANCE_VIOLATION);
+
+    testConformance(declarations, "var c = new SC(); c.p = 'boo';",
         CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
   }
 
@@ -1771,6 +1796,11 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
         "Possible violation: BanCreateDom Message");
 
+    testWarning(
+        "goog.dom.createDom('iframe', x ? {'src': src} : 'class');",
+        CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION,
+        "Possible violation: BanCreateDom Message");
+
     testSame("goog.dom.createDom('iframe');");
     testSame("goog.dom.createDom('iframe', {'src': ''});");
     testSame("goog.dom.createDom('iframe', {'name': name});");
@@ -1780,7 +1810,67 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
     testSame("goog.dom.createDom('iframe', null);");
     testSame("goog.dom.createDom('img', {'src': src});");
     testSame("goog.dom.createDom('img', attrs);");
+    testSame("goog.dom.createDom('iframe', /** @type {?string|!Array|undefined} */ (className));");
     testSame("goog.dom.createDom(tag, {});");
+    testSame(
+        "/** @enum {string} */ var Classes = {A: ''};\n" +
+        "goog.dom.createDom('iframe', Classes.A);");
+  }
+
+  public void testBanCreateDomIgnoreLooseType() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanCreateDom'\n" +
+        "  error_message: 'BanCreateDom Message'\n" +
+        "  report_loose_type_violations: false\n" +
+        "  value: 'iframe.src'\n" +
+        "}";
+
+    testWarning(
+        "goog.dom.createDom('iframe', {'src': src});",
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testSame("goog.dom.createDom('iframe', attrs);");
+    testSame("goog.dom.createDom(tag, {'src': src});");
+  }
+
+  public void testBanCreateDomTagNameType() {
+    configuration =
+        "requirement: {\n" +
+        "  type: CUSTOM\n" +
+        "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanCreateDom'\n" +
+        "  error_message: 'BanCreateDom Message'\n" +
+        "  value: 'div.class'\n" +
+        "}";
+
+    String externs =
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "/** @const */ var goog = {};",
+            "/** @const */ goog.dom = {};",
+            "/** @constructor @template T */ goog.dom.TagName = function() {}",
+            "/** @type {!goog.dom.TagName<!HTMLDivElement>} */",
+            "goog.dom.TagName.DIV = new goog.dom.TagName();",
+            "/** @constructor */ function HTMLDivElement() {}\n");
+
+    testWarning(
+        externs,
+        LINE_JOINER.join(
+            "function f(/** !goog.dom.TagName<!HTMLDivElement> */ div) {",
+            "  goog.dom.createDom(div, 'red');",
+            "}"),
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+
+    testWarning(
+        externs,
+        LINE_JOINER.join(
+            "const TagName = goog.dom.TagName;",
+            "goog.dom.createDom(TagName.DIV, 'red');"),
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
   }
 
   public void testBanCreateDomAnyTagName() {

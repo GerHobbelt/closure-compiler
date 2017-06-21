@@ -118,11 +118,6 @@ final class NewTypeInference implements CompilerPass {
           + " Found {0} types for type variable {1}: {2},\n"
           + " when instantiating type: {3}");
 
-  static final DiagnosticType FAILED_TO_UNIFY =
-      DiagnosticType.warning(
-          "JSC_NTI_FAILED_TO_UNIFY",
-          "Could not instantiate type {0} with {1}.");
-
   static final DiagnosticType INVALID_INDEX_TYPE =
       DiagnosticType.warning(
           "JSC_NTI_INVALID_INDEX_TYPE",
@@ -325,7 +320,6 @@ final class NewTypeInference implements CompilerPass {
       CONST_REASSIGNED,
       REFLECT_CONSTRUCTOR_EXPECTED,
       CONSTRUCTOR_NOT_CALLABLE,
-      FAILED_TO_UNIFY,
       FORIN_EXPECTS_STRING_KEY,
       GLOBAL_THIS,
       GOOG_BIND_EXPECTS_FUNCTION,
@@ -2622,15 +2616,13 @@ final class NewTypeInference implements CompilerPass {
         recvType = pair.type;
         typeEnv = pair.env;
       }
-      unifyWithSubtypeWarnIfFail(
-          funRecvType, recvType, typeParameters, typeMultimap, receiver, isFwd);
+      funRecvType.unifyWith(recvType, typeParameters, typeMultimap);
     }
     Node arg = firstArg;
     int i = 0;
     while (arg != null) {
       EnvTypePair pair = isFwd ? analyzeExprFwd(arg, typeEnv) : analyzeExprBwd(arg, typeEnv);
-      unifyWithSubtypeWarnIfFail(funType.getFormalType(i), pair.type,
-          typeParameters, typeMultimap, arg, isFwd);
+      funType.getFormalType(i).unifyWith(pair.type, typeParameters, typeMultimap);
       arg = arg.getNext();
       typeEnv = pair.env;
       i++;
@@ -2665,23 +2657,6 @@ final class NewTypeInference implements CompilerPass {
       }
     }
     return builder.build();
-  }
-
-  private void unifyWithSubtypeWarnIfFail(JSType genericType, JSType concreteType,
-      List<String> typeParameters, Multimap<String, JSType> typeMultimap,
-      Node toWarnOn, boolean isFwd) {
-    if (!genericType.unifyWith(concreteType, typeParameters, typeMultimap) && isFwd) {
-      // Unification may fail b/c of types irrelevant to generics, eg,
-      // number vs string.
-      // In this case, don't warn here; we'll show invalid-arg-type later.
-      JSType afterInstantiation = genericType.substituteGenericsWithUnknown();
-      if (!concreteType.isLoose()
-          && !genericType.equals(afterInstantiation)
-          && concreteType.isSubtypeOf(afterInstantiation)) {
-        warnings.add(JSError.make(toWarnOn, FAILED_TO_UNIFY,
-                genericType.toString(), concreteType.toString()));
-      }
-    }
   }
 
   private EnvTypePair analyzeNonStrictComparisonFwd(
@@ -4131,13 +4106,11 @@ final class NewTypeInference implements CompilerPass {
   // Some expressions are analyzed during GTI, so they're skipped here.
   // But we must annotate them with a type anyway.
   private JSType markAndGetTypeOfPreanalyzedNode(Node qnameNode, TypeEnv env, boolean isFwd) {
-    if (NodeUtil.getRootOfQualifiedName(qnameNode).isThis()) {
-      return null;
-    }
     switch (qnameNode.getToken()) {
-      case NAME: {
-        JSType result = envGetType(env, qnameNode.getString());
-        Preconditions.checkNotNull(result, "Null declared type@%s", qnameNode);
+      case NAME:
+      case THIS: {
+        JSType result = envGetType(env, qnameNode.isThis() ? THIS_ID : qnameNode.getString());
+        Preconditions.checkNotNull(result, "Null declared type at node: %s", qnameNode);
         if (isFwd) {
           maybeSetTypeI(qnameNode, result);
         }
@@ -4333,7 +4306,7 @@ final class NewTypeInference implements CompilerPass {
     if (!recvType.hasProp(pname)) {
       // Warn for inexistent prop either on the non-top-level of a qualified
       // name, or for assignment ops that won't create a new property.
-      if (insideQualifiedName || propAccessNode.getParent().getToken() != Token.ASSIGN) {
+      if (insideQualifiedName || !propAccessNode.getParent().isAssign()) {
         mayWarnAboutInexistentProp(propAccessNode, recvType, pname);
         if (!recvType.isLoose()) {
           return new LValueResultFwd(inEnv, requiredType, null, null);

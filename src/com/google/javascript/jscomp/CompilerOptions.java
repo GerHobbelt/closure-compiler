@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Ascii;
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -77,10 +78,8 @@ public class CompilerOptions implements Serializable {
 
   /**
    * Should the compiled output start with "'use strict';"?
-   *
-   * <p>Ignored for non-strict output language modes.
    */
-  private boolean emitUseStrict = true;
+  private Optional<Boolean> emitUseStrict = Optional.absent();
 
   /**
    * The JavaScript language version accepted.
@@ -204,6 +203,10 @@ public class CompilerOptions implements Serializable {
 
   public boolean shouldGenerateTypedExterns() {
     return incrementalCheckMode == IncrementalCheckMode.GENERATE_IJS;
+  }
+
+  public boolean shouldDoExternsHoisting() {
+    return incrementalCheckMode != IncrementalCheckMode.GENERATE_IJS;
   }
 
   public boolean allowIjsInputs() {
@@ -583,6 +586,13 @@ public class CompilerOptions implements Serializable {
 
   boolean useSizeHeuristicToStopOptimizationLoop = true;
 
+  /**
+   * Do up to this many iterations of the optimization loop.
+   * Setting this field to some small number, say 3 or 4, allows a large project to build faster,
+   * but sacrifice some code size.
+   */
+  int optimizationLoopMaxIterations;
+
   //--------------------------------
   // Renaming
   //--------------------------------
@@ -871,32 +881,6 @@ public class CompilerOptions implements Serializable {
 
   boolean exportLocalPropertyDefinitions;
 
-  private String continueSavedCompilation = null;
-
-  /**
-   * Set the compiler to resume a saved compilation.
-   */
-  public void setContinueSavedCompilation(String fileName) {
-    continueSavedCompilation = fileName;
-  }
-
-  String getContinueSavedCompilation() {
-    return continueSavedCompilation;
-  }
-
-  private String saveAfterChecks = null;
-
-  /**
-   * Set the compiler to to only type check and save state.
-   */
-  public void setSaveAfterChecks(String fileName) {
-    saveAfterChecks = fileName;
-  }
-
-  public String getSaveAfterChecks() {
-    return saveAfterChecks;
-  }
-
   /** Map used in the renaming of CSS class names. */
   public CssRenamingMap cssRenamingMap;
 
@@ -986,7 +970,7 @@ public class CompilerOptions implements Serializable {
   public String inputDelimiter = "// Input %num%";
 
   /** Whether to write keyword properties as foo['class'] instead of foo.class; needed for IE8. */
-  boolean quoteKeywordProperties;
+  private boolean quoteKeywordProperties;
 
   boolean preferSingleQuotes;
 
@@ -1927,9 +1911,6 @@ public class CompilerOptions implements Serializable {
    */
   public void setLanguageOut(LanguageMode languageOut) {
     this.languageOut = languageOut;
-    if (languageOut == LanguageMode.ECMASCRIPT3) {
-      this.quoteKeywordProperties = true;
-    }
   }
 
   public LanguageMode getLanguageOut() {
@@ -2304,6 +2285,10 @@ public class CompilerOptions implements Serializable {
     this.useSizeHeuristicToStopOptimizationLoop = mayStopEarly;
   }
 
+  public void setMaxOptimizationLoopIterations(int maxIterations) {
+    this.optimizationLoopMaxIterations = maxIterations;
+  }
+
   @Deprecated
   public void setUseTypesForOptimization(boolean useTypesForOptimization) {
     if (useTypesForOptimization) {
@@ -2599,6 +2584,14 @@ public class CompilerOptions implements Serializable {
     this.quoteKeywordProperties = quoteKeywordProperties;
   }
 
+  public boolean shouldQuoteKeywordProperties() {
+    // Never quote properties in .i.js files
+    if (incrementalCheckMode == IncrementalCheckMode.GENERATE_IJS) {
+      return false;
+    }
+    return this.quoteKeywordProperties || languageOut == LanguageMode.ECMASCRIPT3;
+  }
+
   public void setErrorFormat(ErrorFormat errorFormat) {
     this.errorFormat = errorFormat;
   }
@@ -2752,12 +2745,23 @@ public class CompilerOptions implements Serializable {
     this.conformanceConfigs = ImmutableList.copyOf(configs);
   }
 
-  public boolean isEmitUseStrict() {
-    return emitUseStrict;
+  public boolean shouldEmitUseStrict() {
+    return this.emitUseStrict.or(getDefaultEmitUseStrict());
+  }
+
+  boolean getDefaultEmitUseStrict() {
+    switch (getLanguageOut()) {
+      case ECMASCRIPT3:
+      case ECMASCRIPT5:
+      case ECMASCRIPT6:
+        return false;
+      default:
+        return true;
+    }
   }
 
   public CompilerOptions setEmitUseStrict(boolean emitUseStrict) {
-    this.emitUseStrict = emitUseStrict;
+    this.emitUseStrict = Optional.of(emitUseStrict);
     return this;
   }
 
@@ -2822,7 +2826,6 @@ public class CompilerOptions implements Serializable {
             .add("computeFunctionSideEffects", computeFunctionSideEffects)
             .add("conformanceConfigs", getConformanceConfigs())
             .add("continueAfterErrors", canContinueAfterErrors())
-            .add("continueSavedCompilation", continueSavedCompilation)
             .add("convertToDottedProperties", convertToDottedProperties)
             .add("crossModuleCodeMotion", crossModuleCodeMotion)
             .add("crossModuleCodeMotionNoStubMethods", crossModuleCodeMotionNoStubMethods)
@@ -2959,7 +2962,6 @@ public class CompilerOptions implements Serializable {
             .add("shadowVariables", shadowVariables)
             .add("skipNonTranspilationPasses", skipNonTranspilationPasses)
             .add("skipTranspilationAndCrash", skipTranspilationAndCrash)
-            .add("saveAfterChecks", saveAfterChecks)
             .add("smartNameRemoval", smartNameRemoval)
             .add("sourceMapDetailLevel", sourceMapDetailLevel)
             .add("sourceMapFormat", sourceMapFormat)
@@ -3038,20 +3040,10 @@ public class CompilerOptions implements Serializable {
     ECMASCRIPT6_TYPED,
 
     /**
-     * @deprecated Use ECMASCRIPT_2016.
-     */
-    @Deprecated
-    ECMASCRIPT7,
-
-    /**
      * ECMAScript standard approved in 2016.
      * Adds the exponent operator (**).
      */
     ECMASCRIPT_2016,
-
-    /** @deprecated Use {@code ECMASCRIPT_2017} */
-    @Deprecated
-    ECMASCRIPT8,
 
     /** ECMAScript standard approved in 2017. Adds async/await. */
     ECMASCRIPT_2017,
@@ -3077,6 +3069,21 @@ public class CompilerOptions implements Serializable {
         case ECMASCRIPT3:
         case ECMASCRIPT5:
         case ECMASCRIPT5_STRICT:
+          return false;
+        default:
+          return true;
+      }
+    }
+
+    /** Whether this is ECMAScript 2017 or higher. */
+    public boolean isEs2017OrHigher() {
+      Preconditions.checkState(this != NO_TRANSPILE);
+      switch (this) {
+        case ECMASCRIPT3:
+        case ECMASCRIPT5:
+        case ECMASCRIPT5_STRICT:
+        case ECMASCRIPT_2015:
+        case ECMASCRIPT_2016:
           return false;
         default:
           return true;

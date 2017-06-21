@@ -16,9 +16,6 @@
 package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
@@ -95,7 +92,7 @@ class HoistVarsOutOfBlocks extends AbstractPostOrderCallback
       return;
     }
 
-    Node block = t.getScope().getRootNode();
+    Node block = t.getScopeRoot();
 
     for (Node lhs : varNode.children()) {
       if (!lhs.isName()) {
@@ -118,7 +115,7 @@ class HoistVarsOutOfBlocks extends AbstractPostOrderCallback
         continue;
       }
 
-      Node rhs = lhs.getFirstChild();
+      Node rhs = lhs.removeFirstChild();
       Node hoistRoot = t.getClosestHoistScope().getRootNode();
       if (hoistRoot.isRoot()) {
         hoistRoot = NodeUtil.getEnclosingScript(varNode);
@@ -129,7 +126,7 @@ class HoistVarsOutOfBlocks extends AbstractPostOrderCallback
         // splits var nodes up.
         NodeUtil.removeChild(lhs.getParent(), lhs);
       } else {
-        Node exprAssign = IR.exprResult(IR.assign(lhs.cloneNode(), rhs.cloneTree()));
+        Node exprAssign = IR.exprResult(IR.assign(lhs.cloneNode(), rhs));
         exprAssign.useSourceInfoIfMissingFromForTree(varNode);
         NodeUtil.replaceDeclarationChild(lhs, exprAssign);
       }

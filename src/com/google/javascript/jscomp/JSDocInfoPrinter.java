@@ -66,6 +66,7 @@ public final class JSDocInfoPrinter {
     //   template
     //   override
     //   type|define|typedef|enum
+    //   implicitCast
     //   suppress
     //   deprecated
     parts.add("/**");
@@ -202,6 +203,10 @@ public final class JSDocInfoPrinter {
       parts.add(buildAnnotationWithType("enum", info.getEnumParameterType()));
     }
 
+    if (info.isImplicitCast()) {
+      parts.add("@implicitCast");
+    }
+
     Set<String> suppressions = info.getSuppressions();
     if (!suppressions.isEmpty()) {
       // Print suppressions in sorted order to avoid non-deterministic output.
@@ -314,7 +319,7 @@ public final class JSDocInfoPrinter {
         }
       }
       sb.append("}");
-    } else if (typeNode.getToken() == Token.VOID) {
+    } else if (typeNode.isVoid()) {
       sb.append("void");
     } else {
       if (typeNode.hasChildren()) {

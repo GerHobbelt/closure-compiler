@@ -21,9 +21,6 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Behavior;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -63,7 +60,7 @@ class InlineObjectLiterals implements CompilerPass {
   @Override
   public void process(Node externs, Node root) {
     ReferenceCollectingCallback callback = new ReferenceCollectingCallback(
-        compiler, new InliningBehavior(), SyntacticScopeCreator.makeUntyped(compiler));
+        compiler, new InliningBehavior(), new Es6SyntacticScopeCreator(compiler));
     callback.process(externs, root);
   }
 
@@ -408,10 +405,10 @@ class InlineObjectLiterals implements CompilerPass {
         vnode = init.getParent();
         fillInitialValues(init, initvals);
       } else {
-        // TODO(user): More test / rewrite this part.
-        // Find the beginning of the function / script.
-        vnode = v.getScope().getClosestHoistScope().getRootNode().getLastChild().getFirstChild();
+        // Find the beginning of the function body / script.
+        vnode = v.getScope().getClosestHoistScope().getRootNode().getFirstChild();
       }
+      checkState(NodeUtil.isStatement(vnode), vnode);
 
       for (Map.Entry<String, String> entry : varmap.entrySet()) {
         Node val = initvals.get(entry.getKey());
@@ -428,7 +425,7 @@ class InlineObjectLiterals implements CompilerPass {
 
       if (defined) {
         compiler.reportChangeToEnclosingScope(vnode.getParent());
-        vnode.getParent().removeChild(vnode);
+        vnode.detach();
       }
 
       for (Reference ref : referenceInfo.references) {

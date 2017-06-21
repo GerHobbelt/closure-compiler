@@ -168,6 +168,8 @@ public abstract class CompilerTestCase extends TestCase {
 
   private String filename = "testcode";
 
+  private final Set<DiagnosticType> ignoredWarnings = new HashSet<>();
+
   static final String ACTIVE_X_OBJECT_DEF =
       LINE_JOINER.join(
           "/**",
@@ -295,6 +297,14 @@ public abstract class CompilerTestCase extends TestCase {
           " */",
           "Array.prototype.forEach = function(callback, opt_thisobj) {};",
           "/**",
+          " * @param {?function(this:S, T, number, !Array<T>): ?} callback",
+          " * @param {S=} opt_thisobj",
+          " * @return {!Array<T>}",
+          " * @this {?IArrayLike<T>|string}",
+          " * @template T,S",
+          " */",
+          "Array.prototype.filter = function(callback, opt_thisobj) {};",
+          "/**",
           " * @constructor",
           " * @template T",
           " * @implements {IArrayLike<T>}",
@@ -417,6 +427,10 @@ public abstract class CompilerTestCase extends TestCase {
 
     options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.INVALID_CASTS, CheckLevel.WARNING);
+    if (!ignoredWarnings.isEmpty()) {
+      options.setWarningLevel(
+          new DiagnosticGroup(ignoredWarnings.toArray(new DiagnosticType[0])), CheckLevel.OFF);
+    }
     options.setCodingConvention(getCodingConvention());
     options.setPolymerVersion(1);
     return options;
@@ -444,6 +458,18 @@ public abstract class CompilerTestCase extends TestCase {
     // Since most compiler passes should be idempotent, we run each pass twice
     // by default.
     return 2;
+  }
+
+  /** Adds the given DiagnosticTypes to the set of warnings to ignore. */
+  protected final void ignoreWarnings(DiagnosticType... warnings) {
+    ignoredWarnings.addAll(Arrays.asList(warnings));
+  }
+
+  /** Adds the given DiagnosticGroups to the set of warnings to ignore. */
+  protected final void ignoreWarnings(DiagnosticGroup... warnings) {
+    for (DiagnosticGroup group : warnings) {
+      ignoredWarnings.addAll(group.getTypes());
+    }
   }
 
   /** Expect warnings without source information. */
@@ -735,6 +761,14 @@ public abstract class CompilerTestCase extends TestCase {
   public void testWarning(String js, DiagnosticType warning, String description) {
     assertNotNull(warning);
     test(js, null, null, warning, description);
+  }
+
+  /**
+   * Verifies that the compiler generates the given warning for the given input.
+   */
+  public void testWarning(String externs, String js, DiagnosticType warning, String description) {
+    assertNotNull(warning);
+    test(externs, js, null, null, warning, description);
   }
 
   /**
@@ -1652,6 +1686,7 @@ public abstract class CompilerTestCase extends TestCase {
 
   private static void transpileToEs5(AbstractCompiler compiler, Node externsRoot, Node codeRoot) {
     List<PassFactory> factories = new ArrayList<>();
+    TranspilationPasses.addEs2017Passes(factories);
     TranspilationPasses.addEs6EarlyPasses(factories);
     TranspilationPasses.addEs6LatePasses(factories);
     TranspilationPasses.addRewritePolyfillPass(factories);

@@ -100,6 +100,7 @@ class InstrumentFunctions implements CompilerPass {
       Node initCodeRoot = compiler.parseSyntheticCode(
           "template:init", initCodeSource);
       if (initCodeRoot != null && initCodeRoot.getFirstChild() != null) {
+        NodeUtil.markNewScopesChanged(initCodeRoot, compiler);
         initCode = initCodeRoot.removeChildren();
       } else {
         return;  // parse failure
@@ -147,7 +148,7 @@ class InstrumentFunctions implements CompilerPass {
       if (NodeUtil.isVarDeclaration(n) && removable.contains(n.getString())) {
         parent.removeChild(n);
         if (!parent.hasChildren()) {
-          parent.getParent().removeChild(parent);
+          parent.detach();
         }
       }
     }

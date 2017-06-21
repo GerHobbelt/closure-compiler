@@ -22,8 +22,6 @@ import com.google.javascript.jscomp.GlobalNamespace.AstChange;
 import com.google.javascript.jscomp.GlobalNamespace.Name;
 import com.google.javascript.jscomp.GlobalNamespace.Ref;
 import com.google.javascript.jscomp.GlobalNamespace.Ref.Type;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayDeque;
@@ -112,7 +110,7 @@ class AggressiveInlineAliases implements CompilerPass {
     }
   }
 
-  private JSModule getRefModule(ReferenceCollectingCallback.Reference ref) {
+  private JSModule getRefModule(Reference ref) {
     CompilerInput input = compiler.getInput(ref.getInputId());
     return input == null ? null : input.getModule();
   }
@@ -227,10 +225,11 @@ class AggressiveInlineAliases implements CompilerPass {
         // The alias is well-formed, so do the inlining now.
         int size = aliasRefs.references.size();
         for (int i = 1; i < size; i++) {
-          ReferenceCollectingCallback.Reference aliasRef = aliasRefs.references.get(i);
+          Reference aliasRef = aliasRefs.references.get(i);
 
           Node newNode = alias.node.cloneTree();
           aliasRef.getParent().replaceChild(aliasRef.getNode(), newNode);
+          compiler.reportChangeToEnclosingScope(newNode);
           newNodes.add(new AstChange(getRefModule(aliasRef), aliasRef.getScope(), newNode));
         }
 
@@ -293,6 +292,7 @@ class AggressiveInlineAliases implements CompilerPass {
               Node newNode = alias.node.cloneTree();
               Node node = ref.node;
               node.getParent().replaceChild(node, newNode);
+              compiler.reportChangeToEnclosingScope(newNode);
               newNodes.add(new AstChange(ref.module, ref.scope, newNode));
               name.removeRef(ref);
               break;

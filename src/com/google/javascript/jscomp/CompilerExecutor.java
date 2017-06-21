@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Throwables.throwIfUnchecked;
+
 import com.google.common.base.Preconditions;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeoutException;
 final class CompilerExecutor {
   // We use many recursive algorithms that use O(d) memory in the depth
   // of the tree.
-  private static final long COMPILER_STACK_SIZE = (1 << 23); // About 8MB
+  private static final long COMPILER_STACK_SIZE = (1 << 24); // About 16MB
 
   /**
    * Under JRE 1.6, the JS Compiler overflows the stack when running on some
@@ -123,6 +125,7 @@ final class CompilerExecutor {
 
     // Pass on any exception caught by the runnable object.
     if (exception[0] != null) {
+      throwIfUnchecked(exception[0]);
       throw new RuntimeException(exception[0]);
     }
 

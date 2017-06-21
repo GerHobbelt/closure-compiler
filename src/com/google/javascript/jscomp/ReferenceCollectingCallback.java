@@ -16,41 +16,32 @@
 
 package com.google.javascript.jscomp;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
-import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.StaticRef;
-import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.StaticSymbolTable;
-import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * A helper class for passes that want to access all information about where a
- * variable is referenced and declared at once and then make a decision as to
- * how it should be handled, possibly inlining, reordering, or generating
- * warnings. Callers do this by providing {@link Behavior} and then
- * calling {@link #process(Node, Node)}.
+ * A helper class for passes that want to access all information about where a variable is
+ * referenced and declared at once and then make a decision as to how it should be handled, possibly
+ * inlining, reordering, or generating warnings. Callers do this by providing {@link Behavior} and
+ * then calling {@link #process(Node, Node)}.
  *
  * @author kushal@google.com (Kushal Dave)
  */
-public final class ReferenceCollectingCallback implements ScopedCallback,
-    HotSwapCompilerPass,
-    StaticSymbolTable<Var, ReferenceCollectingCallback.Reference> {
+public final class ReferenceCollectingCallback
+    implements ScopedCallback, HotSwapCompilerPass, StaticSymbolTable<Var, Reference> {
 
   /**
    * Maps a given variable to a collection of references to that name. Note that
@@ -204,7 +195,7 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
     // Replace the block stack with a new one. This algorithm only works
     // because we know hoisted functions cannot be inside loops. It will have to
     // change if we ever do general function continuations.
-    Preconditions.checkState(NodeUtil.isHoistedFunctionDeclaration(fnNode));
+    checkState(NodeUtil.isHoistedFunctionDeclaration(fnNode), fnNode);
 
     Scope containingScope = v.getScope();
 
@@ -216,12 +207,12 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
       newBlockStack.add(blockStack.get(0));
     } else {
       for (int i = 0; i < blockStack.size(); i++) {
-        if (blockStack.get(i).root == containingScope.getRootNode()) {
+        if (blockStack.get(i).getRoot() == containingScope.getRootNode()) {
           newBlockStack = new ArrayList<>(blockStack.subList(0, i + 1));
         }
       }
     }
-    Preconditions.checkNotNull(newBlockStack);
+    checkNotNull(newBlockStack);
 
     List<BasicBlock> oldBlockStack = blockStack;
     blockStack = newBlockStack;
@@ -279,12 +270,11 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
     if (NodeUtil.isHoistedFunctionDeclaration(n)) {
       Node nameNode = n.getFirstChild();
       Var functionVar = nodeTraversal.getScope().getVar(nameNode.getString());
-      if (functionVar != null) {
-        if (finishedFunctionTraverse.contains(functionVar)) {
-          return false;
-        }
-        startedFunctionTraverse.add(functionVar);
+      checkNotNull(functionVar);
+      if (finishedFunctionTraverse.contains(functionVar)) {
+        return false;
       }
+      startedFunctionTraverse.add(functionVar);
     }
 
     // If node is a new basic block, put on basic block stack
@@ -364,10 +354,6 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
     referenceInfo.add(reference);
   }
 
-  public interface ReferenceMap {
-    ReferenceCollection getReferences(Var var);
-  }
-
   private static class ReferenceMapWrapper implements ReferenceMap {
     private final Map<Var, ReferenceCollection> referenceMap;
 
@@ -397,510 +383,4 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
     public void afterExitScope(NodeTraversal t, ReferenceMap referenceMap) {}
   };
 
-  /**
-   * A collection of references. Can be subclassed to apply checks or
-   * store additional state when adding.
-   */
-  public static final class ReferenceCollection implements Iterable<Reference> {
-
-    List<Reference> references = new ArrayList<>();
-
-    @Override
-    public Iterator<Reference> iterator() {
-      return references.iterator();
-    }
-
-    void add(Reference reference) {
-      references.add(reference);
-    }
-
-    /**
-     * Determines if the variable for this reference collection is
-     * "well-defined." A variable is well-defined if we can prove at
-     * compile-time that it's assigned a value before it's used.
-     *
-     * Notice that if this function returns false, this doesn't imply that the
-     * variable is used before it's assigned. It just means that we don't
-     * have enough information to make a definitive judgment.
-     */
-    protected boolean isWellDefined() {
-      int size = references.size();
-      if (size == 0) {
-        return false;
-      }
-
-      // If this is a declaration that does not instantiate the variable,
-      // it's not well-defined.
-      Reference init = getInitializingReference();
-      if (init == null) {
-        return false;
-      }
-
-      Preconditions.checkState(references.get(0).isDeclaration());
-      BasicBlock initBlock = init.getBasicBlock();
-      for (int i = 1; i < size; i++) {
-        if (!initBlock.provablyExecutesBefore(
-                references.get(i).getBasicBlock())) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    /**
-     * Whether the variable is escaped into an inner function.
-     */
-    boolean isEscaped() {
-      Scope hoistScope = null;
-      for (Reference ref : references) {
-        if (hoistScope == null) {
-          hoistScope = ref.scope.getClosestHoistScope();
-        } else if (hoistScope != ref.scope.getClosestHoistScope()) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    /**
-     * @param index The index into the references array to look for an
-     * assigning declaration.
-     *
-     * This is either the declaration if a value is assigned (such as
-     * "var a = 2", "function a()...", "... catch (a)...").
-     */
-    private boolean isInitializingDeclarationAt(int index) {
-      Reference maybeInit = references.get(index);
-      if (maybeInit.isInitializingDeclaration()) {
-        // This is a declaration that represents the initial value.
-        // Specifically, var declarations without assignments such as "var a;"
-        // are not.
-        return true;
-      }
-      return false;
-    }
-
-    /**
-     * @param index The index into the references array to look for an
-     * initialized assignment reference. That is, an assignment immediately
-     * follow a variable declaration that itself does not initialize the
-     * variable.
-     */
-    private boolean isInitializingAssignmentAt(int index) {
-      if (index < references.size() && index > 0) {
-        Reference maybeDecl = references.get(index - 1);
-        if (maybeDecl.isVarDeclaration() || maybeDecl.isLetDeclaration()) {
-          Preconditions.checkState(!maybeDecl.isInitializingDeclaration());
-          Reference maybeInit = references.get(index);
-          if (maybeInit.isSimpleAssignmentToName()) {
-            return true;
-          }
-        }
-      }
-      return false;
-    }
-
-    /**
-     * @return The reference that provides the value for the variable at the
-     * time of the first read, if known, otherwise null.
-     *
-     * This is either the variable declaration ("var a = ...") or first
-     * reference following the declaration if it is an assignment.
-     */
-    Reference getInitializingReference() {
-      if (isInitializingDeclarationAt(0)) {
-        return references.get(0);
-      } else if (isInitializingAssignmentAt(1)) {
-        return references.get(1);
-      }
-      return null;
-    }
-
-    /**
-     * Constants are allowed to be defined after their first use.
-     */
-    Reference getInitializingReferenceForConstants() {
-      int size = references.size();
-      for (int i = 0; i < size; i++) {
-        if (isInitializingDeclarationAt(i) || isInitializingAssignmentAt(i)) {
-          return references.get(i);
-        }
-      }
-      return null;
-    }
-
-    /**
-     * @return Whether the variable is only assigned a value once for its
-     *     lifetime.
-     */
-    boolean isAssignedOnceInLifetime() {
-      Reference ref = getOneAndOnlyAssignment();
-      if (ref == null) {
-        return false;
-      }
-
-      // Make sure this assignment is not in a loop or an enclosing function.
-      for (BasicBlock block = ref.getBasicBlock();
-           block != null; block = block.getParent()) {
-        if (block.isFunction) {
-          if (ref.getSymbol().getScope().getClosestHoistScope()
-              != ref.scope.getClosestHoistScope()) {
-            return false;
-          }
-          break;
-        } else if (block.isLoop) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    /**
-     * @return The one and only assignment. Returns null if the number of assignments is not
-     *     exactly one.
-     */
-    private Reference getOneAndOnlyAssignment() {
-      Reference assignment = null;
-      int size = references.size();
-      for (int i = 0; i < size; i++) {
-        Reference ref = references.get(i);
-        if (ref.isLvalue() || ref.isInitializingDeclaration()) {
-          if (assignment == null) {
-            assignment = ref;
-          } else {
-            return null;
-          }
-        }
-      }
-      return assignment;
-    }
-
-    /**
-     * @return Whether the variable is never assigned a value.
-     */
-    boolean isNeverAssigned() {
-      int size = references.size();
-      for (int i = 0; i < size; i++) {
-        Reference ref = references.get(i);
-        if (ref.isLvalue() || ref.isInitializingDeclaration()) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    boolean firstReferenceIsAssigningDeclaration() {
-      int size = references.size();
-      return size > 0 && references.get(0).isInitializingDeclaration();
-    }
-
-    @Override
-    public String toString() {
-      return toStringHelper(this)
-          .add("initRef", getInitializingReference())
-          .add("references", references)
-          .add("wellDefined", isWellDefined())
-          .add("assignedOnce", isAssignedOnceInLifetime())
-          .toString();
-    }
-  }
-
-  /**
-   * Represents a single declaration or reference to a variable.
-   */
-  public static final class Reference implements StaticRef {
-
-    private static final ImmutableSet<Token> DECLARATION_PARENTS =
-        ImmutableSet.of(
-            Token.VAR,
-            Token.LET,
-            Token.CONST,
-            Token.PARAM_LIST,
-            Token.FUNCTION,
-            Token.CLASS,
-            Token.CATCH,
-            Token.REST);
-
-    private final Node nameNode;
-    private final BasicBlock basicBlock;
-    private final Scope scope;
-    private final InputId inputId;
-
-    Reference(Node nameNode, NodeTraversal t, BasicBlock basicBlock) {
-      this(nameNode, basicBlock, t.getScope(), t.getInput().getInputId());
-    }
-
-    @Override
-    public String toString() {
-      return nameNode.toString();
-    }
-
-    /**
-     * Creates a variable reference in a given script file name, used in tests.
-     *
-     * @return The created reference.
-     */
-    @VisibleForTesting
-    static Reference createRefForTest(CompilerInput input) {
-      return new Reference(new Node(Token.NAME), null, null, input.getInputId());
-    }
-
-    private Reference(Node nameNode, BasicBlock basicBlock, Scope scope, InputId inputId) {
-      this.nameNode = nameNode;
-      this.basicBlock = basicBlock;
-      this.scope = scope;
-      this.inputId = inputId;
-    }
-
-    /**
-     * Makes a copy of the current reference using a new Scope instance.
-     */
-    Reference cloneWithNewScope(Scope newScope) {
-      return new Reference(nameNode, basicBlock, newScope, inputId);
-    }
-
-    @Override
-    public Var getSymbol() {
-      return scope.getVar(nameNode.getString());
-    }
-
-    @Override
-    public Node getNode() {
-      return nameNode;
-    }
-
-    public InputId getInputId() {
-      return inputId;
-    }
-
-    @Override
-    public StaticSourceFile getSourceFile() {
-      return nameNode.getStaticSourceFile();
-    }
-
-    boolean isDeclaration() {
-      return isDeclarationHelper(nameNode);
-    }
-
-    private static boolean isDeclarationHelper(Node node) {
-      Node parent = node.getParent();
-
-      // Special case for class B extends A, A is not a declaration.
-      if (parent.isClass() && node != parent.getFirstChild()) {
-        return false;
-      }
-
-      // This condition can be true during InlineVariables.
-      if (parent.getParent() == null) {
-        return false;
-      }
-
-      if (NodeUtil.isNameDeclaration(parent.getParent()) && node == parent.getSecondChild()) {
-        // This is the RHS of a var/let/const and thus not a declaration.
-        return false;
-      }
-
-      // Special cases for destructuring patterns.
-      if (parent.isDestructuringLhs()
-          || parent.isDestructuringPattern()
-          || (parent.isStringKey() && parent.getParent().isObjectPattern())
-          || (parent.isComputedProp() && parent.getParent().isObjectPattern()
-              && node == parent.getLastChild())
-          || (parent.isDefaultValue() && node == parent.getFirstChild())) {
-        return isDeclarationHelper(parent);
-      }
-
-      // Special case for arrow function
-      if (parent.isArrowFunction()) {
-        return node == parent.getFirstChild();
-      }
-
-      return DECLARATION_PARENTS.contains(parent.getToken());
-    }
-
-    public boolean isVarDeclaration() {
-      return getParent().isVar();
-    }
-
-    boolean isLetDeclaration() {
-      return getParent().isLet();
-    }
-
-    public boolean isConstDeclaration() {
-      return getParent().isConst();
-    }
-
-    boolean isHoistedFunction() {
-      return NodeUtil.isHoistedFunctionDeclaration(getParent());
-    }
-
-    /**
-     * Determines whether the variable is initialized at the declaration.
-     */
-    public boolean isInitializingDeclaration() {
-      // VAR and LET are the only types of variable declarations that may not initialize
-      // their variables. Catch blocks, named functions, and parameters all do.
-      return (isDeclaration() && !getParent().isVar() && !getParent().isLet())
-        || nameNode.getFirstChild() != null;
-    }
-
-   /**
-    * @return For an assignment, variable declaration, or function declaration
-    * return the assigned value, otherwise null.
-    */
-    Node getAssignedValue() {
-      return NodeUtil.getRValueOfLValue(nameNode);
-    }
-
-    BasicBlock getBasicBlock() {
-      return basicBlock;
-    }
-
-    Node getParent() {
-      return getNode().getParent();
-    }
-
-    Node getGrandparent() {
-      Node parent = getParent();
-      return parent == null ? null : parent.getParent();
-    }
-
-    private static boolean isLhsOfEnhancedForExpression(Node n) {
-      Node parent = n.getParent();
-      return NodeUtil.isEnhancedFor(parent) && parent.getFirstChild() == n;
-    }
-
-    public boolean isSimpleAssignmentToName() {
-      Node parent = getParent();
-      return parent.isAssign()
-          && parent.getFirstChild() == nameNode;
-    }
-
-    /**
-     * Returns whether the name node for this reference is an lvalue.
-     * TODO(tbreisacher): This method disagrees with NodeUtil#isLValue for
-     * "var x;" and "let x;". Consider updating it to match.
-     */
-    public boolean isLvalue() {
-      Node parent = getParent();
-      Token parentType = parent.getToken();
-      switch (parentType) {
-        case VAR:
-        case LET:
-        case CONST:
-          return (nameNode.getFirstChild() != null || isLhsOfEnhancedForExpression(nameNode));
-        case DEFAULT_VALUE:
-          return parent.getFirstChild() == nameNode;
-        case INC:
-        case DEC:
-        case CATCH:
-          return true;
-        case FOR:
-        case FOR_IN:
-        case FOR_OF:
-          return NodeUtil.isEnhancedFor(parent) && parent.getFirstChild() == nameNode;
-        case OBJECT_PATTERN:
-        case ARRAY_PATTERN:
-        case STRING_KEY:
-          return NodeUtil.isLhsByDestructuring(nameNode);
-        default:
-          return (NodeUtil.isAssignmentOp(parent) && parent.getFirstChild() == nameNode);
-      }
-    }
-
-    Scope getScope() {
-      return scope;
-    }
-  }
-
-  /**
-   * Represents a section of code that is uninterrupted by control structures
-   * (conditional or iterative logic).
-   */
-  static final class BasicBlock {
-
-    private final BasicBlock parent;
-
-    private final Node root;
-
-    /**
-     * Whether this block denotes a function scope.
-     */
-    private final boolean isFunction;
-
-    /**
-     * Whether this block denotes a loop.
-     */
-    private final boolean isLoop;
-
-    /**
-     * Creates a new block.
-     * @param parent The containing block.
-     * @param root The root node of the block.
-     */
-    BasicBlock(BasicBlock parent, Node root) {
-      this.parent = parent;
-      this.root = root;
-
-      this.isFunction = root.isFunction();
-
-      if (root.getParent() != null) {
-        Token pType = root.getParent().getToken();
-        this.isLoop =
-            pType == Token.DO
-                || pType == Token.WHILE
-                || pType == Token.FOR
-                || pType == Token.FOR_OF
-                || pType == Token.FOR_IN;
-      } else {
-        this.isLoop = false;
-      }
-    }
-
-    BasicBlock getParent() {
-      return parent;
-    }
-
-    /**
-     * Determines whether this block is equivalent to the very first block that
-     * is created when reference collection traversal enters global scope. Note
-     * that when traversing a single script in a hot-swap fashion a new instance
-     * of {@code BasicBlock} is created.
-     *
-     * @return true if this is global scope block.
-     */
-    boolean isGlobalScopeBlock() {
-      return getParent() == null;
-    }
-
-    /**
-     * Determines whether this block is guaranteed to begin executing before
-     * the given block does.
-     */
-    boolean provablyExecutesBefore(BasicBlock thatBlock) {
-      // If thatBlock is a descendant of this block, and there are no hoisted
-      // blocks between them, then this block must start before thatBlock.
-      BasicBlock currentBlock;
-      for (currentBlock = thatBlock;
-           currentBlock != null && currentBlock != this;
-           currentBlock = currentBlock.getParent()) { }
-
-      if (currentBlock == this) {
-        return true;
-      }
-      return isGlobalScopeBlock() && thatBlock.isGlobalScopeBlock();
-    }
-
-    @VisibleForTesting
-    Node getRoot() {
-      return root;
-    }
-
-    @Override
-    public String toString() {
-      return "BasicBlock @ " + root;
-    }
-  }
 }

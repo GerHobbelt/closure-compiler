@@ -40,7 +40,7 @@ md.$bottomSheet = function() {};
  *   template: (string|undefined),
  *   scope: (!Object|undefined),
  *   preserveScope: (boolean|undefined),
- *   controller: (!Function|string|undefined),
+ *   controller: (!angular.Injectable|string|undefined),
  *   locals: (!Object|undefined),
  *   targetEvent: (!Object|undefined),
  *   resolve: (!Object|undefined),
@@ -97,7 +97,7 @@ md.$dialog = function() {};
  *   clickOutsideToClose: (boolean|undefined),
  *   escapeToClose: (boolean|undefined),
  *   focusOnOpen: (boolean|undefined),
- *   controller: (Function|string|undefined),
+ *   controller: (angular.Injectable|string|undefined),
  *   locals: (Object|undefined),
  *   bindToController: (boolean|undefined),
  *   resolve: (Object|undefined),
@@ -446,9 +446,9 @@ md.$toast = function() {};
  * @typedef {{
  *   templateUrl: (string|!Object|undefined),
  *   template: (string|undefined),
- *   hideDelay: (number|undefined),
+ *   hideDelay: (boolean|number|undefined),
  *   position: (string|undefined),
- *   controller: (Function|string|undefined),
+ *   controller: (angular.Injectable|string|undefined),
  *   locals: (Object|undefined),
  *   bindToController: (boolean|undefined),
  *   resolve: (Object|undefined),
@@ -560,9 +560,10 @@ md.$toast.preset.prototype.toastClass = function(className) {};
 
 
 /**
+ * @param {!md.$toast.options=} options
  * @return {!md.$toast.preset}
  */
-md.$toast.prototype.simple = function() {};
+md.$toast.prototype.simple = function(options) {};
 
 /******************************************************************************
  * $sidenav Service
@@ -938,7 +939,7 @@ md.$panel = function() {};
  * @typedef {{
  *   template: (string|undefined),
  *   templateUrl: (string|!Object|undefined),
- *   controller: (Function|string|undefined),
+ *   controller: (angular.Injectable|string|undefined),
  *   controllerAs: (string|undefined),
  *   locals: (!Object|undefined),
  *   resolve: (!Object|undefined),

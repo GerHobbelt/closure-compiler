@@ -21,8 +21,6 @@ import static com.google.javascript.jscomp.CompilerOptions.LanguageMode.ECMASCRI
 import static com.google.javascript.jscomp.testing.NodeSubject.assertNode;
 
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Behavior;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
 import com.google.javascript.rhino.Token;
 
 public final class ReferenceCollectingCallbackTest extends CompilerTestCase {
@@ -34,6 +32,15 @@ public final class ReferenceCollectingCallbackTest extends CompilerTestCase {
     setLanguage(ECMASCRIPT_NEXT, ECMASCRIPT_NEXT);
     behavior = null;
     es6ScopeCreator = true;
+  }
+
+  @Override
+  protected int getNumRepetitions() {
+    // Default behavior for CompilerTestCase.test*() methods is to do the whole test twice,
+    // because passes that modify the AST need to be idempotent.
+    // Since ReferenceCollectingCallback() just gathers information, it doesn't make sense to
+    // run it twice, and doing so just complicates debugging test cases.
+    return 1;
   }
 
   @Override

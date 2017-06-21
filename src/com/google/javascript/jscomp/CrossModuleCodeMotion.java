@@ -16,11 +16,11 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
+import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -127,7 +127,7 @@ class CrossModuleCodeMotion implements CompilerPass {
 
             // VAR Nodes are normalized to have only one child.
             Node declParent = decl.node.getParent();
-            Preconditions.checkState(
+            checkState(
                 !declParent.isVar() || declParent.hasOneChild(),
                 "AST not normalized.");
 
@@ -172,12 +172,13 @@ class CrossModuleCodeMotion implements CompilerPass {
       } else {
         // Find the deepest common dependency
         deepestModule =
-            graph.getDeepestCommonDependencyInclusive(m, deepestModule);
+            graph.getSmallestCoveringDependency(ImmutableList.of(m, deepestModule));
       }
     }
 
     boolean isUsedInOrDependencyOfModule(JSModule m) {
-      if (deepestModule == null || m == null) {
+      checkNotNull(m);
+      if (deepestModule == null) {
         return false;
       }
       return m == deepestModule || graph.dependsOn(m, deepestModule);
@@ -212,8 +213,8 @@ class CrossModuleCodeMotion implements CompilerPass {
     final Node node;
 
     Declaration(JSModule module, Node node) {
-      this.module = module;
-      this.node = node;
+      this.module = checkNotNull(module);
+      this.node = checkNotNull(node);
     }
   }
 
@@ -302,15 +303,9 @@ class CrossModuleCodeMotion implements CompilerPass {
   }
 
   private void collectReferences(Node root) {
-    ReferenceCollectingCallback collector = new ReferenceCollectingCallback(
-        compiler, ReferenceCollectingCallback.DO_NOTHING_BEHAVIOR,
-        new Es6SyntacticScopeCreator(compiler),
-        new Predicate<Var>() {
-          @Override public boolean apply(Var var) {
-            // Only collect global and non-exported names.
-            return var.isGlobal() && !compiler.getCodingConvention().isExported(var.getName());
-          }
-        });
+    CrossModuleReferenceCollector collector = new CrossModuleReferenceCollector(
+        compiler,
+        new Es6SyntacticScopeCreator(compiler));
     collector.process(root);
 
     for (Var v : collector.getAllSymbols()) {
@@ -326,7 +321,7 @@ class CrossModuleCodeMotion implements CompilerPass {
   }
 
   private void processReference(
-      ReferenceCollectingCallback collector, Reference ref, NamedInfo info, Var v) {
+      CrossModuleReferenceCollector collector, Reference ref, NamedInfo info, Var v) {
     Node n = ref.getNode();
     if (isRecursiveDeclaration(v, n)) {
       return;
@@ -343,14 +338,103 @@ class CrossModuleCodeMotion implements CompilerPass {
         info.allowMove = false;
       }
     } else {
-      if (parentModuleCanSeeSymbolsDeclaredInChildren &&
-          parent.isInstanceOf() && parent.getLastChild() == n) {
-        instanceofNodes.put(parent, new InstanceofInfo(getModule(ref), info));
-      } else {
-        // Otherwise, it's a read
+      if (!parentModuleCanSeeSymbolsDeclaredInChildren) {
+        // Modules are loaded in such a way that Foo really must be defined before any
+        // expressions like `x instanceof Foo` are evaluated.
         processRead(ref, info);
+      } else {
+        if (isUnguardedInstanceofReference(n)) {
+          // Save a list of unguarded instanceof references.
+          // We'll add undefined typeof guards to them instead of allowing them to block code
+          // motion.
+          instanceofNodes.put(parent, new InstanceofInfo(getModule(ref), info));
+        } else if (!(isUndefinedTypeofGuardReference(n) || isGuardedInstanceofReference(n))) {
+          // Ignore `'undefined' != typeof Ref && x instanceof Ref`
+          // Otherwise, it's a read
+          processRead(ref, info);
+        }
       }
     }
+  }
+
+  /**
+   * Is the reference node the first {@code Ref} in an expression like
+   * {@code 'undefined' != typeof Ref && x instanceof Ref}?
+   *
+   * <p>It's safe to ignore this kind of reference when moving the definition of {@code Ref}.
+   */
+  private boolean isUndefinedTypeofGuardReference(Node reference) {
+    // reference => typeof => `!=`
+    Node undefinedTypeofGuard = reference.getGrandparent();
+    if (undefinedTypeofGuard != null
+        && isUndefinedTypeofGuardFor(undefinedTypeofGuard, reference)) {
+      Node andNode = undefinedTypeofGuard.getParent();
+      return andNode != null
+          && andNode.isAnd()
+          && isInstanceofFor(andNode.getLastChild(), reference);
+    } else {
+      return false;
+    }
+  }
+
+  /**
+   * Is the expression of the form {@code 'undefined' != typeof Ref}?
+   *
+   * @param expression
+   * @param reference Ref node must be equivalent to this node
+   */
+  private boolean isUndefinedTypeofGuardFor(Node expression, Node reference) {
+    if (expression.isNE()) {
+      Node undefinedString = expression.getFirstChild();
+      Node typeofNode = expression.getLastChild();
+      return undefinedString.isString()
+          && undefinedString.getString().equals("undefined")
+          && typeofNode.isTypeOf()
+          && typeofNode.getFirstChild().isEquivalentTo(reference);
+    } else {
+      return false;
+    }
+  }
+
+  /**
+   * Is the reference node the second {@code Ref} in an expression like
+   * {@code 'undefined' != typeof Ref && x instanceof Ref}?
+   *
+   * <p>It's safe to ignore this kind of reference when moving the definition of {@code Ref}.
+   */
+  private boolean isGuardedInstanceofReference(Node reference) {
+    Node instanceofNode = reference.getParent();
+    if (isInstanceofFor(instanceofNode, reference)) {
+      Node andNode = instanceofNode.getParent();
+      return andNode != null
+          && andNode.isAnd()
+          && isUndefinedTypeofGuardFor(andNode.getFirstChild(), reference);
+    } else {
+      return false;
+    }
+  }
+
+  /** Is the reference the right hand side of an {@code instanceof} and not guarded? */
+  private boolean isUnguardedInstanceofReference(Node reference) {
+    Node instanceofNode = reference.getParent();
+    if (isInstanceofFor(instanceofNode, reference)) {
+      Node andNode = instanceofNode.getParent();
+      return !(andNode != null
+          && andNode.isAnd()
+          && isUndefinedTypeofGuardFor(andNode.getFirstChild(), reference));
+    } else {
+      return false;
+    }
+  }
+
+  /**
+   * Is the expression of the form {@code x instanceof Ref}?
+   *
+   * @param expression
+   * @param reference Ref node must be equivalent to this node
+   */
+  private boolean isInstanceofFor(Node expression, Node reference) {
+    return expression.isInstanceOf() && expression.getLastChild().isEquivalentTo(reference);
   }
 
   /**
@@ -388,7 +472,7 @@ class CrossModuleCodeMotion implements CompilerPass {
    * where "movable object" is a literal or a function.
    */
   private boolean maybeProcessDeclaration(
-      ReferenceCollectingCallback collector, Reference ref, NamedInfo info) {
+      CrossModuleReferenceCollector collector, Reference ref, NamedInfo info) {
     Node name = ref.getNode();
     Node parent = name.getParent();
     Node grandparent = parent.getParent();
@@ -454,7 +538,7 @@ class CrossModuleCodeMotion implements CompilerPass {
    * Determines whether the given value is eligible to be moved across modules.
    */
   private static boolean canMoveValue(
-      ReferenceCollectingCallback collector, Scope scope, Node n) {
+      CrossModuleReferenceCollector collector, Scope scope, Node n) {
     // the value is only movable if it's
     // a) nothing,
     // b) a constant literal,
@@ -512,25 +596,15 @@ class CrossModuleCodeMotion implements CompilerPass {
       if (!info.namedInfo.allowMove || !info.mustBeGuardedByTypeof()) {
         continue;
       }
-      // In order for the compiler pass to be idempotent, this checks whether
-      // the instanceof is already wrapped in the code that is generated below.
-      Node parent = n.getParent();
-      if (parent.isAnd() && parent.getLastChild() == n
-          && parent.getFirstChild().isNE()) {
-        Node ne = parent.getFirstChild();
-        if (ne.getFirstChild().isString()
-            && "undefined".equals(ne.getFirstChild().getString())
-            && ne.getLastChild().isTypeOf()) {
-          Node ref = ne.getLastChild().getFirstChild();
-          if (ref.isEquivalentTo(n.getLastChild())) {
-            continue;
-          }
-        }
-      }
       // Wrap "foo instanceof Bar" in
       // "('undefined' != typeof Bar && foo instanceof Bar)"
-      Node reference = n.getLastChild().cloneNode();
-      Preconditions.checkState(reference.isName());
+      Node originalReference = n.getLastChild();
+      checkState(
+          isUnguardedInstanceofReference(originalReference),
+          "instanceof Reference is already guarded: %s",
+          originalReference);
+      Node reference = originalReference.cloneNode();
+      checkState(reference.isName());
       n.replaceWith(tmp);
       Node and = IR.and(
           new Node(Token.NE,
@@ -550,8 +624,8 @@ class CrossModuleCodeMotion implements CompilerPass {
     private final NamedInfo namedInfo;
 
     InstanceofInfo(JSModule module, NamedInfo namedInfo) {
-      this.module = module;
-      this.namedInfo = namedInfo;
+      this.module = checkNotNull(module);
+      this.namedInfo = checkNotNull(namedInfo);
     }
 
     /**

@@ -21,9 +21,6 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.Behavior;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.Reference;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
-import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceMap;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TypeI;
 import java.util.HashMap;
@@ -223,7 +220,7 @@ class InlineVariables implements CompilerPass {
     }
 
     private boolean maybeEscapedOrModifiedArguments(Scope scope, ReferenceMap referenceMap) {
-      if (scope.isFunctionScope()) {
+      if (scope.isFunctionScope() && !scope.getRootNode().isArrowFunction()) {
         Var arguments = scope.getArgumentsVar();
         ReferenceCollection refs = referenceMap.getReferences(arguments);
         if (refs != null && !refs.references.isEmpty()) {

@@ -20,6 +20,8 @@ import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.reflect.TypeToken;
 import com.google.javascript.jscomp.CheckConformance.InvalidRequirementSpec;
@@ -493,6 +495,10 @@ public final class ConformanceRules {
     @Override
     protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
       if (NodeUtil.isGet(n) && n.getLastChild().isString()) {
+        // TODO(dimvar): Instead of the for-loop, we could make props be a multi-map from
+        // the property name to Property, and then here just pull the relevant Property instances.
+        // Won't make much difference to performance, since props usually only has a few elements,
+        // but it will make the code clearer.
         for (int i = 0; i < props.size(); i++) {
           Property prop = props.get(i);
           ConformanceResult result = checkConformance(t, n, prop);
@@ -504,13 +510,13 @@ public final class ConformanceRules {
       return ConformanceResult.CONFORMANCE;
     }
 
-    private ConformanceResult checkConformance(NodeTraversal t, Node n, Property prop) {
-      if (isCandidatePropUse(n, prop)) {
+    private ConformanceResult checkConformance(NodeTraversal t, Node propAccess, Property prop) {
+      if (isCandidatePropUse(propAccess, prop)) {
         TypeIRegistry registry = t.getCompiler().getTypeIRegistry();
         TypeI typeWithBannedProp = registry.getType(prop.type);
-        Node lhs = n.getFirstChild();
-        if (typeWithBannedProp != null && lhs.getTypeI() != null) {
-          TypeI foundType = lhs.getTypeI().restrictByNotNullOrUndefined();
+        Node receiver = propAccess.getFirstChild();
+        if (typeWithBannedProp != null && receiver.getTypeI() != null) {
+          TypeI foundType = receiver.getTypeI().restrictByNotNullOrUndefined();
           ObjectTypeI foundObj = foundType.toMaybeObjectType();
           if (foundObj != null) {
             if (foundObj.isPrototypeObject()) {
@@ -563,24 +569,26 @@ public final class ConformanceRules {
      * requirement under consideration only bans assignment to the property,
      * {@code n} is only a candidate if it is an l-value.
      */
-    private boolean isCandidatePropUse(Node n, Property prop) {
-      if (n.getLastChild().getString().equals(prop.property)) {
+    private boolean isCandidatePropUse(Node propAccess, Property prop) {
+      Preconditions.checkState(propAccess.isGetProp() || propAccess.isGetElem(),
+          "Expected property-access node but found %s", propAccess);
+      if (propAccess.getLastChild().getString().equals(prop.property)) {
         if (requirementType == Type.BANNED_PROPERTY_WRITE) {
-          return NodeUtil.isLValue(n);
+          return NodeUtil.isLValue(propAccess);
         } else if (requirementType == Type.BANNED_PROPERTY_NON_CONSTANT_WRITE) {
-          if (!NodeUtil.isLValue(n)) {
+          if (!NodeUtil.isLValue(propAccess)) {
             return false;
           }
-          if (NodeUtil.isLhsOfAssign(n)
-              && (NodeUtil.isLiteralValue(n.getNext(), false /* includeFunctions */)
-                  || NodeUtil.isStringLiteralValue(n.getNext()))) {
+          if (NodeUtil.isLhsOfAssign(propAccess)
+              && (NodeUtil.isLiteralValue(propAccess.getNext(), false /* includeFunctions */)
+                  || NodeUtil.isStringLiteralValue(propAccess.getNext()))) {
             return false;
           }
           return true;
         } else if (requirementType == Type.BANNED_PROPERTY_READ) {
-          return !NodeUtil.isLValue(n) && NodeUtil.isExpressionResultUsed(n);
+          return !NodeUtil.isLValue(propAccess) && NodeUtil.isExpressionResultUsed(propAccess);
         } else if (requirementType == Type.BANNED_PROPERTY_CALL) {
-          return ConformanceUtil.isCallTarget(n);
+          return ConformanceUtil.isCallTarget(propAccess);
         } else {
           return true;
         }
@@ -1442,6 +1450,7 @@ public final class ConformanceRules {
    */
   public static final class BanCreateDom extends AbstractRule {
     private List<String[]> bannedTagAttrs;
+    private TypeI classNameTypes;
 
     public BanCreateDom(AbstractCompiler compiler, Requirement requirement)
         throws InvalidRequirementSpec {
@@ -1458,6 +1467,11 @@ public final class ConformanceRules {
       if (bannedTagAttrs.isEmpty()) {
         throw new InvalidRequirementSpec("Specify one or more values.");
       }
+      classNameTypes = compiler.getTypeIRegistry().createUnionType(ImmutableList.of(
+          compiler.getTypeIRegistry().getNativeType(JSTypeNative.STRING_TYPE),
+          compiler.getTypeIRegistry().getNativeType(JSTypeNative.ARRAY_TYPE),
+          compiler.getTypeIRegistry().getNativeType(JSTypeNative.NULL_TYPE),
+          compiler.getTypeIRegistry().getNativeType(JSTypeNative.VOID_TYPE)));
     }
 
     @Override
@@ -1473,6 +1487,9 @@ public final class ConformanceRules {
       String tagName = getTagName(n.getSecondChild());
       Node attrs = n.getChildAtIndex(2);
       TypeI attrsType = attrs.getTypeI();
+      // String or array attribute sets the class.
+      boolean isClassName = attrsType != null && !attrsType.isUnknownType()
+          && (attrsType.isSubtypeOf(classNameTypes));
 
       if (attrs.isNull() || (attrsType != null && attrsType.isVoidType())) {
         // goog.dom.createDom('iframe', null) is fine.
@@ -1483,24 +1500,30 @@ public final class ConformanceRules {
         if (tagName != null && !tagAttr[0].equals(tagName) && !tagAttr[0].equals("*")) {
           continue;
         }
-        ConformanceResult violation =
-            tagName == null && !tagAttr[0].equals("*")
-                ? ConformanceResult.POSSIBLE_VIOLATION
-                : ConformanceResult.VIOLATION;
-        if (attrsType != null
-            && (attrsType.isStringValueType() || attrsType.containsArray())) {
-          // String or array attribute sets the class.
+        ConformanceResult violation;
+        if (tagName != null || tagAttr[0].equals("*")) {
+          violation = ConformanceResult.VIOLATION;
+        } else if (reportLooseTypeViolations) {
+          violation = ConformanceResult.POSSIBLE_VIOLATION;
+        } else {
+          violation = ConformanceResult.CONFORMANCE;
+        }
+        if (isClassName) {
           if (!tagAttr[1].equals("class")) {
             continue;
           }
           return violation;
         }
-        if (tagAttr[1].equals("textContent") && n.getChildCount() > 3) {
+        if (tagAttr[1].equals("textContent")
+            && n.getChildCount() > 3
+            && violation != ConformanceResult.CONFORMANCE) {
           return violation;
         }
         if (!attrs.isObjectLit()) {
           // Attrs is not an object literal and tagName matches or is unknown.
-          return ConformanceResult.POSSIBLE_VIOLATION;
+          return reportLooseTypeViolations
+              ? ConformanceResult.POSSIBLE_VIOLATION
+              : ConformanceResult.CONFORMANCE;
         }
         Node prop = NodeUtil.getFirstPropMatchingKey(attrs, tagAttr[1]);
         if (prop != null) {
@@ -1518,12 +1541,102 @@ public final class ConformanceRules {
     private String getTagName(Node tag) {
       if (tag.isString()) {
         return tag.getString().toLowerCase();
-      } else if (tag.isGetProp()
-          && tag.getFirstChild().getQualifiedName().equals("goog.dom.TagName")) {
+      } else if (tag.isGetProp() && tag.getFirstChild().matchesQualifiedName("goog.dom.TagName")) {
         return tag.getLastChild().getString().toLowerCase();
+      }
+      // TODO(jakubvrana): Support union, e.g. {!TagName<!HTMLDivElement>|!TagName<!HTMLBRElement>}.
+      TypeI type = tag.getTypeI();
+      if (type == null || !type.isGenericObjectType()) {
+        return null;
+      }
+      ObjectTypeI typeAsObj = type.toMaybeObjectType();
+      if (typeAsObj.getRawType().getDisplayName().equals("goog.dom.TagName")) {
+        TypeI tagType = Iterables.getOnlyElement(typeAsObj.getTemplateTypes());
+        return ELEMENT_TAG_NAMES.get(tagType.getDisplayName());
       }
       return null;
     }
+
+    private static final ImmutableMap<String, String> ELEMENT_TAG_NAMES =
+        ImmutableMap.<String, String>builder()
+            .put("HTMLAnchorElement", "a")
+            .put("HTMLAppletElement", "applet")
+            .put("HTMLAreaElement", "area")
+            .put("HTMLAudioElement", "audio")
+            .put("HTMLBRElement", "br")
+            .put("HTMLBaseElement", "base")
+            .put("HTMLBaseFontElement", "basefont")
+            .put("HTMLBodyElement", "body")
+            .put("HTMLButtonElement", "button")
+            .put("HTMLCanvasElement", "canvas")
+            .put("HTMLDListElement", "dl")
+            .put("HTMLDataListElement", "datalist")
+            .put("HTMLDetailsElement", "details")
+            .put("HTMLDialogElement", "dialog")
+            .put("HTMLDirectoryElement", "dir")
+            .put("HTMLDivElement", "div")
+            .put("HTMLEmbedElement", "embed")
+            .put("HTMLFieldSetElement", "fieldset")
+            .put("HTMLFontElement", "font")
+            .put("HTMLFormElement", "form")
+            .put("HTMLFrameElement", "frame")
+            .put("HTMLFrameSetElement", "frameset")
+            .put("HTMLHRElement", "hr")
+            .put("HTMLHeadElement", "head")
+            // .put("HTMLHeadingElement", "h1")
+            // .put("HTMLHeadingElement", "h2")
+            // .put("HTMLHeadingElement", "h3")
+            // .put("HTMLHeadingElement", "h4")
+            // .put("HTMLHeadingElement", "h5")
+            // .put("HTMLHeadingElement", "h6")
+            .put("HTMLHtmlElement", "html")
+            .put("HTMLIFrameElement", "iframe")
+            .put("HTMLImageElement", "img")
+            .put("HTMLInputElement", "input")
+            .put("HTMLIsIndexElement", "isindex")
+            .put("HTMLLIElement", "li")
+            .put("HTMLLabelElement", "label")
+            .put("HTMLLegendElement", "legend")
+            .put("HTMLLinkElement", "link")
+            .put("HTMLMapElement", "map")
+            .put("HTMLMenuElement", "menu")
+            .put("HTMLMetaElement", "meta")
+            .put("HTMLMeterElement", "meter")
+            // .put("HTMLModElement", "del")
+            // .put("HTMLModElement", "ins")
+            .put("HTMLOListElement", "ol")
+            .put("HTMLObjectElement", "object")
+            .put("HTMLOptGroupElement", "optgroup")
+            .put("HTMLOptionElement", "option")
+            .put("HTMLOutputElement", "output")
+            .put("HTMLParagraphElement", "p")
+            .put("HTMLParamElement", "param")
+            .put("HTMLPreElement", "pre")
+            .put("HTMLProgressElement", "progress")
+            // .put("HTMLQuoteElement", "blockquote")
+            // .put("HTMLQuoteElement", "q")
+            .put("HTMLScriptElement", "script")
+            .put("HTMLSelectElement", "select")
+            .put("HTMLSourceElement", "source")
+            .put("HTMLSpanElement", "span")
+            .put("HTMLStyleElement", "style")
+            .put("HTMLTableCaptionElement", "caption")
+            // .put("HTMLTableCellElement", "td")
+            // .put("HTMLTableCellElement", "th")
+            // .put("HTMLTableColElement", "col")
+            // .put("HTMLTableColElement", "colgroup")
+            .put("HTMLTableElement", "table")
+            .put("HTMLTableRowElement", "tr")
+            // .put("HTMLTableSectionElement", "tbody")
+            // .put("HTMLTableSectionElement", "tfoot")
+            // .put("HTMLTableSectionElement", "thead")
+            .put("HTMLTemplateElement", "template")
+            .put("HTMLTextAreaElement", "textarea")
+            .put("HTMLTitleElement", "title")
+            .put("HTMLTrackElement", "track")
+            .put("HTMLUListElement", "ul")
+            .put("HTMLVideoElement", "video")
+            .build();
 
     private boolean isCreateDomCall(Node n) {
       if (NodeUtil.isCallTo(n, "goog.dom.createDom")) {

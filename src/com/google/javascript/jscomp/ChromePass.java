@@ -21,7 +21,6 @@ import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -111,7 +110,7 @@ public class ChromePass extends AbstractPostOrderCallback implements CompilerPas
 
   @Override
   public void process(Node externs, Node root) {
-    NodeTraversal.traverse(compiler, root, this);
+    NodeTraversal.traverseEs6(compiler, root, this);
   }
 
   @Override
@@ -230,7 +229,7 @@ public class ChromePass extends AbstractPostOrderCallback implements CompilerPas
     Node assignNode;
     return node.isExprResult()
         && (assignNode = node.getFirstChild()).isAssign()
-        && assignNode.getFirstChild().getQualifiedName().equals(prototype);
+        && assignNode.getFirstChild().matchesQualifiedName(prototype);
   }
 
   private static boolean isAssignmentToPrototypeMethod(Node node, String prototype) {
@@ -331,7 +330,7 @@ public class ChromePass extends AbstractPostOrderCallback implements CompilerPas
 
     Map<String, String> exports = objectLitToMap(objectLit);
 
-    NodeTraversal.traverse(
+    NodeTraversal.traverseEs6(
         compiler,
         functionBlock,
         new RenameInternalsToExternalsCallback(namespace, exports, functionBlock));

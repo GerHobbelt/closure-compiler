@@ -2165,15 +2165,27 @@ public final class ParserTest extends BaseJSTypeTestCase {
     mode = LanguageMode.ECMASCRIPT3;
     strictMode = SLOPPY;
     parseWarning("0001;",
-        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+        "Octal integer literals are not supported in strict mode.");
 
     mode = LanguageMode.ECMASCRIPT5;
     parseWarning("0001;",
-        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+        "Octal integer literals are not supported in strict mode.");
 
     mode = LanguageMode.ECMASCRIPT6;
     parseWarning("0001;",
-        "Octal integer literals are not supported in Ecmascript 5 strict mode.");
+        "Octal integer literals are not supported in strict mode.");
+  }
+
+  public void testOldStyleOctalLiterals_strictMode() {
+    strictMode = STRICT;
+
+    mode = LanguageMode.ECMASCRIPT5;
+    parseError("0001;",
+        "Octal integer literals are not supported in strict mode.");
+
+    mode = LanguageMode.ECMASCRIPT6;
+    parseError("0001;",
+        "Octal integer literals are not supported in strict mode.");
   }
 
   public void testInvalidOctalLiterals() {
@@ -2886,18 +2898,20 @@ public final class ParserTest extends BaseJSTypeTestCase {
     mode = LanguageMode.ECMASCRIPT6;
     strictMode = SLOPPY;
     parse(
-        "class C {\n"
-            + "  import() {};\n"
-            + "  get break() {};\n"
-            + "  set break(a) {};\n"
-            + "}\n");
+        LINE_JOINER.join(
+            "class C {",
+            "  import() {};",
+            "  get break() {};",
+            "  set break(a) {};",
+            "}"));
 
     parse(
-        "class C {\n"
-            + "  static import() {};\n"
-            + "  static get break() {};\n"
-            + "  static set break(a) {};\n"
-            + "}\n");
+        LINE_JOINER.join(
+            "class C {",
+            "  static import() {};",
+            "  static get break() {};",
+            "  static set break(a) {};",
+            "}"));
   }
 
   public void testSuper1() {

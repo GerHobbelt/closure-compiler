@@ -168,11 +168,13 @@ final class NTIScope implements DeclaredTypeRegistry {
   }
 
   boolean isConstructor() {
-    if (!root.isFunction()) {
-      return false;
-    }
-    JSDocInfo fnDoc = NodeUtil.getBestJSDocInfo(root);
-    return fnDoc != null && fnDoc.isConstructor();
+    JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(root);
+    return isFunction() && jsdoc != null && jsdoc.isConstructor();
+  }
+
+  boolean isInterface() {
+    JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(root);
+    return isFunction() && jsdoc != null && jsdoc.isInterface();
   }
 
   boolean isPrototypeMethod() {
@@ -655,7 +657,11 @@ final class NTIScope implements DeclaredTypeRegistry {
   public JSType getType(String typeName) {
     Preconditions.checkNotNull(
         preservedNamespaces, "Failed to preserve namespaces post-finalization");
-    Namespace ns = preservedNamespaces.get(typeName);
+    QualifiedName qname = QualifiedName.fromQualifiedString(typeName);
+    Namespace ns = preservedNamespaces.get(qname.getLeftmostName());
+    if (ns != null && !qname.isIdentifier()) {
+      ns = ns.getSubnamespace(qname.getAllButLeftmost());
+    }
     if (ns instanceof RawNominalType) {
       return ((RawNominalType) ns).getInstanceAsJSType();
     }
