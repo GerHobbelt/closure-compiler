@@ -46,7 +46,8 @@ public final class ReplaceMessagesTest extends CompilerTestCase {
   }
 
   @Override
-  protected void setUp()  {
+  protected void setUp() throws Exception {
+    super.setUp();
     messages = new HashMap<>();
     strictReplacement = false;
     style = RELAX;

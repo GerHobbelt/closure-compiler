@@ -122,6 +122,9 @@ public abstract class CompilerTestCase extends TestCase {
   /** Whether to check that all line number information is preserved. */
   private boolean checkLineNumbers = true;
 
+  /** Whether to check that changed scopes are marked as changed */
+  private boolean checkAstChangeMarking = true;
+
   /** Whether we expect parse warnings in the current test. */
   private boolean expectParseWarningsThisTest = false;
 
@@ -238,6 +241,18 @@ public abstract class CompilerTestCase extends TestCase {
           " */",
           "String.prototype.replace = function(regex, str, opt_flags) {};",
           "/** @type {number} */ String.prototype.length;",
+          "/**",
+          " * @constructor",
+          " * @param {*=} arg",
+          " * @return {number}",
+          " */",
+          "function Number(arg) {}",
+          "/**",
+          " * @constructor",
+          " * @param {*=} arg",
+          " * @return {boolean}",
+          " */",
+          "function Boolean(arg) {}",
           "/**",
           " * @template T",
           " * @constructor ",
@@ -502,6 +517,13 @@ public abstract class CompilerTestCase extends TestCase {
   }
 
   /**
+   * @param newVal Whether to validate AST change marking.
+   */
+  public void validateAstChangeMarking(boolean newVal) {
+    checkAstChangeMarking = newVal;
+  }
+
+  /**
    * Do not run type checking before running the test pass.
    *
    * @see TypeCheck
@@ -627,7 +649,7 @@ public abstract class CompilerTestCase extends TestCase {
     return new TypeCheck(compiler, rai, compiler.getTypeRegistry());
   }
 
-  private static void runNewTypeInference(Compiler compiler, Node externs, Node js) {
+  static void runNewTypeInference(Compiler compiler, Node externs, Node js) {
     GlobalTypeInfo gti = compiler.getSymbolTable();
     gti.process(externs, js);
     NewTypeInference nti = new NewTypeInference(compiler);
@@ -1297,7 +1319,7 @@ public abstract class CompilerTestCase extends TestCase {
     }
     assertWithMessage("Unexpected parse error(s): " + errorMsg).that(root).isNotNull();
     if (!expectParseWarningsThisTest) {
-      assertThat(compiler.getWarnings()).named("parser warnings").isEmpty();
+      assertWithMessage("Unexpected parser warning(s)").that(compiler.getWarnings()).isEmpty();
     } else {
       assertThat(compiler.getWarningCount()).isGreaterThan(0);
     }
@@ -1312,7 +1334,6 @@ public abstract class CompilerTestCase extends TestCase {
     Node rootClone = root.cloneTree();
     Node externsRootClone = rootClone.getFirstChild();
     Node mainRootClone = rootClone.getLastChild();
-    Map<Node, Node> mtoc = NodeUtil.mapMainToClone(mainRoot, mainRootClone);
 
     int numRepetitions = getNumRepetitions();
     ErrorManager[] errorManagers = new ErrorManager[numRepetitions];
@@ -1394,7 +1415,20 @@ public abstract class CompilerTestCase extends TestCase {
 
         recentChange.reset();
 
+        Map<Node, Node> mtoc = null;
+        if (checkAstChangeMarking) {
+          mtoc = NodeUtil.mapMainToClone(mainRoot, mainRoot.cloneTree());
+        }
+
         getProcessor(compiler).process(externsRoot, mainRoot);
+
+        if (checkAstChangeMarking) {
+          // TODO(johnlenz): add support for multiple passes in getProcessor so that we can
+          // check the AST marking after each pass runs.
+          // Verify that changes to the AST are properly marked on the AST.
+          NodeUtil.verifyScopeChanges("", mtoc, mainRoot);
+        }
+
         if (astValidationEnabled) {
           (new AstValidator(compiler)).validateRoot(root);
         }
@@ -1504,9 +1538,6 @@ public abstract class CompilerTestCase extends TestCase {
                 + mainRoot.toStringTree(),
             hasCodeChanged);
       }
-
-      // Check correctness of the changed-scopes-only traversal
-      NodeUtil.verifyScopeChanges(mtoc, mainRoot, false);
 
       if (expected != null) {
         if (compareAsTree) {

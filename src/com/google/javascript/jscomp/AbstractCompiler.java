@@ -265,13 +265,22 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   /** Let the PhaseOptimizer know which scope a pass is currently analyzing */
   abstract void setScope(Node n);
 
+  /** A monotonically increasing value to identify a change */
+  abstract int getChangeStamp();
+
+  /** Called to indicate that the current change stamp has been used */
+  abstract void incrementChangeStamp();
+
   /** Returns the root of the source tree, ignoring externs */
   abstract Node getJsRoot();
 
   /** True iff a function changed since the last time a pass was run */
   abstract boolean hasScopeChanged(Node n);
 
-  /** Passes that do cross-scope modifications use this (eg, InlineVariables) */
+  /**
+   * Passes that make modifications in a scope that is different than the Compiler.currentScope use
+   * this (eg, InlineVariables and many others)
+   */
   abstract void reportChangeToEnclosingScope(Node n);
 
   /**

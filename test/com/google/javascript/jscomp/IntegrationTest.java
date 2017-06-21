@@ -1188,19 +1188,22 @@ public final class IntegrationTest extends IntegrationTestCase {
   }
 
   public void testCollapseObjectLiteral2() {
-    String code =
-        "function f() {var x = {}; x.FOO = 5; x.bar = 3;}";
+    String code = "function f() {var x = {}; x.FOO = 5; x.bar = 3;}";
 
     CompilerOptions options = createCompilerOptions();
     testSame(options, code);
 
     options.collapseObjectLiterals = true;
-    test(options, code,
-        "function f(){" +
-        "var JSCompiler_object_inline_FOO_0;" +
-        "var JSCompiler_object_inline_bar_1;" +
-        "JSCompiler_object_inline_FOO_0=5;" +
-        "JSCompiler_object_inline_bar_1=3}");
+    test(
+        options,
+        code,
+        LINE_JOINER.join(
+            "function f() {",
+            "  var JSCompiler_object_inline_FOO_0;",
+            "  var JSCompiler_object_inline_bar_1;",
+            "  JSCompiler_object_inline_FOO_0 = 5;",
+            "  JSCompiler_object_inline_bar_1 = 3;",
+            "}"));
   }
 
   public void testDisambiguateProperties() {
@@ -2056,6 +2059,7 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.ADVANCED_OPTIMIZATIONS;
     level.setOptionsForCompilationLevel(options);
+    options.setCheckSymbols(false);
     test(options,
         LINE_JOINER.join(
             "function f(x) {",
@@ -2654,6 +2658,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testIssue724() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setCheckSymbols(false);
     options.setCheckTypes(false);
     String code =
         "isFunction = function(functionToCheck) {" +
@@ -3255,8 +3260,8 @@ public final class IntegrationTest extends IntegrationTestCase {
 
   public void testNegativeZero() {
     CompilerOptions options = createCompilerOptions();
-    CompilationLevel.ADVANCED_OPTIMIZATIONS
-        .setOptionsForCompilationLevel(options);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setCheckSymbols(false);
     test(options,
         "function bar(x) { return x; }\n" +
         "function foo(x) { print(x / bar(0));\n" +
@@ -3939,6 +3944,7 @@ public final class IntegrationTest extends IntegrationTestCase {
   public void testOptimizeSwitchGithubIssue1234() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setCheckSymbols(false);
     test(
         options,
         LINE_JOINER.join(
@@ -4077,6 +4083,12 @@ public final class IntegrationTest extends IntegrationTestCase {
       String propName = getProp.getSecondChild().getString();
       assertThat(restrictedChars).doesNotContain(propName.charAt(0));
     }
+  }
+
+  public void testCheckVarsOnInAdvancedMode() {
+    CompilerOptions options = new CompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    test(options, "var x = foobar;", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

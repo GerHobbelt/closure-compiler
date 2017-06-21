@@ -2543,14 +2543,18 @@ public final class NodeUtil {
     }
   };
 
+  static boolean createsScope(Node n) {
+    return createsBlockScope(n) || n.isFunction() || n.isModuleBody()
+        // The ROOT nodes that are the root of the externs tree or main JS tree do not
+        // create scopes. The parent of those two, which is the root of the entire AST and
+        // therefore has no parent, is the only ROOT node that creates a scope.
+        || (n.isRoot() && n.getParent() == null);
+  }
+
   static final Predicate<Node> createsScope = new Predicate<Node>() {
     @Override
     public boolean apply(Node n) {
-      return createsBlockScope(n) || n.isFunction() || n.isModuleBody()
-          // The ROOT nodes that are the root of the externs tree or main JS tree do not
-          // create scopes. The parent of those two, which is the root of the entire AST and
-          // therefore has no parent, is the only ROOT node that creates a scope.
-          || (n.isRoot() && n.getParent() == null);
+      return createsScope(n);
     }
   };
 
@@ -4317,9 +4321,32 @@ public final class NodeUtil {
                || locals.apply(value);
       case FUNCTION:
       case REGEXP:
+      case EMPTY:
+        return true;
       case ARRAYLIT:
+        for (Node entry : value.children()) {
+          if (!evaluatesToLocalValue(entry, locals)) {
+            return false;
+          }
+        }
+        return true;
       case OBJECTLIT:
-        // Literals objects with non-literal children are allowed.
+        for (Node key : value.children()) {
+          Preconditions.checkState(
+              key.isGetterDef() || key.isSetterDef() || key.isStringKey() || key.isComputedProp(),
+              "Unexpected obj literal key:",
+              key);
+
+          if (key.isGetterDef() || key.isSetterDef()) {
+            continue;
+          }
+          if (key.isComputedProp() && !evaluatesToLocalValue(key.getSecondChild(), locals)) {
+            return false;
+          }
+          if (key.isStringKey() && !evaluatesToLocalValue(key.getFirstChild(), locals)) {
+            return false;
+          }
+        }
         return true;
       case DELPROP:
       case IN:
@@ -4693,7 +4720,8 @@ public final class NodeUtil {
   }
 
   private static void mtocHelper(Map<Node, Node> map, Node main, Node clone) {
-    if (main.isFunction()) {
+    // TODO(johnlenz): determine if MODULE_BODY is useful here.
+    if (main.isFunction() || main.isScript()) {
       map.put(main, clone);
     }
     Node mchild = main.getFirstChild();
@@ -4706,36 +4734,32 @@ public final class NodeUtil {
   }
 
   /** Checks that the scope roots marked as changed have indeed changed */
-  public static void verifyScopeChanges(Map<Node, Node> map, Node main,
-      boolean verifyUnchangedNodes) {
-    // compiler is passed only to call compiler.toSource during debugging to see
-    // mismatches in scopes
+  public static void verifyScopeChanges(
+      String passName, final Map<Node, Node> mtoc, Node main) {
+    final String passNameMsg = passName.isEmpty() ? "" : passName + ": ";
 
-    // If verifyUnchangedNodes is false, we are comparing the initial AST to the
-    // final AST. Don't check unmarked nodes b/c they may have been changed by
-    // non-loopable passes.
-    // If verifyUnchangedNodes is true, we are comparing the ASTs before & after
-    // a pass. Check all scope roots.
-    final Map<Node, Node> mtoc = map;
-    final boolean checkUnchanged = verifyUnchangedNodes;
     Node clone = mtoc.get(main);
     if (main.getChangeTime() > clone.getChangeTime()) {
       Preconditions.checkState(!isEquivalentToExcludingFunctions(main, clone));
-    } else if (checkUnchanged) {
+    } else {
       Preconditions.checkState(isEquivalentToExcludingFunctions(main, clone));
     }
     visitPreOrder(main,
         new Visitor() {
           @Override
           public void visit(Node n) {
-            if (n.isFunction() && mtoc.containsKey(n)) {
+            if ((n.isScript() || n.isFunction()) && mtoc.containsKey(n)) {
               Node clone = mtoc.get(n);
               if (n.getChangeTime() > clone.getChangeTime()) {
                 Preconditions.checkState(
-                    !isEquivalentToExcludingFunctions(n, clone));
-              } else if (checkUnchanged) {
+                    !isEquivalentToExcludingFunctions(n, clone),
+                    "%sunchanged scope marked as changed",
+                    passNameMsg);
+              } else {
                 Preconditions.checkState(
-                    isEquivalentToExcludingFunctions(n, clone));
+                    isEquivalentToExcludingFunctions(n, clone),
+                    "%schanged scope not marked as changed",
+                    passNameMsg);
               }
             }
           }
@@ -4776,7 +4800,7 @@ public final class NodeUtil {
     if (thisNode == null || thatNode == null) {
       return thisNode == null && thatNode == null;
     }
-    if (!thisNode.isEquivalentToShallow(thatNode)) {
+    if (!thisNode.isEquivalentWithSideEffectsToShallow(thatNode)) {
       return false;
     }
     if (thisNode.getChildCount() != thatNode.getChildCount()) {
@@ -4787,9 +4811,10 @@ public final class NodeUtil {
     while (thisChild != null && thatChild != null) {
       if (thisChild.isFunction() || thisChild.isScript()) {
         //  don't compare function name, parameters or bodies.
-        return thatChild.getToken() == thisChild.getToken();
-      }
-      if (!isEquivalentToExcludingFunctions(thisChild, thatChild)) {
+        if (thatChild.getToken() != thisChild.getToken()) {
+          return false;
+        }
+      } else if (!isEquivalentToExcludingFunctions(thisChild, thatChild)) {
         return false;
       }
       thisChild = thisChild.getNext();

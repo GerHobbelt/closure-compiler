@@ -1369,6 +1369,7 @@ angular.$cacheFactory;
 angular.$cacheFactory_;
 
 /**
+ * @param {string} cacheId
  * @return {!angular.cacheFactory.Cache|undefined}
  */
 angular.$cacheFactory_.get;
@@ -1638,7 +1639,7 @@ angular.$http.prototype.get = function(url, opt_config) {};
 angular.$http.prototype.head = function(url, opt_config) {};
 
 /**
- * @param {string} url
+ * @param {string|!Object} url
  * @param {angular.$http.Config=} opt_config
  * @return {!angular.$http.HttpPromise}
  */
