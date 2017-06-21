@@ -53,6 +53,11 @@ public final class ProcessCommonJSModules implements CompilerPass {
           "Suspicious re-assignment of \"exports\" variable."
               + " Did you actually intend to export something?");
 
+  public static final DiagnosticType UNSUPPORTED_GETTER_SETTER_METHOD =
+      DiagnosticType.warning(
+          "JSC_UNSUPPORTED_GETTER_SETTER_METHOD",
+          "Getter and setter methods are unsupported.");
+
   private final Compiler compiler;
   private final boolean reportDependencies;
 
@@ -863,10 +868,14 @@ public final class ProcessCommonJSModules implements CompilerPass {
 
       Node rValue = NodeUtil.getRValueOfLValue(export);
       Node key = rValue.getFirstChild();
+
       while (key != null) {
         Node lhs;
         if (key.isQuotedString()) {
           lhs = IR.getelem(export.cloneTree(), IR.string(key.getString()));
+        } else if (key.isGetterDef() || key.isSetterDef()) {
+          compiler.report(t.makeError(key, UNSUPPORTED_GETTER_SETTER_METHOD));
+          return;
         } else {
           lhs = IR.getprop(export.cloneTree(), IR.string(key.getString()));
         }
@@ -1149,7 +1158,8 @@ public final class ProcessCommonJSModules implements CompilerPass {
           while (key != null) {
             if (key.isStringKey()
                 && !key.isQuotedString()
-                && NodeUtil.isValidPropertyName(compiler.getLanguageMode(), key.getString())) {
+                && NodeUtil.isValidPropertyName(
+                    compiler.getOptions().getLanguageIn().toFeatureSet(), key.getString())) {
               if (key.hasChildren()) {
                 if (key.getFirstChild().isQualifiedName()) {
                   if (key.getFirstChild() == n) {

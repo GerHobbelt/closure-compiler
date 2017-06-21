@@ -44,7 +44,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1319,6 +1318,49 @@ public final class CommandLineRunnerTest extends TestCase {
     assertThat(builder.toString()).isEqualTo("var x=3; // m0.js\n");
   }
 
+  public void testMultistageCompilation() throws Exception {
+    File saveFile = File.createTempFile("serialized", "state");
+
+    String inputString = "[{\"src\": \"alert('foo');\", \"path\":\"foo.js\"}]";
+    args.add("--json_streams=BOTH");
+    args.add("--module=foo--bar.baz:1");
+
+    // Perform stage1
+    List<String> stage1Args = new ArrayList<>(args);
+    stage1Args.add("--save-after-checks=" + saveFile.getAbsolutePath());
+    compile(inputString, stage1Args);
+
+    // Perform stage2
+    List<String> stage2Args = new ArrayList<>(args);
+    stage2Args.add("--continue-saved-compilation=" + saveFile.getAbsolutePath());
+    String multistageOutput = compile(inputString, stage2Args);
+
+    // Perform single stage compilation
+    String singleStageOutput = compile(inputString, args);
+
+    assertThat(multistageOutput).isEqualTo(singleStageOutput);
+  }
+
+  private String compile(String inputString, List<String> args) {
+    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+    ByteArrayOutputStream errorStream = new ByteArrayOutputStream();
+    CommandLineRunner runner =
+        new CommandLineRunner(
+            args.toArray(new String[] {}),
+            new ByteArrayInputStream(inputString.getBytes(UTF_8)),
+            new PrintStream(outputStream),
+            new PrintStream(errorStream));
+
+    runner.getCompiler();
+    try {
+      runner.doRun();
+    } catch (IOException e) {
+      e.printStackTrace();
+      fail("Unexpected exception " + e);
+    }
+    return new String(outputStream.toByteArray(), UTF_8);
+  }
+
   public void testCharSetExpansion() {
     testSame("");
     assertThat(lastCompiler.getOptions().outputCharset).isEqualTo(US_ASCII);
@@ -1501,11 +1543,25 @@ public final class CommandLineRunnerTest extends TestCase {
   public void testES3() {
     args.add("--language_in=ECMASCRIPT3");
     args.add("--language_out=ECMASCRIPT3");
+    args.add("--strict_mode_input=false");
     useStringComparison = true;
     test(
         "var x = f.function",
         "var x=f[\"function\"];",
         RhinoErrorReporter.INVALID_ES3_PROP_NAME);
+    testSame("var let;");
+  }
+
+  public void testES3plusStrictModeChecks() {
+    args.add("--language_in=ECMASCRIPT3");
+    args.add("--language_out=ECMASCRIPT3");
+    useStringComparison = true;
+    test(
+        "var x = f.function",
+        "var x=f[\"function\"];",
+        RhinoErrorReporter.INVALID_ES3_PROP_NAME);
+    test("var let", RhinoErrorReporter.PARSE_ERROR);
+    test("function f(x) { delete x; }", StrictModeCheck.DELETE_VARIABLE);
   }
 
   public void testES6TranspiledByDefault() {
@@ -1523,6 +1579,7 @@ public final class CommandLineRunnerTest extends TestCase {
 
   public void testES5() {
     args.add("--language_in=ECMASCRIPT5");
+    args.add("--strict_mode_input=false");
     test("var x = f.function", "var x = f.function");
     test("var let", "var let");
   }
@@ -2068,13 +2125,19 @@ public final class CommandLineRunnerTest extends TestCase {
     exitCodes.clear();
     Compiler compiler = compile(original);
 
+    assertThat(exitCodes).hasSize(1);
+    if (exitCodes.get(0) != 0) {
+      throw new AssertionError("Got nonzero exit code " + exitCodes.get(0)
+          + "\nContents of err printstream:\n" + errReader);
+    }
+
     if (warning == null) {
       assertEquals("Expected no warnings or errors"
           + "\nErrors: \n" + Joiner.on("\n").join(compiler.getErrors())
           + "\nWarnings: \n" + Joiner.on("\n").join(compiler.getWarnings()),
           0, compiler.getErrors().length + compiler.getWarnings().length);
     } else {
-      assertThat(Arrays.asList(compiler.getWarnings())).hasSize(1);
+      assertThat(compiler.getWarnings()).hasLength(1);
       assertThat(compiler.getWarnings()[0].getType()).isEqualTo(warning);
     }
 
@@ -2088,8 +2151,6 @@ public final class CommandLineRunnerTest extends TestCase {
           "\nResult: " + compiler.toSource(root) +
           "\n" + explanation, explanation);
     }
-
-    assertThat(exitCodes).containsExactly(0);
   }
 
   /**
@@ -2117,11 +2178,11 @@ public final class CommandLineRunnerTest extends TestCase {
     int lastExitCode = Iterables.getLast(exitCodes);
 
     if (compiler.getErrors().length > 0) {
-      assertThat(Arrays.asList(compiler.getErrors())).hasSize(1);
+      assertThat(compiler.getErrors()).hasLength(1);
       assertThat(compiler.getErrors()[0].getType()).isEqualTo(warning);
       assertThat(lastExitCode).isEqualTo(1);
     } else {
-      assertThat(Arrays.asList(compiler.getWarnings())).hasSize(1);
+      assertThat(compiler.getWarnings()).hasLength(1);
       assertThat(compiler.getWarnings()[0].getType()).isEqualTo(warning);
       assertThat(lastExitCode).isEqualTo(0);
     }

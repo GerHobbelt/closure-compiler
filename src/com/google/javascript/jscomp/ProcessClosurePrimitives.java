@@ -512,8 +512,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     JSDocInfo info = n.getFirstChild().getJSDocInfo();
     boolean hasStubDefinition = info != null && (n.isFromExterns() || info.hasTypedefType());
     if (hasStubDefinition) {
-      String name = n.getFirstChild().getQualifiedName();
-      if (name != null) {
+      if (n.getFirstChild().isQualifiedName()) {
+        String name = n.getFirstChild().getQualifiedName();
         ProvidedName pn = providedNames.get(name);
         if (pn != null) {
           n.putBooleanProp(Node.WAS_PREVIOUSLY_PROVIDED, true);
@@ -1043,9 +1043,10 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
       return false;
     }
 
-    if (!NodeUtil.isValidQualifiedName(compiler.getLanguageMode(), arg.getString())) {
+    if (!NodeUtil.isValidQualifiedName(
+        compiler.getOptions().getLanguageIn().toFeatureSet(), arg.getString())) {
       compiler.report(t.makeError(arg, INVALID_PROVIDE_ERROR,
-          arg.getString(), compiler.getLanguageMode().toString()));
+          arg.getString(), compiler.getOptions().getLanguageIn().toString()));
       return false;
     }
 
@@ -1077,7 +1078,8 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback
     }
 
     String name = args.getString();
-    if (!NodeUtil.isValidQualifiedName(compiler.getLanguageMode(), name)) {
+    if (!NodeUtil.isValidQualifiedName(
+        compiler.getOptions().getLanguageIn().toFeatureSet(), name)) {
       compiler.report(t.makeError(args, INVALID_DEFINE_NAME_ERROR, name));
       return false;
     }

@@ -832,7 +832,7 @@ final class NameAnalyzer implements CompilerPass {
         Node pred = decl.getNext();
         Node step = pred.getNext();
         addSimplifiedExpression(decl, n);
-        addSimplifiedExpression(pred, n);
+        addSimplifiedExpression(pred, n);   // addAllChildren?
         addSimplifiedExpression(step, n);
       } else if (n.isForIn()) {
         Node decl = n.getFirstChild();
@@ -886,8 +886,8 @@ final class NameAnalyzer implements CompilerPass {
         // Make sure that we record a reference to the function that does
         // the inheritance, so that the inherits() function itself does
         // not get stripped.
-        String nodeName = n.getQualifiedName();
-        if (nodeName != null) {
+        if (n.isQualifiedName()) {
+          String nodeName = n.getQualifiedName();
           recordReference(
               nameInfo.name, nodeName, RefType.REGULAR);
         }
@@ -955,7 +955,7 @@ final class NameAnalyzer implements CompilerPass {
       // reference to it from the global scope (a.k.a. window).
       if (nameInfo.isExternallyReferenceable) {
         recordReference(WINDOW, name, RefType.REGULAR);
-        maybeRecordAlias(name, parent, referring, referringName);
+        maybeRecordAlias(name, n, referring, referringName);
         return;
       }
 
@@ -978,11 +978,11 @@ final class NameAnalyzer implements CompilerPass {
         } else {
           recordReference(WINDOW, name, RefType.REGULAR);
           if (referring != null) {
-            maybeRecordAlias(name, parent, referring, referringName);
+            maybeRecordAlias(name, n, referring, referringName);
           }
         }
       } else if (referring != null) {
-        if (!maybeRecordAlias(name, parent, referring, referringName)) {
+        if (!maybeRecordAlias(name, n, referring, referringName)) {
           RefType depType = referring.onlyAffectsClassDef ?
               RefType.INHERITANCE : RefType.REGULAR;
           recordReference(referringName, name, depType);
@@ -1033,8 +1033,14 @@ final class NameAnalyzer implements CompilerPass {
      * @return Whether the alias was recorded.
      */
     private boolean maybeRecordAlias(
-        String name, Node parent,
-        @Nullable NameInformation referring, String referringName) {
+        String name, Node n, @Nullable NameInformation referring, String referringName) {
+
+      // TODO(johnlenz): the premise in the following comment is questionable:
+      // assignment to goog.nullFunction (or any global object) changes the value globally
+      // we should preserve the assignment.  In particular, the example is an
+      // misuse of goog.nullFunction and having special support for it doesn't make any
+      // sense.  It is unclear if there is any valid use for this special case.
+
       // A common type of reference is
       // function F() {}
       // F.prototype.bar = goog.nullFunction;
@@ -1051,12 +1057,15 @@ final class NameAnalyzer implements CompilerPass {
       // So we do not treat this alias as a backdoor for people to mutate the
       // original object. We think that this heuristic will always be
       // OK in real code.
-      boolean isPrototypePropAssignment =
-          parent.isAssign()
-          && NodeUtil.isPrototypeProperty(parent.getFirstChild());
 
-      if ((parent.isName() || parent.isAssign()) && !isPrototypePropAssignment && referring != null
-          && scopes.containsEntry(parent, referring)) {
+      Node consumer = getConsumingExpression(n);
+      boolean isPrototypePropAssignment =
+          consumer.isAssign()
+          && NodeUtil.isPrototypeProperty(consumer.getFirstChild());
+
+      if ((consumer.isName() || consumer.isAssign()) && !isPrototypePropAssignment
+          && referring != null
+          && scopes.containsEntry(consumer, referring)) {
         recordAlias(referringName, name);
         return true;
       }
@@ -1104,6 +1113,28 @@ final class NameAnalyzer implements CompilerPass {
         }
       }
     }
+  }
+
+  /**
+   * Bubble up the AST to find the NODE for that consumes the value of the expression.
+   * In particular, we want to bubble up through AND/OR/HOOK/COMMA expressions when the parent
+   * expression has access to the value.
+   */
+  static Node getConsumingExpression(Node expr) {
+    // TODO(johnlenz): Move this to NodeUtil if other uses for this crop up.
+    Node parent = expr.getParent();
+    switch (parent.getToken()) {
+      case CAST:
+      case AND:
+      case OR:
+        return getConsumingExpression(parent);
+      case COMMA:
+      case HOOK:
+        return (expr == parent.getFirstChild()) ? parent : getConsumingExpression(parent);
+      default:
+        break;
+    }
+    return parent;
   }
 
   private class RemoveListener implements AstChangeProxy.ChangeListener {

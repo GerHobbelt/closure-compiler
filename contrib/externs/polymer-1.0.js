@@ -168,7 +168,7 @@ PolymerElement.prototype.domHost;
 /**
  * Notifies the event binding system of a change to a property.
  * @param  {string} path  The path to set.
- * @param  {*}      value The value to send in the update notification.
+ * @param  {*=} value The value to send in the update notification.
  * @param {boolean=} fromAbove When true, specifies that the change came from
  *     above this element and thus upward notification is not necessary.
  * @return {boolean} True if notification actually took place, based on a dirty
@@ -534,6 +534,21 @@ Polymer.Gestures;
  */
 Polymer.Gestures.findOriginalTarget = function(ev) {};
 
+/**
+ * @type {!Object}
+ */
+Polymer.Gestures.gestures = {};
+
+/**
+ * @type {!Object}
+ */
+Polymer.Gestures.gestures.tap = {};
+
+/**
+ * Reset the tap gesture's state manually
+ * @type {function()}
+ */
+Polymer.Gestures.gestures.tap.reset = function() {};
 
 /**
  * @param {number} handle
@@ -720,6 +735,12 @@ PolymerElement.prototype._pathEffector = function(path, value) {};
  */
 PolymerElement.prototype._propertySetter = function(path, value) {};
 
+/**
+ * Do not call this function.
+ *
+ * @param {string} path .
+ */
+PolymerElement.prototype._notifyChange = function(path) {};
 
 /**
  * A Polymer DOM API for manipulating DOM such that local DOM and light DOM
@@ -1508,4 +1529,31 @@ Polymer.ArraySplice = {};
  * of items added at this location.
  */
 Polymer.ArraySplice.calculateSplices = function(current, previous) {};
+
+/**
+ * @constructor @extends {PolymerElement}
+ */
+Polymer.DomModule = function() {};
+
+/**
+ * Retrieves the dom specified by `selector` in the module specified by
+ * `id`. For example, this.import('foo', 'img');
+ * @param {string} id
+ * @param {string=} opt_selector
+ * @return {?HTMLElement} Returns the dom which matches `selector` in the module
+ * at the specified `id`.
+ */
+Polymer.DomModule.import = function(id, opt_selector) {};
+
+/**
+ * For compatibility with both Polymer 1.0 and 2.0, code may check for certain
+ * objects and properties which don't exist in Polymer 1.0.
+ *
+ * We give those objects and properties the `undefined` type here, because
+ * the dependency tree will either contain these externs and Polymer 1.0 or
+ * it will contain Polymer 2.0 which defines the full types.
+ */
+
+/** @type {undefined} */
+var ShadyDOM;
 

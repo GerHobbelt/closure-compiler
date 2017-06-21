@@ -56,7 +56,7 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
   }
 
   void testModules(String input, String expected) {
-    ProcessEs6ModulesTest.testModules(this, input, expected);
+    Es6RewriteModulesTest.testModules(this, input, expected);
   }
 
   public void testWithoutExports() {
@@ -432,6 +432,17 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
             "goog.provide('module$test');",
             "/** @const */ var module$test = {};",
             "module$test.a = 4;"));
+  }
+
+  public void testKeywordsInExports() {
+    testModules(
+        LINE_JOINER.join(
+            "var a = 4;",
+            "module.exports = { else: a };"),
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "/** @const */ var module$testcode = {};",
+            "module$testcode.else = 4;"));
   }
 
   public void testRequireResultUnused() {
@@ -817,5 +828,15 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
                     "goog.require('module$mod$name');",
                     "var name = module$mod$name;",
                     "(function() { module$mod$name(); })();"))));
+  }
+
+  public void testIssue2510() {
+    setFilename("test");
+    testModules(
+        "module.exports = {a: function() {return 1}};",
+        LINE_JOINER.join(
+            "goog.provide('module$test');",
+            "/** @const */ var module$test = {};",
+            "module$test.a = function() {return 1};"));
   }
 }

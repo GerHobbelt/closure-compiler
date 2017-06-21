@@ -31,6 +31,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.primitives.Chars;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.parsing.Config;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SourcePosition;
@@ -39,6 +40,7 @@ import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -1026,6 +1028,16 @@ public class CompilerOptions implements Serializable {
     this.tracer = mode;
   }
 
+  private PrintStream tracerOutput;
+
+  PrintStream getTracerOutput() {
+    return tracerOutput;
+  }
+
+  public void setTracerOutput(PrintStream out) {
+    tracerOutput = out;
+  }
+
   private boolean colorizeErrorOutput;
 
   public ErrorFormat errorFormat;
@@ -1164,10 +1176,8 @@ public class CompilerOptions implements Serializable {
 
   /**
    * Are the input files written for strict mode?
-   *
-   * <p>Ignored for language modes that do not support strict mode.
    */
-  private boolean isStrictModeInput = true;
+  private Optional<Boolean> isStrictModeInput = Optional.absent();
 
   /** Which algorithm to use for locating ES6 and CommonJS modules */
   ModuleLoader.ResolutionMode moduleResolutionMode;
@@ -1920,6 +1930,11 @@ public class CompilerOptions implements Serializable {
     return languageOut;
   }
 
+  public boolean needsTranspilationFrom(FeatureSet languageLevel) {
+    return getLanguageIn().toFeatureSet().contains(languageLevel)
+        && !getLanguageOut().toFeatureSet().contains(languageLevel);
+  }
+
   /**
    * Set which set of builtin externs to use.
    */
@@ -1929,24 +1944,6 @@ public class CompilerOptions implements Serializable {
 
   public Environment getEnvironment() {
     return environment;
-  }
-
-  /**
-   * @return whether we are currently transpiling from ES6 to a lower version.
-   */
-  boolean lowerFromEs6() {
-    return languageOut != LanguageMode.NO_TRANSPILE
-        && languageIn.isEs6OrHigher()
-        && !languageOut.isEs6OrHigher();
-  }
-
-  /**
-   * @return whether we are currently transpiling to ES6_TYPED
-   */
-  boolean raiseToEs6Typed() {
-    return languageOut != LanguageMode.NO_TRANSPILE
-        && !languageIn.isEs6OrHigher()
-        && languageOut == LanguageMode.ECMASCRIPT6_TYPED;
   }
 
   public void setAliasTransformationHandler(
@@ -2738,18 +2735,7 @@ public class CompilerOptions implements Serializable {
   }
 
   public boolean shouldEmitUseStrict() {
-    return this.emitUseStrict.or(getDefaultEmitUseStrict());
-  }
-
-  boolean getDefaultEmitUseStrict() {
-    switch (getLanguageOut()) {
-      case ECMASCRIPT3:
-      case ECMASCRIPT5:
-      case ECMASCRIPT6:
-        return false;
-      default:
-        return true;
-    }
+    return this.emitUseStrict.or(getLanguageOut().isDefaultStrict());
   }
 
   public CompilerOptions setEmitUseStrict(boolean emitUseStrict) {
@@ -3009,20 +2995,6 @@ public class CompilerOptions implements Serializable {
      */
     ECMASCRIPT5_STRICT,
 
-    /**
-     * Shiny new JavaScript
-     * @deprecated Use ECMASCRIPT_2015 with {@code isStrictModeInput == false}.
-     */
-    @Deprecated
-    ECMASCRIPT6,
-
-    /**
-     * Nitpicky, shiny new JavaScript
-     * @deprecated Use ECMASCRIPT_2015 with {@code isStrictModeInput == true}.
-     */
-    @Deprecated
-    ECMASCRIPT6_STRICT,
-
     /** ECMAScript standard approved in 2015. */
     ECMASCRIPT_2015,
 
@@ -3048,38 +3020,22 @@ public class CompilerOptions implements Serializable {
      */
     NO_TRANSPILE;
 
-    /** Whether this is ECMAScript 5 or higher. */
-    public boolean isEs5OrHigher() {
-      Preconditions.checkState(this != NO_TRANSPILE);
-      return this != LanguageMode.ECMASCRIPT3;
+
+    /** Whether this language mode defaults to strict mode */
+    boolean isDefaultStrict() {
+      switch (this) {
+        case ECMASCRIPT3:
+        case ECMASCRIPT5:
+          return false;
+        default:
+          return true;
+      }
     }
 
     /** Whether this is ECMAScript 6 or higher. */
+    @Deprecated
     public boolean isEs6OrHigher() {
-      Preconditions.checkState(this != NO_TRANSPILE);
-      switch (this) {
-        case ECMASCRIPT3:
-        case ECMASCRIPT5:
-        case ECMASCRIPT5_STRICT:
-          return false;
-        default:
-          return true;
-      }
-    }
-
-    /** Whether this is ECMAScript 2017 or higher. */
-    public boolean isEs2017OrHigher() {
-      Preconditions.checkState(this != NO_TRANSPILE);
-      switch (this) {
-        case ECMASCRIPT3:
-        case ECMASCRIPT5:
-        case ECMASCRIPT5_STRICT:
-        case ECMASCRIPT_2015:
-        case ECMASCRIPT_2016:
-          return false;
-        default:
-          return true;
-      }
+      return this.toFeatureSet().contains(FeatureSet.ES6);
     }
 
     public static LanguageMode fromString(String value) {
@@ -3088,11 +3044,39 @@ public class CompilerOptions implements Serializable {
       }
       // Trim spaces, disregard case, and allow abbreviation of ECMASCRIPT for convenience.
       String canonicalizedName = Ascii.toUpperCase(value.trim()).replaceFirst("^ES", "ECMASCRIPT");
+
+      if (canonicalizedName.equals("ECMASCRIPT6")
+          || canonicalizedName.equals("ECMASCRIPT6_STRICT")) {
+        return ECMASCRIPT_2015;
+      }
+
       try {
         return LanguageMode.valueOf(canonicalizedName);
       } catch (IllegalArgumentException e) {
         return null; // unknown name.
       }
+    }
+
+    FeatureSet toFeatureSet() {
+      switch (this) {
+        case ECMASCRIPT3:
+          return FeatureSet.ES3;
+        case ECMASCRIPT5:
+        case ECMASCRIPT5_STRICT:
+          return FeatureSet.ES5;
+        case ECMASCRIPT_2015:
+          return FeatureSet.ES6_MODULES;
+        case ECMASCRIPT_2016:
+          return FeatureSet.ES7_MODULES;
+        case ECMASCRIPT_2017:
+        case ECMASCRIPT_NEXT:
+          return FeatureSet.ES8_MODULES;
+        case ECMASCRIPT6_TYPED:
+          return FeatureSet.TYPESCRIPT;
+        case NO_TRANSPILE:
+          throw new IllegalStateException();
+      }
+      throw new IllegalStateException();
     }
   }
 
@@ -3287,7 +3271,7 @@ public class CompilerOptions implements Serializable {
 
     /**
      * Files must be discoverable from specified entry points. Files
-     * which do not goog.provide a namespace and and are not either
+     * which do not goog.provide a namespace and are not either
      * an ES6 or CommonJS module will be automatically treated as entry points.
      * Module files will be included only if referenced from an entry point.
      */
@@ -3327,12 +3311,12 @@ public class CompilerOptions implements Serializable {
     }
   }
 
-  public boolean isStrictModeInput() {
-    return isStrictModeInput;
+  public boolean expectStrictModeInput() {
+    return isStrictModeInput.or(getLanguageIn().isDefaultStrict());
   }
 
   public CompilerOptions setStrictModeInput(boolean isStrictModeInput) {
-    this.isStrictModeInput = isStrictModeInput;
+    this.isStrictModeInput = Optional.of(isStrictModeInput);
     return this;
   }
 

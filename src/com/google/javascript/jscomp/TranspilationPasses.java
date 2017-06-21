@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES8;
+
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.PassFactory.HotSwapPassFactory;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
@@ -77,6 +79,11 @@ public class TranspilationPasses {
         protected CompilerPass create(final AbstractCompiler compiler) {
           return new RewriteAsyncFunctions(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   private static final PassFactory es6SuperCheck =
@@ -84,6 +91,11 @@ public class TranspilationPasses {
         @Override
         protected CompilerPass create(final AbstractCompiler compiler) {
           return new Es6SuperCheck(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
         }
       };
 
@@ -93,6 +105,11 @@ public class TranspilationPasses {
         protected HotSwapCompilerPass create(AbstractCompiler compiler) {
           return new Es6ExtractClasses(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   static final HotSwapPassFactory es6RewriteClass =
@@ -100,6 +117,11 @@ public class TranspilationPasses {
         @Override
         protected HotSwapCompilerPass create(AbstractCompiler compiler) {
           return new Es6RewriteClass(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
         }
       };
 
@@ -109,6 +131,11 @@ public class TranspilationPasses {
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6RewriteDestructuring(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   static final HotSwapPassFactory es6RenameVariablesInParamLists =
@@ -116,6 +143,11 @@ public class TranspilationPasses {
         @Override
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6RenameVariablesInParamLists(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
         }
       };
 
@@ -125,6 +157,11 @@ public class TranspilationPasses {
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6RewriteArrowFunction(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   static final HotSwapPassFactory rewritePolyfills =
@@ -132,6 +169,11 @@ public class TranspilationPasses {
         @Override
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new RewritePolyfills(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
         }
       };
 
@@ -141,6 +183,11 @@ public class TranspilationPasses {
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6SplitVariableDeclarations(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   static final HotSwapPassFactory es6ConvertSuperConstructorCalls =
@@ -149,14 +196,24 @@ public class TranspilationPasses {
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
           return new Es6ConvertSuperConstructorCalls(compiler);
         }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
       };
 
   static final HotSwapPassFactory es6ConvertSuper =
       new HotSwapPassFactory("es6ConvertSuper", true) {
-    @Override
-    protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      return new Es6ConvertSuper(compiler);
-    }
+        @Override
+        protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
+          return new Es6ConvertSuper(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8;
+        }
   };
 
   /**
@@ -170,6 +227,11 @@ public class TranspilationPasses {
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
       return new Es6ToEs3Converter(compiler);
     }
+
+    @Override
+    protected FeatureSet featureSet() {
+      return ES8;
+    }
   };
 
   static final HotSwapPassFactory rewriteBlockScopedDeclaration =
@@ -177,6 +239,11 @@ public class TranspilationPasses {
     @Override
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
       return new Es6RewriteBlockScopedDeclaration(compiler);
+    }
+
+    @Override
+    protected FeatureSet featureSet() {
+      return ES8;
     }
   };
 
@@ -186,15 +253,20 @@ public class TranspilationPasses {
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
       return new Es6RewriteGenerators(compiler);
     }
+
+    @Override
+    protected FeatureSet featureSet() {
+      return ES8;
+    }
   };
 
   /**
    * @param script The SCRIPT node representing a JS file
-   * @return If the file has at least ES6 features currently implemented in modern browsers.
+   * @return If the file has any features which are part of ES6 but not part of ES5.
    */
-  static boolean isScriptEs6ImplOrHigher(Node script) {
+  static boolean isScriptEs6OrHigher(Node script) {
     FeatureSet features = (FeatureSet) script.getProp(Node.FEATURE_SET);
-    return features != null && features.isEs6ImplOrHigher();
+    return features != null && !FeatureSet.ES5.contains(features);
   }
 
   /**
@@ -205,9 +277,9 @@ public class TranspilationPasses {
    * @param callbacks The callbacks that should be invoked if a file has ES6 features.
    */
   static void processCheck(AbstractCompiler compiler, Node combinedRoot, Callback... callbacks) {
-    if (compiler.getOptions().getLanguageIn().isEs6OrHigher()) {
+    if (compiler.getOptions().getLanguageIn().toFeatureSet().contains(FeatureSet.ES6)) {
       for (Node singleRoot : combinedRoot.children()) {
-        if (isScriptEs6ImplOrHigher(singleRoot)) {
+        if (isScriptEs6OrHigher(singleRoot)) {
           for (Callback callback : callbacks) {
             NodeTraversal.traverseEs6(compiler, singleRoot, callback);
           }
@@ -225,8 +297,8 @@ public class TranspilationPasses {
    * @param callbacks The callbacks that should be invoked if the file has ES6 features.
    */
   static void hotSwapCheck(AbstractCompiler compiler, Node scriptRoot, Callback... callbacks) {
-    if (compiler.getOptions().getLanguageIn().isEs6OrHigher()) {
-      if (isScriptEs6ImplOrHigher(scriptRoot)) {
+    if (compiler.getOptions().getLanguageIn().toFeatureSet().contains(FeatureSet.ES6)) {
+      if (isScriptEs6OrHigher(scriptRoot)) {
         for (Callback callback : callbacks) {
           NodeTraversal.traverseEs6(compiler, scriptRoot, callback);
         }
@@ -244,9 +316,9 @@ public class TranspilationPasses {
    */
   static void processTranspile(
       AbstractCompiler compiler, Node combinedRoot, Callback... callbacks) {
-    if (compiler.getOptions().lowerFromEs6()) {
+    if (compiler.getOptions().needsTranspilationFrom(FeatureSet.ES6)) {
       for (Node singleRoot : combinedRoot.children()) {
-        if (isScriptEs6ImplOrHigher(singleRoot)) {
+        if (isScriptEs6OrHigher(singleRoot)) {
           for (Callback callback : callbacks) {
             singleRoot.putBooleanProp(Node.TRANSPILED, true);
             NodeTraversal.traverseEs6(compiler, singleRoot, callback);
@@ -265,8 +337,8 @@ public class TranspilationPasses {
    * @param callbacks The callbacks that should be invoked if the file has ES6 features.
    */
   static void hotSwapTranspile(AbstractCompiler compiler, Node scriptRoot, Callback... callbacks) {
-    if (compiler.getOptions().lowerFromEs6()) {
-      if (isScriptEs6ImplOrHigher(scriptRoot)) {
+    if (compiler.getOptions().needsTranspilationFrom(FeatureSet.ES6)) {
+      if (isScriptEs6OrHigher(scriptRoot)) {
         for (Callback callback : callbacks) {
           scriptRoot.putBooleanProp(Node.TRANSPILED, true);
           NodeTraversal.traverseEs6(compiler, scriptRoot, callback);

@@ -24,6 +24,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
 import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;
 import com.google.javascript.rhino.IR;
@@ -63,6 +65,14 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     super.setUp();
     // Enable missing override checks that are disabled by default.
     compiler.getOptions().setWarningLevel(DiagnosticGroups.MISSING_OVERRIDE, CheckLevel.WARNING);
+  }
+
+  @Override
+  protected CompilerOptions getDefaultOptions() {
+    CompilerOptions options = super.getDefaultOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    return options;
   }
 
   public void testInitialTypingScope() throws Exception {
@@ -4043,8 +4053,22 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         "/** @constructor */ function Base() {}");
   }
 
+  // https://github.com/google/closure-compiler/issues/2458
+  public void testAbstractSpread() throws Exception {
+    testTypes(
+        LINE_JOINER.join(
+            "/** @abstract */",
+            "class X {",
+            "  /** @abstract */",
+            "  m1() {}",
+            "",
+            "  m2() {",
+            "    return () => this.m1(...[]);",
+            "  }",
+            "}"));
+  }
+
   public void testGoodSuperCall() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {",
@@ -4064,7 +4088,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testBadSuperCall() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {",
@@ -4084,12 +4107,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
             "actual parameter 1 of super does not match formal parameter",
             "found   : number",
             "required: string"));
-  }
-
-  private void setLanguageInAndOut(LanguageMode languageIn, LanguageMode languageOut) {
-    CompilerOptions options = compiler.getOptions();
-    options.setLanguageIn(languageIn);
-    options.setLanguageOut(languageOut);
   }
 
   public void testDirectPrototypeAssignment1() throws Exception {
@@ -8232,7 +8249,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     Node externs = new Node(Token.SCRIPT);
     externs.setInputId(new InputId("externs"));
 
-    Node externAndJsRoot = IR.root(externs, parent);
+    IR.root(externs, parent);
 
     makeTypeCheck().processForTesting(null, parent);
     return node.getJSType();
@@ -8532,7 +8549,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8554,7 +8570,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class_prototype() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8572,7 +8587,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testAbstractMethodCall_Es6Class_prototype_warning() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8591,7 +8605,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testNonAbstractMethodCall_Es6Class_prototype() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -8612,7 +8625,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
 
   // GitHub issue #2262: https://github.com/google/closure-compiler/issues/2262
   public void testAbstractMethodCall_Es6ClassWithSpread() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "/** @abstract */",
@@ -11447,7 +11459,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     Node n = compiler.parseTestCode(js);
 
     Node externs = IR.root();
-    Node externAndJsRoot = IR.root(externs, n);
+    IR.root(externs, n);
 
     TypeCheck t = makeTypeCheck();
     t.processForTesting(null, n);
@@ -12028,14 +12040,14 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   public void testTypeCheckStandaloneAST() throws Exception {
     Node n = compiler.parseTestCode("function Foo() { }");
     typeCheck(n);
-    MemoizedScopeCreator scopeCreator = new MemoizedScopeCreator(
+    MemoizedTypedScopeCreator scopeCreator = new MemoizedTypedScopeCreator(
         new TypedScopeCreator(compiler));
     TypedScope topScope = scopeCreator.createScope(n, null);
 
     Node second = compiler.parseTestCode("new Foo");
 
     Node externs = IR.root();
-    Node externAndJsRoot = IR.root(externs, second);
+    IR.root(externs, second);
 
     new TypeCheck(
         compiler,
@@ -17570,7 +17582,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class Foo {}",
@@ -17579,7 +17590,6 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
   }
 
   public void testEs5ClassExtendingEs6Class_noWarning() throws Exception {
-    setLanguageInAndOut(LanguageMode.ECMASCRIPT_2015, LanguageMode.ECMASCRIPT5);
     testTypes(
         LINE_JOINER.join(
             "class A {}",
@@ -17696,7 +17706,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     compiler.initOptions(compiler.getOptions());
     Node n = compiler.parseTestCode(js);
     Node externs = IR.root();
-    Node externAndJsRoot = IR.root(externs, n);
+    IR.root(externs, n);
 
     assertEquals("parsing error: " +
         Joiner.on(", ").join(compiler.getErrors()),
@@ -17830,12 +17840,12 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
     return parseAndTypeCheckWithScope(DEFAULT_EXTERNS, js);
   }
 
-  private TypeCheckResult parseAndTypeCheckWithScope(
-      String externs, String js) {
+  private TypeCheckResult parseAndTypeCheckWithScope(String externs, String js) {
     compiler.init(
         ImmutableList.of(SourceFile.fromCode("[externs]", externs)),
         ImmutableList.of(SourceFile.fromCode("[testcode]", js)),
         compiler.getOptions());
+    compiler.setFeatureSet(compiler.getFeatureSet().without(Feature.MODULES));
 
     Node n = compiler.getInput(new InputId("[testcode]")).getAstRoot(compiler);
     Node externsNode = compiler.getInput(new InputId("[externs]"))
@@ -17846,7 +17856,7 @@ public final class TypeCheckTest extends CompilerTypeTestCase {
         Joiner.on(", ").join(compiler.getErrors()),
         0, compiler.getErrorCount());
 
-    if (compiler.getOptions().getLanguageIn().isEs6OrHigher()) {
+    if (compiler.getOptions().needsTranspilationFrom(FeatureSet.ES6)) {
       List<PassFactory> passes = new ArrayList<>();
       TranspilationPasses.addEs2017Passes(passes);
       TranspilationPasses.addEs6EarlyPasses(passes);

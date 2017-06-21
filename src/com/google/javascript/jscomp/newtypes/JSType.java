@@ -501,6 +501,16 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     return obj != null && obj.isEnumObject();
   }
 
+  @Override
+  public final TypeI getElementsType() {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    if (obj != null) {
+      EnumType e = obj.getEnumType();
+      return e != null ? e.getEnumeratedType() : null;
+    }
+    return null;
+  }
+
   public final boolean isUnion() {
     if (isBottom() || isTop() || isUnknown()
         || isScalar() || isTypeVariable() || isEnumElement()
@@ -1365,8 +1375,14 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
       Preconditions.checkState(!getEnums().isEmpty());
       return this;
     }
-    return makeType(this.commonTypes, getMask(),
-        ObjectType.withLooseObjects(getObjs()), getTypeVar(), getEnums());
+    // TODO(dimvar): here, a lot of the time the set of objects will only contain objects for which
+    // withLoose is a no-op. Worth it to detect it and return `this` in that case, to avoid
+    // unnecessary creation of types?
+    ImmutableSet.Builder<ObjectType> looseObjs = ImmutableSet.builder();
+    for (ObjectType obj : getObjs()) {
+      looseObjs.add(obj.withLoose());
+    }
+    return makeType(this.commonTypes, getMask(), looseObjs.build(), getTypeVar(), getEnums());
   }
 
   public final JSType getProp(QualifiedName qname) {
@@ -1437,8 +1453,11 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (isUnknown() || isBottom() || getObjs().isEmpty()) {
       return this;
     }
-    return makeType(this.commonTypes, getMask(),
-        ObjectType.withProperty(getObjs(), qname, type), getTypeVar(), getEnums());
+    ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
+    for (ObjectType obj : getObjs()) {
+      newObjs.add(obj.withProperty(qname, type));
+    }
+    return makeType(this.commonTypes, getMask(), newObjs.build(), getTypeVar(), getEnums());
   }
 
   public final JSType withDeclaredProperty(
@@ -1447,16 +1466,22 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (type == null && isConstant) {
       type = this.commonTypes.UNKNOWN;
     }
-    return makeType(this.commonTypes,
-        getMask(),
-        ObjectType.withDeclaredProperty(getObjs(), qname, type, isConstant), getTypeVar(), getEnums());
+    ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
+    for (ObjectType obj : getObjs()) {
+      newObjs.add(obj.withDeclaredProperty(qname, type, isConstant));
+    }
+    return makeType(this.commonTypes, getMask(), newObjs.build(), getTypeVar(), getEnums());
   }
 
   public final JSType withPropertyRequired(String pname) {
-    return (isUnknown() || getObjs().isEmpty()) ?
-        this :
-        makeType(this.commonTypes, getMask(),
-            ObjectType.withPropertyRequired(getObjs(), pname), getTypeVar(), getEnums());
+    if (isUnknown() || getObjs().isEmpty()) {
+      return this;
+    }
+    ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
+    for (ObjectType obj : getObjs()) {
+      newObjs.add(obj.withPropertyRequired(pname));
+    }
+    return makeType(this.commonTypes, getMask(), newObjs.build(), getTypeVar(), getEnums());
   }
 
   // For a type A, this method tries to return the greatest subtype of A that
@@ -1515,17 +1540,19 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (mockToString) {
       return "";
     }
-    return appendTo(new StringBuilder()).toString();
+    return appendTo(new StringBuilder(), ToStringContext.TO_STRING).toString();
   }
 
-  public final StringBuilder appendTo(StringBuilder builder) {
-    return typeToString(builder);
-  }
-
-  /** For use in {@link #typeToString} */
+  /** For use in {@link #appendTo} */
   private static final Joiner PIPE_JOINER = Joiner.on("|");
 
-  private StringBuilder typeToString(StringBuilder builder) {
+  /**
+   * Appends this type to the `builder`. If `forAnnotations` is true, then
+   * the type will be in a format suitable for type annotations during
+   * code generation.
+   */
+  StringBuilder appendTo(StringBuilder builder, ToStringContext ctx) {
+    // TODO(sdh): checkState(!forAnnotations) all
     switch (getMask()) {
       case BOTTOM_MASK:
         return builder.append("bottom");
@@ -1570,16 +1597,16 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
                 tags &= ~UNDEFINED_MASK;
                 continue;
               case TYPEVAR_MASK:
-                builder.append(UniqueNameGenerator.getOriginalName(getTypeVar()));
+                builder.append(ctx.formatTypeVar(getTypeVar()));
                 tags &= ~TYPEVAR_MASK;
                 continue;
               case NON_SCALAR_MASK: {
                 if (getObjs().size() == 1) {
-                  Iterables.getOnlyElement(getObjs()).appendTo(builder);
+                  Iterables.getOnlyElement(getObjs()).appendTo(builder, ctx);
                 } else {
                   Set<String> strReps = new TreeSet<>();
                   for (ObjectType obj : getObjs()) {
-                    strReps.add(obj.toString());
+                    strReps.add(obj.toString(ctx));
                   }
                   PIPE_JOINER.appendTo(builder, strReps);
                 }
@@ -1588,11 +1615,11 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
               }
               case ENUM_MASK: {
                 if (getEnums().size() == 1) {
-                  builder.append(Iterables.getOnlyElement(getEnums()));
+                  builder.append(Iterables.getOnlyElement(getEnums()).toString(ctx));
                 } else {
                   Set<String> strReps = new TreeSet<>();
                   for (EnumType e : getEnums()) {
-                    strReps.add(e.toString());
+                    strReps.add(e.toString(ctx));
                   }
                   PIPE_JOINER.appendTo(builder, strReps);
                 }
@@ -1614,6 +1641,17 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
           return builder.append("Unrecognized type: ").append(tags);
         }
     }
+  }
+
+  @Override
+  public final String toNonNullAnnotationString() {
+    return appendTo(new StringBuilder(), ToStringContext.FOR_ANNOTATION).toString();
+  }
+
+  @Override
+  public final String toAnnotationString() {
+    String s = toNonNullAnnotationString();
+    return s.startsWith("!") ? s.substring(1) : s;
   }
 
   @Override
@@ -1811,6 +1849,24 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     }
 
     return true;
+  }
+
+  @Override
+  public final int getMinArguments() {
+    Preconditions.checkState(this.isFunctionType());
+    return this.getFunTypeIfSingletonObj().getMinArity();
+  }
+
+  @Override
+  public final int getMaxArguments() {
+    Preconditions.checkState(this.isFunctionType());
+    return this.getFunTypeIfSingletonObj().getMaxArity();
+  }
+
+  @Override
+  public final List<String> getTypeParameters() {
+    Preconditions.checkState(this.isFunctionType());
+    return this.getFunTypeIfSingletonObj().getTypeParameters();
   }
 
   @Override
@@ -2173,11 +2229,13 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   private static final class UnionType extends JSType {
     final int mask;
     // objs is empty for scalar types
-    final ImmutableSet<ObjectType> objs;
+    // TODO(rluble): Serialize this field (guava issue #1554)
+    final transient ImmutableSet<ObjectType> objs;
     // typeVar is null for non-generic types
     final String typeVar;
     // enums is empty for types that don't have enums
-    final ImmutableSet<EnumType> enums;
+    // TODO(rluble): Serialize this field (guava issue #1554)
+    final transient ImmutableSet<EnumType> enums;
 
     UnionType(JSTypes commonTypes, int mask, ImmutableSet<ObjectType> objs,
         String typeVar, ImmutableSet<EnumType> enums) {
@@ -2251,7 +2309,8 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   }
 
   private static final class ObjsType extends JSType {
-    final ImmutableSet<ObjectType> objs;
+    // TODO(rluble): Serialize this field (guava issue #1554)
+    final transient ImmutableSet<ObjectType> objs;
 
     ObjsType(JSTypes commonTypes, ImmutableSet<ObjectType> objs) {
       super(commonTypes);
@@ -2280,7 +2339,8 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   }
 
   private static final class NullableObjsType extends JSType {
-    final ImmutableSet<ObjectType> objs;
+    // TODO(rluble): Serialize this field (guava issue #1554)
+    final transient ImmutableSet<ObjectType> objs;
 
     NullableObjsType(JSTypes commonTypes, ImmutableSet<ObjectType> objs) {
       super(commonTypes);

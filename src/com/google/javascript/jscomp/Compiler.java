@@ -37,6 +37,8 @@ import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
 import com.google.javascript.jscomp.parsing.Config;
 import com.google.javascript.jscomp.parsing.ParserRunner;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.jscomp.parsing.parser.trees.Comment;
 import com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;
 import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
@@ -92,6 +94,8 @@ import java.util.regex.Matcher;
  * window, document.
  *
  */
+// TODO(tbreisacher): Rename Compiler to JsCompiler and remove this suppression.
+@SuppressWarnings("JavaLangClash")
 public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFileMapping {
   static final String SINGLETON_MODULE_NAME = "$singleton$";
 
@@ -157,9 +161,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // Used for debugging; to see the compiled code between passes
   private String lastJsSource = null;
 
-  /** @see #getLanguageMode() */
-  private CompilerOptions.LanguageMode languageMode =
-      CompilerOptions.LanguageMode.ECMASCRIPT3;
+  private FeatureSet featureSet;
 
   private final Map<InputId, CompilerInput> inputsById = new ConcurrentHashMap<>();
 
@@ -343,7 +345,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    */
   public void initOptions(CompilerOptions options) {
     this.options = options;
-    this.languageMode = options.getLanguageIn();
+    this.setFeatureSet(options.getLanguageIn().toFeatureSet());
     if (errorManager == null) {
       if (this.outStream == null) {
         setErrorManager(
@@ -466,14 +468,13 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           CheckLevel.WARNING);
     }
 
-    if (options.checkGlobalThisLevel.isOn() &&
-        !options.disables(DiagnosticGroups.GLOBAL_THIS)) {
+    if (options.checkGlobalThisLevel.isOn() && !options.disables(DiagnosticGroups.GLOBAL_THIS)) {
       options.setWarningLevel(
           DiagnosticGroups.GLOBAL_THIS,
           options.checkGlobalThisLevel);
     }
 
-    if (expectStrictModeInput()) {
+    if (options.expectStrictModeInput()) {
       options.setWarningLevel(
           DiagnosticGroups.ES5_STRICT,
           CheckLevel.ERROR);
@@ -484,25 +485,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // checks the externs file for validity. If you don't want to warn
     // about missing variable declarations, we shut that specific
     // error off.
-    if (!options.checkSymbols &&
-        !options.enables(DiagnosticGroups.CHECK_VARIABLES)) {
-      options.setWarningLevel(
-          DiagnosticGroups.CHECK_VARIABLES, CheckLevel.OFF);
-    }
-  }
-
-  private boolean expectStrictModeInput() {
-    switch (options.getLanguageIn()) {
-      case ECMASCRIPT3:
-      case ECMASCRIPT5:
-      case ECMASCRIPT6:
-        return false;
-      case ECMASCRIPT5_STRICT:
-      case ECMASCRIPT6_STRICT:
-      case ECMASCRIPT6_TYPED:
-        return true;
-      default:
-        return options.isStrictModeInput();
+    if (!options.checkSymbols && !options.enables(DiagnosticGroups.CHECK_VARIABLES)) {
+      options.setWarningLevel(DiagnosticGroups.CHECK_VARIABLES, CheckLevel.OFF);
     }
   }
 
@@ -763,7 +747,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
             stage2Passes();
           }
         }
-        completeCompilation();
+        performPostCompilationTasks();
       }
     } finally {
       generateReport();
@@ -818,7 +802,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
             stage2Passes();
           }
         }
-        completeCompilation();
+        performPostCompilationTasks();
       }
     } finally {
       generateReport();
@@ -907,7 +891,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     if (options.skipNonTranspilationPasses) {
       // i.e. whitespace-only mode, which will not work with goog.module without:
       whitespaceOnlyPasses();
-      if (options.lowerFromEs6()) {
+      if (options.needsTranspilationFrom(FeatureSet.ES6)) {
         transpileAndDontCheck();
       }
     } else {
@@ -922,12 +906,12 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * <p> DON'T call it if the compiler threw an exception.
    * <p> DO call it even when {@code hasErrors()} returns true.
    */
-  public void completeCompilation() {
+  public void performPostCompilationTasks() {
     runInCompilerThread(new Callable<Void>() {
 
       @Override
       public Void call() throws Exception {
-        completeCompilationInternal();
+        performPostCompilationTasksInternal();
         return null;
       }
 
@@ -937,7 +921,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   /**
    * Performs all the bookkeeping required at the end of a compilation.
    */
-  private void completeCompilationInternal() {
+  private void performPostCompilationTasksInternal() {
     if (options.recordFunctionInformation) {
       recordFunctionInformation();
     }
@@ -1116,15 +1100,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       return;
     }
 
-    if (options.getTweakProcessing().shouldStrip()
-        || !options.stripTypes.isEmpty()
-        || !options.stripNameSuffixes.isEmpty()
-        || !options.stripTypePrefixes.isEmpty()
-        || !options.stripNamePrefixes.isEmpty()) {
-      stripCode(options.stripTypes, options.stripNameSuffixes,
-          options.stripTypePrefixes, options.stripNamePrefixes);
-    }
-
     runCustomPasses(CustomPassExecutionTime.BEFORE_OPTIMIZATIONS);
     phaseOptimizer = null;
   }
@@ -1155,23 +1130,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   private void runSanityCheck() {
     sanityCheck.create(this).process(externsRoot, jsRoot);
-  }
-
-  /**
-   * Strips code for smaller compiled code. This is useful for removing debug
-   * statements to prevent leaking them publicly.
-   */
-  void stripCode(Set<String> stripTypes, Set<String> stripNameSuffixes,
-      Set<String> stripTypePrefixes, Set<String> stripNamePrefixes) {
-    logger.fine("Strip code");
-    startPass("stripCode");
-    StripCode r = new StripCode(this, stripTypes, stripNameSuffixes,
-        stripTypePrefixes, stripNamePrefixes);
-    if (options.getTweakProcessing().shouldStrip()) {
-      r.enableTweakStripping();
-    }
-    process(r);
-    endPass("stripCode");
   }
 
   /**
@@ -1325,13 +1283,13 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
-  CompilerOptions.LanguageMode getLanguageMode() {
-    return languageMode;
+  FeatureSet getFeatureSet() {
+    return featureSet;
   }
 
   @Override
-  void setLanguageMode(CompilerOptions.LanguageMode mode) {
-    languageMode = mode;
+  void setFeatureSet(FeatureSet fs) {
+    featureSet = fs;
   }
 
   /**
@@ -1362,8 +1320,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   boolean areNodesEqualForInlining(Node n1, Node n2) {
-    if (options.shouldAmbiguateProperties() ||
-        options.shouldDisambiguateProperties()) {
+    if (options.shouldAmbiguateProperties() || options.shouldDisambiguateProperties()) {
       // The type based optimizations require that type information is preserved
       // during other optimizations.
       return n1.isEquivalentToTyped(n2);
@@ -1530,6 +1487,13 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   /**
+   * Gets the list of modules.
+   */
+  public List<JSModule> getModules() {
+    return modules;
+  }
+
+  /**
    * Gets a module graph. This will always return a module graph, even
    * in the degenerate case when there's only one module.
    */
@@ -1578,7 +1542,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   // Only used by jsdev
-  public MemoizedScopeCreator getTypedScopeCreator() {
+  public MemoizedTypedScopeCreator getTypedScopeCreator() {
     return getPassConfig().getTypedScopeCreator();
   }
 
@@ -1594,7 +1558,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   public SymbolTable buildKnownSymbolTable() {
     SymbolTable symbolTable = new SymbolTable(this, getTypeRegistry());
 
-    MemoizedScopeCreator typedScopeCreator = getTypedScopeCreator();
+    MemoizedTypedScopeCreator typedScopeCreator = getTypedScopeCreator();
     if (typedScopeCreator != null) {
       symbolTable.addScopes(typedScopeCreator.getAllMemoizedScopes());
       symbolTable.addSymbolsFrom(typedScopeCreator);
@@ -1736,8 +1700,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   public void maybeSetTracker() {
     if (options.getTracerMode().isOn()) {
-      tracker =
-          new PerformanceTracker(externsRoot, jsRoot, options.getTracerMode(), this.outStream);
+      PrintStream tracerOutput =
+          options.getTracerOutput() == null ? this.outStream : options.getTracerOutput();
+      tracker = new PerformanceTracker(externsRoot, jsRoot, options.getTracerMode(), tracerOutput);
       addChangeHandler(tracker.getCodeChangeHandler());
     }
   }
@@ -1776,7 +1741,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         externsRoot.addChildToBack(n);
       }
 
-      if (options.lowerFromEs6()
+      if (options.needsTranspilationFrom(FeatureSet.ES6_MODULES)
           || options.transformAMDToCJSModules
           || options.processCommonJSModules) {
 
@@ -1802,7 +1767,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
                   processJsonInputs(inputs));
         }
 
-        if (options.lowerFromEs6()) {
+        if (options.needsTranspilationFrom(FeatureSet.ES6_MODULES)) {
           processEs6Modules();
         }
 
@@ -1869,10 +1834,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
         // TODO(johnlenz): we shouldn't need to check both isExternExportsEnabled and
         // externExportsPath.
-        if (options.sourceMapOutputPath != null ||
-            options.isExternExportsEnabled() ||
-            options.externExportsPath != null ||
-            !options.replaceStringsFunctionDescriptions.isEmpty()) {
+        if (options.sourceMapOutputPath != null
+            || options.isExternExportsEnabled()
+            || options.externExportsPath != null
+            || !options.replaceStringsFunctionDescriptions.isEmpty()) {
 
           // Annotate the nodes in the tree with information from the
           // input file. This information is used to construct the SourceMap.
@@ -2096,8 +2061,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       if (root == null) {
         continue;
       }
-      new ProcessEs6Modules(this).processFile(root, forceRewrite);
+      new Es6RewriteModules(this).processFile(root, forceRewrite);
     }
+
+    setFeatureSet(featureSet.without(Feature.MODULES));
   }
 
   /**
@@ -2656,8 +2623,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       case ECMASCRIPT5:
       case ECMASCRIPT5_STRICT:
         return Config.LanguageMode.ECMASCRIPT5;
-      case ECMASCRIPT6:
-      case ECMASCRIPT6_STRICT:
       case ECMASCRIPT_2015:
         return Config.LanguageMode.ECMASCRIPT6;
       case ECMASCRIPT6_TYPED:
@@ -2681,7 +2646,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
           Config.LanguageMode configLanguageMode = getParserConfigLanguageMode(
               options.getLanguageIn());
           Config.StrictMode strictMode =
-              expectStrictModeInput() ? Config.StrictMode.STRICT : Config.StrictMode.SLOPPY;
+              options.expectStrictModeInput() ? Config.StrictMode.STRICT : Config.StrictMode.SLOPPY;
           parserConfig = createConfig(configLanguageMode, strictMode);
           // Externs must always be parsed with at least ES5 language mode.
           externsParserConfig =
@@ -2760,9 +2725,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    */
   @Override
   void throwInternalError(String message, Exception cause) {
-    String finalMessage =
-      "INTERNAL COMPILER ERROR.\n" +
-      "Please report this problem.\n\n" + message;
+    String finalMessage = "INTERNAL COMPILER ERROR.\nPlease report this problem.\n\n" + message;
 
     RuntimeException e = new RuntimeException(finalMessage, cause);
     if (cause != null) {
@@ -3113,7 +3076,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   private void processNewScript(JsAst ast, Node originalRoot) {
-    languageMode = options.getLanguageIn();
+    setFeatureSet(options.getLanguageIn().toFeatureSet());
 
     Node js = ast.getAstRoot(this);
     checkNotNull(js);
@@ -3297,6 +3260,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     private final Node externAndJsRoot;
     private final Node externsRoot;
     private final Node jsRoot;
+    private final FeatureSet featureSet;
     private final List<CompilerInput> externs;
     private final List<CompilerInput> inputs;
     private final Map<InputId, CompilerInput> inputsById;
@@ -3312,15 +3276,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     private final boolean hasRegExpGlobalReferences;
     private final LifeCycleStage lifeCycleStage;
     private final Set<String> externProperties;
+    private final JSError[] errors;
+    private final JSError[] warnings;
+    private final JSModuleGraph moduleGraph;
+    private final List<JSModule> modules;
 
     CompilerState(Compiler compiler) {
       this.externsRoot = checkNotNull(compiler.externsRoot);
-      this.jsRoot =  checkNotNull(compiler.jsRoot);
-      this.externAndJsRoot =  checkNotNull(compiler.externAndJsRoot);
-      this.typeRegistry =  compiler.typeRegistry;
-      this.externs =  compiler.externs;
-      this.inputs =  checkNotNull(compiler.inputs);
-      this.inputsById =  checkNotNull(compiler.inputsById);
+      this.jsRoot = checkNotNull(compiler.jsRoot);
+      this.externAndJsRoot = checkNotNull(compiler.externAndJsRoot);
+      this.featureSet = checkNotNull(compiler.featureSet);
+      this.typeRegistry = compiler.typeRegistry;
+      this.externs = compiler.externs;
+      this.inputs = checkNotNull(compiler.inputs);
+      this.inputsById = checkNotNull(compiler.inputsById);
       this.mostRecentTypeChecker = compiler.mostRecentTypechecker;
       this.synthesizedExternsInput = compiler.synthesizedExternsInput;
       this.synthesizedExternsInputAtEnd = compiler.synthesizedExternsInputAtEnd;
@@ -3332,6 +3301,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       this.typeValidator = compiler.typeValidator;
       this.lifeCycleStage = compiler.getLifeCycleStage();
       this.externProperties = compiler.externProperties;
+      this.errors = compiler.errorManager.getErrors();
+      this.warnings = compiler.errorManager.getWarnings();
+      this.moduleGraph = compiler.moduleGraph;
+      this.modules = compiler.modules;
     }
   }
 
@@ -3341,7 +3314,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       runInCompilerThread(new Callable<Void>() {
         @Override
         public Void call() throws Exception {
+          Tracer tracer = newTracer("serializeCompilerState");
           objectOutputStream.writeObject(new CompilerState(Compiler.this));
+          stopTracer(tracer, "serializeCompilerState");
           return null;
         }
       });
@@ -3349,14 +3324,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @GwtIncompatible("ObjectInputStream")
-  public void restoreState(InputStream inputStream) throws Exception {
+  public void restoreState(InputStream inputStream) throws IOException  {
+    initWarningsGuard(options.getWarningsGuard());
+    maybeSetTracker();
     try (final ObjectInputStream objectInputStream = new ObjectInputStream(inputStream)) {
       CompilerState compilerState = runInCompilerThread(new Callable<CompilerState>() {
         @Override
         public CompilerState call() throws Exception {
-          return (CompilerState) objectInputStream.readObject();
+          Tracer tracer = newTracer("deserializeCompilerState");
+          CompilerState compilerState = (CompilerState) objectInputStream.readObject();
+          stopTracer(tracer, "deserializeCompilerState");
+          return compilerState;
         }
       });
+      featureSet = compilerState.featureSet;
       externs = compilerState.externs;
       inputs = compilerState.inputs;
       inputsById.clear();
@@ -3377,8 +3358,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       typeValidator = compilerState.typeValidator;
       setLifeCycleStage(compilerState.lifeCycleStage);
       externProperties = compilerState.externProperties;
+      moduleGraph = compilerState.moduleGraph;
+      modules = compilerState.modules;
+
+      // restore errors.
+      if (compilerState.errors != null) {
+        for (JSError error : compilerState.errors) {
+          report(CheckLevel.ERROR, error);
+        }
+      }
+      if (compilerState.warnings != null) {
+        for (JSError warning : compilerState.warnings) {
+          report(CheckLevel.WARNING, warning);
+        }
+      }
     }
-    initWarningsGuard(options.getWarningsGuard());
-    maybeSetTracker();
   }
 }

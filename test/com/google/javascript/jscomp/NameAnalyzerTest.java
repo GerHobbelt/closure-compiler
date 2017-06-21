@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
 
 /**
@@ -23,7 +24,7 @@ import com.google.javascript.rhino.Node;
  *
  */
 
-public final class NameAnalyzerTest extends Es6CompilerTestCase {
+public final class NameAnalyzerTest extends CompilerTestCase {
 
   private static String kExterns =
       "var window, top;" +
@@ -37,14 +38,36 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   @Override
-  protected void setUp() {
-    super.enableNormalize();
-  }
-
-  @Override
   protected int getNumRepetitions() {
     // pass reaches steady state after 1 iteration.
     return 1;
+  }
+
+  @Override
+  protected CompilerPass getProcessor(Compiler compiler) {
+    return new MarkNoSideEffectCallsAndNameAnalyzerRunner(compiler);
+  }
+
+  private static class MarkNoSideEffectCallsAndNameAnalyzerRunner implements CompilerPass {
+    MarkNoSideEffectCalls markNoSideEffectCalls;
+    NameAnalyzer analyzer;
+    MarkNoSideEffectCallsAndNameAnalyzerRunner(Compiler compiler) {
+      this.markNoSideEffectCalls = new MarkNoSideEffectCalls(compiler);
+      this.analyzer = new NameAnalyzer(compiler, true, null);
+    }
+
+    @Override
+    public void process(Node externs, Node root) {
+      markNoSideEffectCalls.process(externs, root);
+      analyzer.process(externs, root);
+    }
+  }
+
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT_2017);
+    super.enableNormalize();
   }
 
   public void testRemoveVarDeclaration1() {
@@ -81,54 +104,54 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   public void testRemoveLetDeclaration1() {
-    testEs6("let foo = 3;", "");
+    test("let foo = 3;", "");
   }
 
   public void testRemoveLetDeclaration2() {
-    testEs6("let foo = 3, bar = 4; externfoo = foo;",
+    test("let foo = 3, bar = 4; externfoo = foo;",
          "let foo = 3; externfoo = foo;");
   }
 
   public void testRemoveLetDeclaration3() {
-    testEs6("let a = f(), b = 1, c = 2; b; c", "f();let b = 1, c = 2; b; c");
+    test("let a = f(), b = 1, c = 2; b; c", "f();let b = 1, c = 2; b; c");
   }
 
   public void testRemoveLetDeclaration4() {
-    testEs6("let a = 0, b = f(), c = 2; a; c", "let a = 0;f();let c = 2; a; c");
+    test("let a = 0, b = f(), c = 2; a; c", "let a = 0;f();let c = 2; a; c");
   }
 
   public void testRemoveLetDeclaration5() {
-    testEs6("let a = 0, b = 1, c = f(); a; b", "let a = 0, b = 1; f(); a; b");
+    test("let a = 0, b = 1, c = f(); a; b", "let a = 0, b = 1; f(); a; b");
   }
 
   public void testRemoveLetDeclaration6() {
-    testEs6("let a = 0, b = a = 1; a", "let a = 0; a = 1; a");
+    test("let a = 0, b = a = 1; a", "let a = 0; a = 1; a");
   }
 
   public void testRemoveLetDeclaration7() {
-    testEs6("let a = 0, b = a = 1", "");
+    test("let a = 0, b = a = 1", "");
   }
 
   public void testRemoveLetDeclaration8() {
-    testEs6("let a;let b = 0, c = a = b = 1", "");
+    test("let a;let b = 0, c = a = b = 1", "");
   }
 
   public void testRemoveLetDeclaration9() {
     // The variable inside the block doesn't get removed (but does get renamed by Normalize).
-    testEs6(
+    test(
         "let x = 1; if (true) { let x = 2; x; }",
         "if (true) { let x$jscomp$1 = 2; x$jscomp$1; }");
   }
 
   // Let/const defined variables in blocks are not global so NameAnalyzer doesn't remove them.
   public void testDontRemoveLetInBlock1() {
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "if (true) {",
             "  let x = 1; alert(x);",
             "}"));
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "if (true) {",
             "  let x = 1;",
@@ -136,7 +159,7 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   public void testDontRemoveLetInBlock2() {
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "if (true) {",
             "  let x = 1; alert(x);",
@@ -144,7 +167,7 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
             "  let x = 1; alert(x);",
             "}"));
 
-    testSameEs6(
+    testSame(
         LINE_JOINER.join(
             "if (true) {",
             "  let x = 1;",
@@ -154,16 +177,16 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   public void testRemoveConstDeclaration1() {
-    testEs6("const a = 4;", "");
+    test("const a = 4;", "");
   }
 
   public void testRemoveConstDeclaration2() {
-    testSameEs6("const a = 4; window.x = a;");
+    testSame("const a = 4; window.x = a;");
   }
 
   public void testRemoveConstDeclaration3() {
     // The variable inside the block doesn't get removed (but does get renamed by Normalize).
-    testEs6(
+    test(
         "const x = 1; if (true) { const x = 2; x; }",
         "if (true) { const x$jscomp$1 = 2; x$jscomp$1; }");
   }
@@ -1831,35 +1854,27 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   public void testNoRemoveWindowPropertyAlias4() {
-    // TODO(johnlenz): fix this. "self_" should remain.
-    test(
-        "var self_ = window['gbar'] || {};\n" +
-        "self_.qs = function() {};",
-        "");
+    testSame(LINE_JOINER.join(
+        "var self_ = window['gbar'] || {};",
+        "self_.qs = function() {};"));
  }
 
   public void testNoRemoveWindowPropertyAlias4a() {
-    // TODO(johnlenz): fix this. "self_" should remain.
-    test(
-        "var self_; self_ = window.gbar || {};\n" +
-        "self_.qs = function() {};",
-        "");
+    testSame(LINE_JOINER.join(
+        "var self_; self_ = window.gbar || {};",
+        "self_.qs = function() {};"));
  }
 
   public void testNoRemoveWindowPropertyAlias5() {
-    // TODO(johnlenz): fix this. "self_" should remain.
-    test(
-        "var self_ = window || {};\n" +
-        "self_['qs'] = function() {};",
-        "");
+    testSame(LINE_JOINER.join(
+        "var self_ = window || {};",
+        "self_['qs'] = function() {};"));
   }
 
   public void testNoRemoveWindowPropertyAlias5a() {
-    // TODO(johnlenz): fix this.
-    test(
-        "var self_; self_ = window || {};\n" +
-        "self_['qs'] = function() {};",
-        "");
+    testSame(LINE_JOINER.join(
+        "var self_; self_ = window || {};",
+        "self_['qs'] = function() {};"));
   }
 
   public void testNoRemoveWindowPropertyAlias6() {
@@ -2044,16 +2059,12 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
   }
 
   public void testAliasInstanceof5() {
-    // TODO(johnlenz): fix this. "b" should remain.
-    test(
-      "function Foo() {}" +
-      "function Bar() {}" +
-      "var b = x ? Foo : Bar;" +
-      "var y = new Foo();" +
-      "if (y instanceof b) {}",
-      "function Foo() {}" +
-      "var y = new Foo;" +
-      "if (false){}");
+    testSame(LINE_JOINER.join(
+      "function Foo() {}",
+      "function Bar() {}",
+      "var b = x ? Foo : Bar;",
+      "var y = new Foo();",
+      "if (y instanceof b) {}"));
   }
 
   // We cannot leave x.a.prototype there because it will
@@ -2162,23 +2173,50 @@ public final class NameAnalyzerTest extends Es6CompilerTestCase {
         "hackhack['Vb'] = 1;");
   }
 
-  @Override
-  protected CompilerPass getProcessor(Compiler compiler) {
-    return new MarkNoSideEffectCallsAndNameAnalyzerRunner(compiler);
+  public void testBug37975351a() {
+    // The original repro case from the bug.
+    testSame(LINE_JOINER.join(
+        "function noop() {}",
+        "var x = window['magic'];",
+        "var FormData = window['FormData'] || noop;",
+        "function f() { return x instanceof FormData; }",
+        "console.log(f());"));
   }
 
-  private static class MarkNoSideEffectCallsAndNameAnalyzerRunner implements CompilerPass {
-    MarkNoSideEffectCalls markNoSideEffectCalls;
-    NameAnalyzer analyzer;
-    MarkNoSideEffectCallsAndNameAnalyzerRunner(Compiler compiler) {
-      this.markNoSideEffectCalls = new MarkNoSideEffectCalls(compiler);
-      this.analyzer = new NameAnalyzer(compiler, true, null);
-    }
+  public void testBug37975351b() {
+    // The simplified repro that still repro'd the problem.
+    testSame(LINE_JOINER.join(
+        "var FormData = window['FormData'] || function() {};",
+        "function f() { return window['magic'] instanceof FormData; }",
+        "console.log(f());"));
+  }
 
-    @Override
-    public void process(Node externs, Node root) {
-      markNoSideEffectCalls.process(externs, root);
-      analyzer.process(externs, root);
-    }
+  public void testBug37975351c() {
+    // This simpliification did not reproduce the problematic behavior.
+    testSame(LINE_JOINER.join(
+        "var FormData = window['FormData'];",
+        "function f() { return window['magic'] instanceof FormData; }",
+        "console.log(f());"));
+  }
+
+  public void testBug30868041() {
+    // TODO(johnlenz): fix this, "x" should remain or the reference to "x" should also be removed
+    // as-is this pass has a prerequisite that the peephole passes have already remove
+    // side-effect free statements like this.
+    test(
+        LINE_JOINER.join(
+            "function Base() {};",
+            "/** @nosideeffects */",
+            "Base.prototype.foo =  function() {",
+            "}",
+            "var x = new Base();",
+            "x.foo()"),
+        LINE_JOINER.join(
+            "function Base() {};",
+            "/** @nosideeffects */",
+            "Base.prototype.foo =  function() {",
+            "}",
+            "new Base();",
+            "x.foo()"));
   }
 }

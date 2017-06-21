@@ -31,6 +31,7 @@ import com.google.common.io.Files;
 import com.google.javascript.jscomp.CompilerOptions.IsolationMode;
 import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.jscomp.deps.ModuleLoader;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.TextFormat;
 import java.io.BufferedReader;
@@ -173,8 +174,7 @@ public class CommandLineRunner extends
     @Option(
         name = "--strict_mode_input",
         handler = BooleanOptionHandler.class,
-        usage = "Assume input sources are to run in strict mode."
-            + " Ignored for language modes earlier than ECMASCRIPT_2016.")
+        usage = "Assume input sources are to run in strict mode.")
     private boolean strictModeInput = true;
 
     // Turn on (very slow) extra sanity checks for use when modifying the
@@ -231,6 +231,18 @@ public class CommandLineRunner extends
         + "Provide the value 'auto' to trigger module creation from CommonJS"
         + "modules.")
     private List<String> module = new ArrayList<>();
+
+    @Option(name = "--continue-saved-compilation",
+        usage = "Filename where the intermediate compilation state was previously saved.",
+        hidden = true)
+    private String continueSavedCompilationFile = null;
+
+    @Option(name = "--save-after-checks",
+        usage = "Filename to save phase 1 intermediate state so that the compilation can be"
+            + " resumed later.",
+        hidden = true)
+    private String saveAfterChecksFile = null;
+
 
     @Option(name = "--variable_renaming_report",
         usage = "File where the serialized version of the variable "
@@ -1528,6 +1540,8 @@ public class CommandLineRunner extends
           .setJsZip(flags.jszip)
           .setMixedJsSources(mixedSources)
           .setJsOutputFile(flags.jsOutputFile)
+          .setSaveAfterChecksFileName(flags.saveAfterChecksFile)
+          .setContinueSavedCompilationFileName(flags.continueSavedCompilationFile)
           .setModule(flags.module)
           .setOptionsInputFile(flags.optionsInputFile)
           .setVariableMapOutputFile(flags.variableMapOutputFile)
@@ -1557,7 +1571,6 @@ public class CommandLineRunner extends
           .setWarningsWhitelistFile(flags.warningsWhitelistFile)
           .setHideWarningsFor(flags.hideWarningsFor)
           .setAngularPass(flags.angularPass)
-          .setTracerMode(flags.tracerMode)
           .setInstrumentationTemplateFile(flags.instrumentationFile)
           .setCustomOptionsFile(flags.customOptionsFile)
           .setNewTypeInference(flags.useNewTypeInference)
@@ -1697,7 +1710,8 @@ public class CommandLineRunner extends
       options.setForceLibraryInjection(flags.forceInjectLibraries);
     }
 
-    options.rewritePolyfills = flags.rewritePolyfills && options.getLanguageIn().isEs6OrHigher();
+    options.rewritePolyfills =
+        flags.rewritePolyfills && options.getLanguageIn().toFeatureSet().contains(FeatureSet.ES6);
 
     if (!flags.translationsFile.isEmpty()) {
       try {
@@ -1747,6 +1761,7 @@ public class CommandLineRunner extends
     }
 
     options.setPrintSourceAfterEachPass(flags.printSourceAfterEachPass);
+    options.setTracerMode(flags.tracerMode);
     options.setStrictModeInput(flags.strictModeInput);
     if (!flags.emitUseStrict) {
       options.setEmitUseStrict(false);

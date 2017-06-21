@@ -28,6 +28,8 @@ public final class ExternExportsPassTest extends CompilerTestCase {
     super.setUp();
     enableNormalize();
     enableTypeCheck();
+    // TODO(rluble): enable multistage compilation.
+    disableMultistageCompilation();
   }
 
   @Override
@@ -541,6 +543,7 @@ public final class ExternExportsPassTest extends CompilerTestCase {
             "};",
             "/**",
             " * @return {number}",
+            " * @this {!Foo}",
             " */",
             "Foo.prototype.m = function() {",
             "};",
@@ -707,6 +710,7 @@ public final class ExternExportsPassTest extends CompilerTestCase {
             "/**",
             " * @param {string} x",
             " * @return {undefined}",
+            " * @this {!F}",
             " */",
             "F.prototype.x = function(x) {",
             "};",

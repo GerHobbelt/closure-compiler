@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 The Closure Compiler Authors.
+ * Copyright 2017 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,10 +22,7 @@ import com.google.javascript.rhino.Token;
 import junit.framework.TestCase;
 
 /**
- * A dopey test for {@link MemoizedScopeCreator}. This is mostly here
- * just so it's easy to write more tests if this becomes more complicated.
- *
- * @author nicksantos@google.com (Nick Santos)
+ * A tests for {@link MemoizedScopeCreator}.
  */
 public final class MemoizedScopeCreatorTest extends TestCase {
 
@@ -34,8 +31,7 @@ public final class MemoizedScopeCreatorTest extends TestCase {
     Node root2 = new Node(Token.ROOT);
     Compiler compiler = new Compiler();
     compiler.initOptions(new CompilerOptions());
-    ScopeCreator creator = new MemoizedScopeCreator(
-        SyntacticScopeCreator.makeTyped(compiler));
+    ScopeCreator creator = new MemoizedScopeCreator(SyntacticScopeCreator.makeUntyped(compiler));
     Scope scopeA = creator.createScope(root1, null);
     assertSame(scopeA, creator.createScope(root1, null));
     assertNotSame(scopeA, creator.createScope(root2, null));
@@ -45,8 +41,7 @@ public final class MemoizedScopeCreatorTest extends TestCase {
     Compiler compiler = new Compiler();
     compiler.initOptions(new CompilerOptions());
     Node root = new Node(Token.ROOT);
-    ScopeCreator creator = new MemoizedScopeCreator(
-        SyntacticScopeCreator.makeTyped(compiler));
+    ScopeCreator creator = new MemoizedScopeCreator(SyntacticScopeCreator.makeUntyped(compiler));
     Scope scopeA = creator.createScope(root, null);
 
     boolean handled = false;
@@ -57,5 +52,4 @@ public final class MemoizedScopeCreatorTest extends TestCase {
     }
     assertTrue(handled);
   }
-
 }

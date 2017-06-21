@@ -19,6 +19,7 @@ package com.google.javascript.jscomp.newtypes;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Multimap;
 import com.google.javascript.rhino.Node;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,7 +29,7 @@ import java.util.Objects;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-class Property {
+class Property implements Serializable {
   // AST node where the property is defined; most commonly null.
   // TODO(dimvar): if having this field on every property wastes memory,
   // consider alternatives:
@@ -216,17 +217,17 @@ class Property {
 
   @Override
   public String toString() {
-    return appendTo(new StringBuilder()).toString();
+    return appendTo(new StringBuilder(), ToStringContext.TO_STRING).toString();
   }
 
-  public StringBuilder appendTo(StringBuilder builder) {
+  public StringBuilder appendTo(StringBuilder builder, ToStringContext ctx) {
     switch (attribute) {
       case CONSTANT:
-        return inferredType.appendTo(builder).append('^');
+        return inferredType.appendTo(builder, ctx).append('^');
       case REQUIRED:
-        return inferredType.appendTo(builder);
+        return inferredType.appendTo(builder, ctx);
       case OPTIONAL:
-        return inferredType.appendTo(builder).append('=');
+        return inferredType.appendTo(builder, ctx).append('=');
       default:
         throw new RuntimeException("Unknown Attribute value " + attribute);
     }

@@ -49,7 +49,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.TypeI;
-import java.io.Serializable;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 
@@ -68,7 +67,7 @@ import java.util.IdentityHashMap;
  * {@link AllType} and at the bottom by the {@link NoType}.<p>
  *
  */
-public abstract class JSType implements TypeI, Serializable {
+public abstract class JSType implements TypeI {
   private static final long serialVersionUID = 1L;
 
   private boolean resolved = false;
@@ -1665,6 +1664,7 @@ public abstract class JSType implements TypeI, Serializable {
    *
    * Don't call from this package; use appendAsNonNull instead.
    */
+  @Override
   public final String toAnnotationString() {
     return appendTo(new StringBuilder(), true).toString();
   }
@@ -1675,8 +1675,14 @@ public abstract class JSType implements TypeI, Serializable {
   }
 
   final StringBuilder appendAsNonNull(StringBuilder sb, boolean forAnnotations) {
-    if (forAnnotations && isObject()
-        && !isUnknownType() && !isTemplateType() && !isRecordType() && !isFunctionType()) {
+    if (forAnnotations
+        && isObject()
+        && !isUnknownType()
+        && !isTemplateType()
+        && !isRecordType()
+        && !isFunctionType()
+        && !isUnionType()
+        && !isLiteralObject()) {
       sb.append("!");
     }
     return appendTo(sb, forAnnotations);

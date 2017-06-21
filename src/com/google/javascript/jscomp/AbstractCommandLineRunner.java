@@ -45,6 +45,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
 import java.io.Closeable;
 import java.io.File;
@@ -442,7 +443,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     options.processCommonJSModules = config.processCommonJSModules;
     options.moduleRoots = config.moduleRoots;
     options.angularPass = config.angularPass;
-    options.setTracerMode(config.tracerMode);
     options.setNewTypeInference(config.useNewTypeInference);
     options.instrumentationTemplateFile = config.instrumentationTemplateFile;
 
@@ -1138,6 +1138,9 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       result = performStage1andSave(saveAfterChecksFilename);
     } else if (continueSavedCompilationFilename != null) {
       result = restoreAndPerformStage2(continueSavedCompilationFilename);
+      if (modules != null) {
+        modules = compiler.getModules();
+      }
     } else {
       result = performFullCompilation();
     }
@@ -1164,12 +1167,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
   private Result performStage1andSave(String filename) {
     Result result;
-    try (FileOutputStream serializedOutputStream = new FileOutputStream(filename)){
+    try (BufferedOutputStream serializedOutputStream =
+        new BufferedOutputStream(new FileOutputStream(filename))) {
       compiler.parseForCompilation();
       if (!compiler.hasErrors()) {
         compiler.stage1Passes();
-        compiler.completeCompilation();
         compiler.saveState(serializedOutputStream);
+        compiler.performPostCompilationTasks();
       }
     } catch (IOException e) {
       compiler.report(JSError.make(COULD_NOT_SERIALIZE_AST, filename));
@@ -1184,13 +1188,14 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
   private Result restoreAndPerformStage2(String filename) {
     Result result;
-    try (FileInputStream serializedInputStream = new FileInputStream(filename)){
+    try (BufferedInputStream serializedInputStream =
+        new BufferedInputStream(new FileInputStream(filename))) {
       compiler.restoreState(serializedInputStream);
       if (!compiler.hasErrors()) {
           compiler.stage2Passes();
       }
-      compiler.completeCompilation();
-    } catch (Exception e) {
+      compiler.performPostCompilationTasks();
+    } catch (IOException e) {
       compiler.report(JSError.make(COULD_NOT_DESERIALIZE_AST, filename));
     } finally {
       // Make sure we generate a report of errors and warnings even if the compiler throws an
@@ -1210,7 +1215,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
         if (!compiler.hasErrors()) {
           compiler.stage2Passes();
         }
-        compiler.completeCompilation();
+        compiler.performPostCompilationTasks();
       }
     } finally {
       // Make sure we generate a report of errors and warnings even if the compiler throws an
@@ -2703,14 +2708,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
      */
     public CommandLineConfig setAngularPass(boolean angularPass) {
       this.angularPass = angularPass;
-      return this;
-    }
-
-    private CompilerOptions.TracerMode tracerMode =
-        CompilerOptions.TracerMode.OFF;
-
-    public CommandLineConfig setTracerMode(CompilerOptions.TracerMode tracerMode) {
-      this.tracerMode = tracerMode;
       return this;
     }
 

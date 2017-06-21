@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.javascript.rhino.Node;
+import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +35,7 @@ import java.util.regex.Pattern;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public final class NominalType {
+public final class NominalType implements Serializable {
   // In the case of a generic type (rawType.typeParameters non-empty) either:
   // a) typeMap is empty, this is an uninstantiated generic type (Foo<T>), or
   // b) typeMap's keys exactly correspond to the type parameters of rawType;
@@ -676,10 +677,13 @@ public final class NominalType {
 
   @Override
   public String toString() {
-    return appendTo(new StringBuilder()).toString();
+    return appendTo(new StringBuilder(), ToStringContext.TO_STRING).toString();
   }
 
-  StringBuilder appendTo(StringBuilder builder) {
+  StringBuilder appendTo(StringBuilder builder, ToStringContext ctx) {
+    if (ctx.forAnnotation()) {
+      builder.append("!");
+    }
     if (this.typeMap.isEmpty()) {
       return this.rawType.appendTo(builder);
     }
@@ -695,7 +699,7 @@ public final class NominalType {
         builder.append(',');
       }
       JSType concrete = this.typeMap.get(typeParam);
-      Preconditions.checkNotNull(concrete).appendTo(builder);
+      Preconditions.checkNotNull(concrete).appendTo(builder, ctx);
     }
     builder.append('>');
     return builder;

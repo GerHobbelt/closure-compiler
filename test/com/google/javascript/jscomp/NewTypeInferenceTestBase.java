@@ -22,6 +22,8 @@ import static com.google.javascript.jscomp.testing.JSErrorSubject.assertError;
 
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
@@ -194,6 +196,7 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
         ImmutableList.of(SourceFile.fromCode("[externs]", externs)),
         ImmutableList.of(SourceFile.fromCode("[testcode]", js)),
         compilerOptions);
+    compiler.setFeatureSet(compiler.getFeatureSet().without(Feature.MODULES));
 
     Node externsRoot = IR.root();
     externsRoot.addChildToFront(
@@ -218,12 +221,11 @@ public abstract class NewTypeInferenceTestBase extends CompilerTypeTestCase {
     ProcessClosurePrimitives closurePass =
         new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false);
     passes.add(makePassFactory("ProcessClosurePrimitives", closurePass));
-    if (compilerOptions.getLanguageIn() == LanguageMode.ECMASCRIPT6_TYPED) {
+    if (compilerOptions.needsTranspilationFrom(FeatureSet.TYPESCRIPT)) {
       passes.add(makePassFactory("convertEs6TypedToEs6",
               new Es6TypedToEs6Converter(compiler)));
     }
-    if (compilerOptions.getLanguageIn().isEs6OrHigher()
-        && !compilerOptions.getLanguageOut().isEs6OrHigher()) {
+    if (compilerOptions.needsTranspilationFrom(FeatureSet.ES6)) {
       TranspilationPasses.addEs2017Passes(passes);
       TranspilationPasses.addEs6EarlyPasses(passes);
       TranspilationPasses.addEs6LatePasses(passes);
