@@ -19911,4 +19911,85 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "  this.prop = new Foo;",
         "}"));
   }
+
+  public void testAllowConstructorWithReturnToBeTypedAsFunction() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @param {number} x",
+        " * @return {number}",
+        " */",
+        "function Foo(x) { return x; }",
+        "function f(/** function(number):number */ x) {",
+        "  x(123);",
+        "}",
+        "f(Foo);"));
+  }
+
+  public void testInstantiateTypeVariablesToUnknownWhenUsingCallApply() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/** @return {!Foo<T>} */",
+        "Foo.prototype.method = function() { return this; }",
+        "function f(/** !Foo<number> */ x) {",
+        "  var /** !Foo<number> */ y = Foo.prototype.method.call(x);",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/** @return {!Foo<T>} */",
+        "Foo.prototype.method = function() { return this; }",
+        "function f(/** !Foo<number> */ x) {",
+        "  var /** !Foo<number> */ y = Foo.prototype.method.apply(x);",
+        "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/** @return {!Foo<T>} */",
+        "Foo.prototype.method = function() { return this; }",
+        "function f(/** !Foo<number> */ x) {",
+        "  var /** !Foo<string> */ y = Foo.prototype.method.call(x);",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/** @return {!Foo<T>} */",
+        "Foo.prototype.method = function() { return this; }",
+        "function f(/** !Foo<number> */ x) {",
+        "  var /** !Foo<string> */ y = Foo.prototype.method.apply(x);",
+        "}"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "function Foo() {}",
+        "/**",
+        " * @template U",
+        " * @param {U} x",
+        " * @return {U}",
+        " */",
+        "Foo.prototype.f = function(x) { return x; }",
+        "var /** number */ n = Foo.prototype.f.call(new Foo, 'asdf');"),
+        NewTypeInference.MISTYPED_ASSIGN_RHS);
+  }
 }

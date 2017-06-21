@@ -127,8 +127,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // The graph of the JS source modules. Must be null if there are less than
   // 2 modules, because we use this as a signal for which passes to run.
   private JSModuleGraph moduleGraph;
-  // Will be set non-null only if moduleGraph is null and getDegenerateModuleGraph is called.
-  private JSModuleGraph degenerateModuleGraph;
 
   // The module loader for resolving paths into module URIs.
   private ModuleLoader moduleLoader;
@@ -272,7 +270,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // visited by the "current" NodeTraversal.  This can't be thread safe so
   // we should move it into the NodeTraversal and require explicit changed
   // nodes elsewhere so we aren't blocked from doing this elsewhere.
-  private Node currentScope = null;
+  private Node currentChangeScope = null;
 
   // Starts at 0, increases as "interesting" things happen.
   // Nothing happens at time START_TIME, the first pass starts at time 1.
@@ -798,6 +796,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   private void compileInternal() {
+    parseAndPerformChecksInternal();
+    completeCompilationInternal();
+  }
+
+  private void parseAndPerformChecksInternal() {
     setProgress(0.0, null);
     CompilerOptionsPreprocessor.preprocess(options);
     read();
@@ -825,10 +828,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       if (hasErrors()) {
         return;
       }
+    }
+  }
 
-      if (!options.checksOnly && !options.shouldGenerateTypedExterns()) {
-        optimize();
-      }
+  private void completeCompilationInternal() {
+    if (!options.skipNonTranspilationPasses
+        && !options.checksOnly
+        && !options.shouldGenerateTypedExterns()) {
+      optimize();
     }
 
     if (options.recordFunctionInformation) {
@@ -1346,10 +1353,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * in the degenerate case when there's only one module.
    */
   JSModuleGraph getDegenerateModuleGraph() {
-    if (degenerateModuleGraph == null) {
-      degenerateModuleGraph = (moduleGraph == null) ? new JSModuleGraph(modules) : moduleGraph;
-    }
-    return degenerateModuleGraph;
+    return moduleGraph == null ? new JSModuleGraph(modules) : moduleGraph;
   }
 
   @Override
@@ -2394,8 +2398,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
-  void setScope(Node n) {
-    currentScope = (n.isFunction() || n.isScript()) ? n : getEnclosingChangeScope(n);
+  void setChangeScope(Node newChangeScopeRoot) {
+    currentChangeScope = newChangeScopeRoot;
   }
 
   private Node getEnclosingChangeScope(Node n) {
@@ -2438,10 +2442,18 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // TODO(johnlenz): if this is called with a null scope we need to invalidate everything
     // but this isn't done, so we need to make this illegal or record this as having
     // invalidated everything.
-    if (currentScope != null) {
-      recordChange(currentScope);
-      notifyChangeHandlers();
+    if (currentChangeScope != null) {
+      Preconditions.checkState(currentChangeScope.isScript() || currentChangeScope.isFunction());
+      recordChange(currentChangeScope);
     }
+    notifyChangeHandlers();
+  }
+
+  @Override
+  public void reportChangeToChangeScope(Node changeScopeRoot) {
+    Preconditions.checkState(changeScopeRoot.isScript() || changeScopeRoot.isFunction());
+    recordChange(changeScopeRoot);
+    notifyChangeHandlers();
   }
 
   @Override
