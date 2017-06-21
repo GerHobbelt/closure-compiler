@@ -1,6 +1,6 @@
 {
     "name" : "closure-compiler",
-    "version" : "20140401.0.0",
+    "version" : "20170622.0.0",
     "keywords" : ["javascript", "compiler", "build", "google", "closure"],
     "description" : "Fork of closure-compiler that allows installation via NPM.",
     "homepage" : "https://github.com/Obvious/closure-compiler",
@@ -18,7 +18,7 @@
         "url" : "https://github.com/nicks"
     },
     "scripts": {
-        "make": "ant dist",
-        "test": "ant test"
+        "make": "mvn -DskipTests -pl externs/pom.xml,pom-main.xml,pom-main-shaded.xml",
+        "test": "mvn             -pl externs/pom.xml,pom-main.xml,pom-main-shaded.xml"
     }
 }
