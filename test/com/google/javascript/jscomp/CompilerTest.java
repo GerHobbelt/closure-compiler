@@ -949,7 +949,7 @@ public final class CompilerTest extends TestCase {
 
     CompilerOptions options = new CompilerOptions();
     options.setAssumeForwardDeclaredForMissingTypes(true);
-    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2017);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     options.setCheckTypes(true);
     options.setStrictModeInput(true);
@@ -978,12 +978,15 @@ public final class CompilerTest extends TestCase {
 
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     compiler.saveState(byteArrayOutputStream);
+    byteArrayOutputStream.close();
 
     compiler = new Compiler(new TestErrorManager());
     compiler.options = options;
     ByteArrayInputStream byteArrayInputStream =
         new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
     compiler.restoreState(byteArrayInputStream);
+    byteArrayInputStream.close();
+
 
     compiler.performOptimizations();
     String source = compiler.toSource();
@@ -1026,7 +1029,7 @@ public final class CompilerTest extends TestCase {
         ModuleIdentifier.forFile("/index"));
 
     CompilerOptions options = createNewFlagBasedOptions();
-    options.setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2017);
     options.setLanguageOut(CompilerOptions.LanguageMode.ECMASCRIPT5);
     options.dependencyOptions.setDependencyPruning(true);
     options.dependencyOptions.setDependencySorting(true);
@@ -1053,7 +1056,7 @@ public final class CompilerTest extends TestCase {
         ModuleIdentifier.forFile("/index[0]"));
 
     CompilerOptions options = createNewFlagBasedOptions();
-    options.setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT_2017);
     options.setLanguageOut(CompilerOptions.LanguageMode.ECMASCRIPT5);
     options.dependencyOptions.setDependencyPruning(true);
     options.dependencyOptions.setDependencySorting(true);
@@ -1113,10 +1116,111 @@ public final class CompilerTest extends TestCase {
     Compiler compiler = new Compiler();
 
     Node attachedNode = IR.var(IR.name("foo"));
-    Node function = IR.function(IR.name("bar"), IR.paramList(), IR.block(attachedNode));
+    IR.function(IR.name("bar"), IR.paramList(), IR.block(attachedNode));
 
     // Succeeds without throwing an exception.
     compiler.reportChangeToEnclosingScope(attachedNode);
+  }
+
+  /**
+   * See TimelineTest.java for the many timeline behavior tests that don't make sense to duplicate
+   * here.
+   */
+  public void testGetChangesAndDeletions_baseline() {
+    Compiler compiler = new Compiler();
+
+    // In the initial state nothing has been marked changed or deleted.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).isNull();
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).isNull();
+  }
+
+  public void testGetChangesAndDeletions_changeReportsVisible() {
+    Compiler compiler = new Compiler();
+    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    IR.root(IR.script(function1, function2));
+
+    // Mark original baseline.
+    compiler.getChangedScopeNodesForPass("FunctionInliner");
+    compiler.getDeletedScopeNodesForPass("FunctionInliner");
+
+    // Mark both functions changed.
+    compiler.reportChangeToChangeScope(function1);
+    compiler.reportChangeToChangeScope(function2);
+
+    // Both function1 and function2 are seen as changed and nothing is seen as deleted.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner"))
+        .containsExactly(function1, function2);
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).isEmpty();
+  }
+
+  public void testGetChangesAndDeletions_deleteOverridesChange() {
+    Compiler compiler = new Compiler();
+    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    IR.root(IR.script(function1, function2));
+
+    // Mark original baseline.
+    compiler.getChangedScopeNodesForPass("FunctionInliner");
+    compiler.getDeletedScopeNodesForPass("FunctionInliner");
+
+    // Mark both functions changed, then delete function2 and mark it deleted.
+    compiler.reportChangeToChangeScope(function1);
+    compiler.reportChangeToChangeScope(function2);
+    function2.detach();
+    compiler.reportFunctionDeleted(function2);
+
+    // Now function1 will be seen as changed and function2 will be seen as deleted, since delete
+    // overrides change.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).containsExactly(function2);
+  }
+
+  public void testGetChangesAndDeletions_changeDoesntOverrideDelete() {
+    Compiler compiler = new Compiler();
+    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    IR.root(IR.script(function1, function2));
+
+    // Mark original baseline.
+    compiler.getChangedScopeNodesForPass("FunctionInliner");
+    compiler.getDeletedScopeNodesForPass("FunctionInliner");
+
+    // Mark function1 changed and function2 deleted, then try to mark function2 changed.
+    compiler.reportChangeToChangeScope(function1);
+    function2.detach();
+    compiler.reportFunctionDeleted(function2);
+    compiler.reportChangeToChangeScope(function2);
+
+    // Now function1 will be seen as changed and function2 will be seen as deleted, since change
+    // does not override delete.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).containsExactly(function2);
+  }
+
+  public void testGetChangesAndDeletions_onlySeesChangesSinceLastRequest() {
+    Compiler compiler = new Compiler();
+    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
+    IR.root(IR.script(function1, function2));
+
+    // Mark original baseline.
+    compiler.getChangedScopeNodesForPass("FunctionInliner");
+    compiler.getDeletedScopeNodesForPass("FunctionInliner");
+
+    // Mark function1 changed and function2 deleted.
+    compiler.reportChangeToChangeScope(function1);
+    function2.detach();
+    compiler.reportFunctionDeleted(function2);
+
+    // Verify their respective states are seen.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).containsExactly(function2);
+
+    // Check states again. Should find nothing since nothing has changed since the last
+    // 'FunctionInliner' request.
+    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).isEmpty();
+    assertThat(compiler.getDeletedScopeNodesForPass("FunctionInliner")).isEmpty();
   }
 
   private static CompilerOptions createNewFlagBasedOptions() {

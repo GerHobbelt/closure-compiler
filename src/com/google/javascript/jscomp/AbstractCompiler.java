@@ -47,7 +47,7 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractCompiler implements SourceExcerptProvider {
   static final DiagnosticType READ_ERROR = DiagnosticType.error(
-      "JSC_READ_ERROR", "Cannot read: {0}");
+      "JSC_READ_ERROR", "Cannot read file {0}: {1}");
 
   private final Map<String, Object> annotationMap = new HashMap<>();
 
@@ -87,6 +87,16 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    */
   abstract List<CompilerInput> getInputsInOrder();
 
+  /**
+   * Adds exported names to keep track.
+   */
+  public abstract void addExportedNames(Set<String> exportedVariableNames);
+
+  /**
+   * Gets the names that have been exported so far.
+   */
+  public abstract Set<String> getExportedNames();
+  
   static enum MostRecentTypechecker {
     NONE,
     OTI,
@@ -116,6 +126,18 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Gets the top scope.
    */
   public abstract TypedScope getTopScope();
+
+  /**
+   * Gets a memoized scope creator without type information, used by the checks and optimization
+   * passes to avoid continously recreating the entire scope.
+   */
+  abstract IncrementalScopeCreator getScopeCreator();
+
+  /**
+   * Stores a memoized scope creator without type information, used by the checks and optimization
+   * passes to avoid continously recreating the entire scope.
+   */
+  abstract void putScopeCreator(IncrementalScopeCreator creator);
 
   /**
    * Report an error or warning.
@@ -151,10 +173,16 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   abstract void reportChangeToEnclosingScope(Node n);
 
   /**
-   * Make modifications in a scope that is different than the Compiler.currentScope use
-   * this (eg, InlineVariables and many others)
+   * Mark modifications in a scope that is different than the Compiler.currentScope use this (eg,
+   * InlineVariables and many others)
    */
   abstract void reportChangeToChangeScope(Node changeScopeRoot);
+
+  /**
+   * Mark a specific function node as known to be deleted. Is part of having accurate change
+   * tracking which is necessary to streamline optimizations.
+   */
+  abstract void reportFunctionDeleted(Node node);
 
   /**
    * Logs a message under a central logger.
@@ -286,6 +314,20 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
 
   /** A monotonically increasing value to identify a change */
   abstract int getChangeStamp();
+
+  /**
+   * An accumulation of changed scope nodes since the last time the given pass was run. A returned
+   * empty list means no scope nodes have changed since the last run and a returned null means this
+   * is the first time the pass has run.
+   */
+  abstract List<Node> getChangedScopeNodesForPass(String passName);
+
+  /**
+   * An accumulation of deleted scope nodes since the last time the given pass was run. A returned
+   * null or empty list means no scope nodes have been deleted since the last run or this is the
+   * first time the pass has run.
+   */
+  abstract List<Node> getDeletedScopeNodesForPass(String passName);
 
   /** Called to indicate that the current change stamp has been used */
   abstract void incrementChangeStamp();

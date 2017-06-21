@@ -112,28 +112,8 @@ public class CompilerOptions implements Serializable {
     return instrumentForCoverageOnly;
   }
 
-  /**
-   * If true, don't transpile ES6 to ES3.
-   *  WARNING: Enabling this option will likely cause the compiler to crash
-   *     or produce incorrect output.
-   */
-  boolean skipTranspilationAndCrash = false;
-
-  /**
-   * Allow disabling ES6 to ES3 transpilation.
-   */
-  public void setSkipTranspilationAndCrash(boolean value) {
-    skipTranspilationAndCrash = value;
-  }
-  
-  /**
-   * Sets the input sourcemap files, indexed by the JS files they refer to.
-   *
-   * @param inputSourceMaps the collection of input sourcemap files
-   */
-  public void setInputSourceMaps(final ImmutableMap<String, SourceMapInput> inputSourceMaps) {
-    this.inputSourceMaps = inputSourceMaps;  
-  } 
+  @Deprecated
+  public void setSkipTranspilationAndCrash(boolean value) {}
 
   /**
    * Sets the input sourcemap files, indexed by the JS files they refer to.
@@ -205,10 +185,6 @@ public class CompilerOptions implements Serializable {
 
   public boolean shouldGenerateTypedExterns() {
     return incrementalCheckMode == IncrementalCheckMode.GENERATE_IJS;
-  }
-
-  public boolean shouldDoExternsHoisting() {
-    return incrementalCheckMode != IncrementalCheckMode.GENERATE_IJS;
   }
 
   public boolean allowIjsInputs() {
@@ -792,7 +768,7 @@ public class CompilerOptions implements Serializable {
   Integer polymerVersion;
 
   /** Processes cr.* functions */
-  boolean chromePass;
+  private boolean chromePass;
 
   /** Processes the output of the Dart Dev Compiler */
   boolean dartPass;
@@ -1769,6 +1745,14 @@ public class CompilerOptions implements Serializable {
     checkArgument(polymerVersion == null || polymerVersion == 1 || polymerVersion == 2,
         "Invalid Polymer version:", polymerVersion);
     this.polymerVersion = polymerVersion;
+  }
+
+  public void setChromePass(boolean chromePass) {
+    this.chromePass = chromePass;
+  }
+
+  public boolean isChromePassEnabled() {
+    return chromePass;
   }
 
   public void setDartPass(boolean dartPass) {
@@ -2939,7 +2923,6 @@ public class CompilerOptions implements Serializable {
             .add("runtimeTypeCheck", runtimeTypeCheck)
             .add("shadowVariables", shadowVariables)
             .add("skipNonTranspilationPasses", skipNonTranspilationPasses)
-            .add("skipTranspilationAndCrash", skipTranspilationAndCrash)
             .add("smartNameRemoval", smartNameRemoval)
             .add("sourceMapDetailLevel", sourceMapDetailLevel)
             .add("sourceMapFormat", sourceMapFormat)

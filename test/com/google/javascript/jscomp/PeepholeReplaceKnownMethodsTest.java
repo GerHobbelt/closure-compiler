@@ -39,11 +39,12 @@ public final class PeepholeReplaceKnownMethodsTest extends TypeICompilerTestCase
   }
 
   @Override
-  public void setUp() throws Exception {
+  protected void setUp() throws Exception {
     super.setUp();
     late = true;
     useTypes = true;
     this.mode = TypeInferenceMode.NEITHER;
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT5);
   }
 
   @Override

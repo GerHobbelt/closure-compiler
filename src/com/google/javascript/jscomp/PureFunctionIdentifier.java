@@ -145,10 +145,6 @@ class PureFunctionIdentifier implements CompilerPass {
 
     StringBuilder sb = new StringBuilder();
 
-    FunctionNames functionNames = new FunctionNames(compiler);
-    functionNames.process(null, externs);
-    functionNames.process(null, root);
-
     for (Node call : allFunctionCalls) {
       sb.append("  ");
       Iterable<Node> expanded = unwrapCallableExpression(call.getFirstChild());
@@ -511,6 +507,10 @@ class PureFunctionIdentifier implements CompilerPass {
       } else if (node.isThrow()) {
         sideEffectInfo.setFunctionThrows();
       } else if (node.isReturn()) {
+        if (node.hasChildren() && !NodeUtil.evaluatesToLocalValue(node.getFirstChild())) {
+          sideEffectInfo.setTaintsReturn();
+        }
+      } else if (node.isYield()) {
         if (node.hasChildren() && !NodeUtil.evaluatesToLocalValue(node.getFirstChild())) {
           sideEffectInfo.setTaintsReturn();
         }

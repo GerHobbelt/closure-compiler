@@ -77,7 +77,7 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
   private int astPositionCounter;
   private int priorityCounter;
 
-  private final boolean shouldTraverseFunctionsAndClasses;
+  private final boolean shouldTraverseFunctions;
   private final boolean edgeAnnotations;
 
   // We need to store where we started, in case we aren't doing a flow analysis
@@ -130,10 +130,10 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
    * @param shouldTraverseFunctions Whether functions should be traversed
    * @param edgeAnnotations Whether to allow edge annotations.
    */
-  ControlFlowAnalysis(AbstractCompiler compiler,
-      boolean shouldTraverseFunctionsAndClasses, boolean edgeAnnotations) {
+  ControlFlowAnalysis(
+      AbstractCompiler compiler, boolean shouldTraverseFunctions, boolean edgeAnnotations) {
     this.compiler = compiler;
-    this.shouldTraverseFunctionsAndClasses = shouldTraverseFunctionsAndClasses;
+    this.shouldTraverseFunctions = shouldTraverseFunctions;
     this.edgeAnnotations = edgeAnnotations;
   }
 
@@ -159,7 +159,7 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
     DiGraphNode<Node, Branch> entry = cfg.getEntry();
     prioritizeFromEntryNode(entry);
 
-    if (shouldTraverseFunctionsAndClasses) {
+    if (shouldTraverseFunctions) {
       // If we're traversing inner functions, we need to rank the
       // priority of them too.
       for (DiGraphNode<Node, Branch> candidate : cfg.getDirectedGraphNodes()) {
@@ -210,12 +210,9 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
   public boolean shouldTraverse(
       NodeTraversal nodeTraversal, Node n, Node parent) {
     astPosition.put(n, astPositionCounter++);
-
     switch (n.getToken()) {
-      case CLASS:
-        return shouldTraverseFunctionsAndClasses;
       case FUNCTION:
-        if (shouldTraverseFunctionsAndClasses || n == cfg.getEntry().getValue()) {
+        if (shouldTraverseFunctions || n == cfg.getEntry().getValue()) {
           exceptionHandler.push(n);
           return true;
         }
@@ -266,6 +263,8 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
           return n != parent.getFirstChild();
         case FUNCTION:
           return n == parent.getLastChild();
+        case CLASS:
+          return shouldTraverseFunctions && n == parent.getLastChild();
         case CONTINUE:
         case BREAK:
         case EXPR_RESULT:
@@ -287,6 +286,8 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
             exceptionHandler.pop();
           }
           break;
+        case CLASS_MEMBERS:
+        case MEMBER_FUNCTION_DEF:
         default:
           break;
       }
@@ -353,6 +354,8 @@ final class ControlFlowAnalysis implements Callback, CompilerPass {
         handleWith(n);
         return;
       case LABEL:
+      case CLASS_MEMBERS:
+      case MEMBER_FUNCTION_DEF:
         return;
       default:
         handleStmt(n);

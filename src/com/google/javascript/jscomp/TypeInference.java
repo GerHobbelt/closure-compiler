@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.rhino.jstype.JSTypeNative.ARRAY_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.BOOLEAN_OBJECT_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.BOOLEAN_TYPE;
@@ -1101,6 +1101,7 @@ class TypeInference
    * a function literal argument from the function parameter type.
    */
   private void updateTypeOfParameters(Node n, FunctionType fnType) {
+    checkState(n.isCall() || n.isNew(), n);
     int i = 0;
     int childCount = n.getChildCount();
     Node iArgument = n.getFirstChild();
@@ -1756,8 +1757,7 @@ class TypeInference
      * expression.
      */
     FlowScope getOutcomeFlowScope(Token nodeType, boolean outcome) {
-      if (nodeType == Token.AND && outcome ||
-          nodeType == Token.OR && !outcome) {
+      if ((nodeType == Token.AND && outcome) || (nodeType == Token.OR && !outcome)) {
         // We know that the whole expression must have executed.
         return rightScope;
       } else {

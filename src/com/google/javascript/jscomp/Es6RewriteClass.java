@@ -213,7 +213,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, HotSwapCom
           Node inheritsCall = IR.exprResult(inherits);
           compiler.ensureLibraryInjected("es6/util/inherits", false);
 
-          inheritsCall.useSourceInfoIfMissingFromForTree(classNode);
+          inheritsCall.useSourceInfoIfMissingFromForTree(metadata.superClassNameNode);
           enclosingStatement.getParent().addChildAfter(inheritsCall, enclosingStatement);
         }
         newInfo.recordBaseType(new JSTypeExpression(new Node(Token.BANG,
@@ -234,6 +234,7 @@ public final class Es6RewriteClass implements NodeTraversal.Callback, HotSwapCom
     } else {
       parent.replaceChild(classNode, constructor);
     }
+    NodeUtil.markFunctionsDeleted(classNode, compiler);
 
     if (NodeUtil.isStatement(constructor)) {
       constructor.setJSDocInfo(newInfo.build());

@@ -41,7 +41,8 @@ public final class CheckJsDocTest extends CompilerTestCase {
   }
 
   @Override
-  public void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
     setAcceptedLanguage(LanguageMode.ECMASCRIPT_2017);
   }
 
@@ -299,7 +300,7 @@ public final class CheckJsDocTest extends CompilerTestCase {
 
   public void testJSDocDescInExterns() {
     testWarning("/** @desc Foo. */ x.y.z.MSG_bar;", MISPLACED_MSG_ANNOTATION);
-    testSame("/** @desc Foo. */ x.y.z.MSG_bar;", "", null);
+    testSame("/** @desc Foo. */ x.y.z.MSG_bar;", "");
   }
 
   public void testJSDocTypeAttachment() {

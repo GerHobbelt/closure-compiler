@@ -37,7 +37,8 @@ public final class CheckRequiresAndProvidesSortedTest extends CompilerTestCase {
   }
 
   @Override
-  public void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
     setAcceptedLanguage(LanguageMode.ECMASCRIPT_2017);
   }
 
@@ -198,6 +199,28 @@ public final class CheckRequiresAndProvidesSortedTest extends CompilerTestCase {
             "goog.require('a.b.c');",
             "",
             "alert(1);"),
+        REQUIRES_NOT_SORTED);
+  }
+
+  public void testGoogModule_forwardDeclares() {
+    testWarning(
+        LINE_JOINER.join(
+            "goog.module('x');",
+            "",
+            "const s = goog.require('s');",
+            "const f = goog.forwardDeclare('f');",
+            "const r = goog.require('r');"),
+        REQUIRES_NOT_SORTED);
+  }
+
+  public void testForwardDeclares() {
+    testWarning(
+        LINE_JOINER.join(
+            "goog.provide('x');",
+            "",
+            "goog.require('s');",
+            "goog.forwardDeclare('f');",
+            "goog.require('r');"),
         REQUIRES_NOT_SORTED);
   }
 

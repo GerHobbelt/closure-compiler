@@ -31,7 +31,8 @@ public final class FlowSensitiveInlineVariablesTest extends CompilerTestCase  {
       "                      function hasSFX() {}");
 
   @Override
-  public void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
     enableNormalize();
   }
 
@@ -608,6 +609,6 @@ public final class FlowSensitiveInlineVariablesTest extends CompilerTestCase  {
 
   private void inline(String input, String expected) {
     test(EXTERN_FUNCTIONS, "function _func() {" + input + "}",
-        "function _func() {" + expected + "}", null, null);
+        "function _func() {" + expected + "}");
   }
 }

@@ -35,7 +35,9 @@ import java.util.List;
  * @author nicksantos@google.com (Nick Santos)
  */
 public final class TypeValidatorTest extends CompilerTestCase {
-  public TypeValidatorTest() {
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
     enableTypeCheck();
   }
 
@@ -127,7 +129,9 @@ public final class TypeValidatorTest extends CompilerTestCase {
             "  c: string,",
             "  d: string,",
             "  e: string",
-            "}"));
+            "}",
+            "missing : []",
+            "mismatch: [e]"));
   }
 
   /**
@@ -150,7 +154,9 @@ public final class TypeValidatorTest extends CompilerTestCase {
             "found   : {a: string, b: string, c: string, d: string, e: string, f: string,"
               + " g: string, h: string, i: string, j: string, k: (number|string)}",
             "required: {a: string, b: string, c: string, d: string, e: string, f: string,"
-              + " g: string, h: string, i: string, j: string, k: string}"));
+              + " g: string, h: string, i: string, j: string, k: string}",
+            "missing : []",
+            "mismatch: [k]"));
   }
 
   /**
@@ -176,7 +182,9 @@ public final class TypeValidatorTest extends CompilerTestCase {
             "found   : {a: string, b: string, c: string, d: string, e: string, f: string,"
               + " g: string, h: string, i: string, j: string, k: (number|string)}",
             "required: {a: string, b: string, c: string, d: string, e: string, f: string,"
-              + " g: string, h: string, i: string, j: string, k: string}"));
+              + " g: string, h: string, i: string, j: string, k: string}",
+            "missing : []",
+            "mismatch: [k]"));
   }
 
   public void testNullUndefined() {
@@ -335,7 +343,7 @@ public final class TypeValidatorTest extends CompilerTestCase {
 
   public void testModuloNullUndef12() {
     // Only warn for the file not ending in .java.js
-    test(ImmutableList.of(
+    testWarning(ImmutableList.of(
         SourceFile.fromCode(
             "foo.js",
             LINE_JOINER.join(
@@ -348,8 +356,6 @@ public final class TypeValidatorTest extends CompilerTestCase {
                 "function g(/** number */ to, /** (number|null) */ from) {",
                 "  to = from;",
                 "}"))),
-        null,
-        null,
         TypeValidator.TYPE_MISMATCH_WARNING);
   }
 

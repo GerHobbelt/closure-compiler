@@ -51,7 +51,8 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
   }
 
   @Override
-  public void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
     setAcceptedLanguage(LanguageMode.ECMASCRIPT_2017);
   }
 
@@ -104,7 +105,7 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
   }
 
   public void testIjsModule() {
-    allowExternsChanges(true);
+    allowExternsChanges();
     test(
         // .i.js file
         "goog.module('external'); /** @constructor */ exports = function() {};",
@@ -112,8 +113,7 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
         "goog.module('ns.a'); var b = goog.require('external'); /** @type {b} */ new b;",
         LINE_JOINER.join(
             "/** @const */ var module$exports$ns$a = {};",
-            "/** @type {module$exports$external} */ new module$exports$external"),
-        null, null);
+            "/** @type {module$exports$external} */ new module$exports$external"));
   }
 
   public void testDestructuringInsideModule() {
@@ -1602,6 +1602,21 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
         DUPLICATE_NAMESPACE);
   }
 
+  public void testImportInliningDoesntShadow() {
+    testNoWarning(
+        LINE_JOINER.join(
+            "/** @const */ var a = a || {};",
+            "goog.provide('a.b.c');",
+            "a.b.c = class {};",
+            "goog.loadModule(function(exports) { 'use strict';",
+            "  goog.module('a.b.d');",
+            "  goog.module.declareLegacyNamespace();",
+            "  var c = goog.require('a.b.c');",
+            "  exports.c = new c;",
+            "  return exports;",
+            "});"));
+  }
+
   public void testImportInliningShadowsVar() {
     testError(
         new String[] {
@@ -1615,8 +1630,21 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
                 "  var a = 10;",
                 "  var b = c;",
                 "}")},
-
         IMPORT_INLINING_SHADOWS_VAR);
+  }
+
+  public void testExportsShadowingAllowed() {
+    testNoWarning(
+        LINE_JOINER.join(
+            "goog.loadModule(function(exports) {",
+            "   goog.module('a.b.c');",
+            "",
+            "   class Foo {}",
+            "   /** @const {*} */ Foo.prototype.x;",
+            "   exports.Foo = Foo;",
+            "",
+            "   return exports;",
+            "});"));
   }
 
   public void testExportRewritingShadows() {
@@ -2129,8 +2157,8 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
   }
 
   public void testIjsFileInExterns() {
-    allowExternsChanges(true);
-    test(
+    allowExternsChanges();
+    testNoWarning(
         LINE_JOINER.join(
             "/** @externs */",
             "goog.module('mod_B');",
@@ -2144,10 +2172,9 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
             "var B = goog.require('mod_B');",
             "",
             "/** @constructor @implements {B} */",
-            "function A() {}"),
-        (String) null, null, null);
+            "function A() {}"));
 
-    test(
+    testNoWarning(
         LINE_JOINER.join(
             "/** @externs */",
             "goog.loadModule(function(exports) { 'use strict';",
@@ -2164,11 +2191,10 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
             "var B = goog.require('mod_B');",
             "",
             "/** @constructor @implements {B} */",
-            "function A() {}"),
-        (String) null, null, null);
+            "function A() {}"));
 
     setAcceptedLanguage(LanguageMode.ECMASCRIPT_NEXT);
-    test(
+    testNoWarning(
         LINE_JOINER.join(
             "/** @externs */",
             "goog.loadModule(function(exports) { 'use strict';",
@@ -2185,7 +2211,12 @@ public final class ClosureRewriteModuleTest extends CompilerTestCase {
             "var {B} = goog.require('mod_B');",
             "",
             "/** @constructor @implements {B} */",
-            "function A() {}"),
-        (String) null, null, null);
+            "function A() {}"));
+  }
+
+  // This pass only handles goog.modules. ES6 modules are left alone.
+  public void testEs6Module() {
+    testSame("export var x;");
+    testSame("import {x} from 'y';");
   }
 }

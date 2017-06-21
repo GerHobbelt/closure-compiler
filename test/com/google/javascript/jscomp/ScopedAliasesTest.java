@@ -53,12 +53,6 @@ public final class ScopedAliasesTest extends CompilerTestCase {
     super(EXTERNS);
   }
 
-  @Override
-  public void tearDown() throws Exception {
-    super.tearDown();
-    disableTypeCheck();
-  }
-
   private void testScoped(String code, String expected, LanguageMode lang) {
     setAcceptedLanguage(lang);
     test(GOOG_SCOPE_START_BLOCK + code + GOOG_SCOPE_END_BLOCK, expected);
@@ -428,7 +422,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testJsDocNotIgnored() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
 
     String externs =
         LINE_JOINER.join(
@@ -449,7 +443,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
             "  };",
             "  x.y('');",
             "});");
-    test(externs, js, null, null, TypeValidator.TYPE_MISMATCH_WARNING);
+    testWarning(externs, js, TypeValidator.TYPE_MISMATCH_WARNING);
 
     js =
         LINE_JOINER.join(
@@ -460,7 +454,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
             "  };",
             "  x.y('');",
             "});");
-    test(externs, js, null, null, TypeValidator.TYPE_MISMATCH_WARNING);
+    testWarning(externs, js, TypeValidator.TYPE_MISMATCH_WARNING);
   }
 
   public void testUsingObjectLiteralToEscapeScoping() {
@@ -599,7 +593,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testJsDocRecord() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
     test(
         LINE_JOINER.join(
             "/** @const */ var ns = {};",
@@ -610,8 +604,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
         LINE_JOINER.join(
             "/** @const */ var ns = {};",
             "/** @type {{x: string}} */ ns.y = {'goog.Timer': 'x'};"),
-        null,
-        TypeValidator.TYPE_MISMATCH_WARNING);
+        warning(TypeValidator.TYPE_MISMATCH_WARNING));
   }
 
   public void testArrayJsDoc() {
@@ -727,7 +720,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testInlineJsDoc() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
     test(LINE_JOINER.join(
         "/** @const */ var ns = {};",
         "/** @constructor */ ns.A = function() {};",
@@ -746,7 +739,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testInlineReturn() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
     test(LINE_JOINER.join(
         "/** @const */ var ns = {};",
         "/** @constructor */ ns.A = function() {};",
@@ -766,7 +759,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testInlineParam() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
     test(LINE_JOINER.join(
         "/** @const */ var ns = {};",
         "/** @constructor */ ns.A = function() {};",
@@ -1018,7 +1011,11 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testIssue2210c() {
     testScoped(
-        LINE_JOINER.join("foo(() => {", "  const y = function y() {", "    use(y);", "  };", "});"),
+        LINE_JOINER.join(
+            "foo(() => {",
+            "  const y = function y() {",
+            "    use(y);", "  };",
+            "});"),
         LINE_JOINER.join(
             "foo(() => {",
             "  const y = function y$jscomp$1() {",
@@ -1034,7 +1031,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
 
   public void testTypeCheck() {
     enableTypeCheck();
-    runTypeCheckAfterProcessing = true;
+    enableRunTypeCheckAfterProcessing();
 
     test(
         LINE_JOINER.join(
@@ -1047,8 +1044,7 @@ public final class ScopedAliasesTest extends CompilerTestCase {
             "/** @return {$jscomp.scope.F} */",
             "$jscomp.scope.createFoo = /** @return {$jscomp.scope.F} */ function() { return 1; };",
             "/** @constructor */ $jscomp.scope.F = /** @constructor */ function() { };"),
-            null,
-            TypeValidator.TYPE_MISMATCH_WARNING);
+        warning(TypeValidator.TYPE_MISMATCH_WARNING));
   }
 
   // Alias Recording Tests

@@ -30,12 +30,8 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
 
   private CodingConvention convention = null;
 
-  public TypeCheckFunctionCheckTest() {
-    parseTypeInfo = true;
-    enableTypeCheck();
-  }
-
-  @Override protected CompilerPass getProcessor(Compiler compiler) {
+  @Override
+  protected CompilerPass getProcessor(Compiler compiler) {
     return new CompilerPass() {
       @Override
       public void process(Node externs, Node root) {}
@@ -55,9 +51,11 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
   }
 
   @Override
-  public void setUp() throws Exception {
+  protected void setUp() throws Exception {
     super.setUp();
     convention = new GoogleCodingConvention();
+    enableParseTypeInfo();
+    enableTypeCheck();
   }
 
   public void testFunctionAritySimple() {
@@ -190,7 +188,7 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
 
     // Extern constructor with explicit return type can be called without
     // the "new" keyword
-    testSame(METHOD_DEFS, "Bar();", null);
+    testSame(METHOD_DEFS, "Bar();");
   }
 
   public void assertOk(String params, String arguments) {

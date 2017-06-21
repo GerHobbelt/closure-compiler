@@ -37,8 +37,6 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
   }
 
   public void testInferAnnotatedTypeFromTypeInference() {
-    enableTypeCheck();
-
     test("/** @const */ var x = 5;", "/** @const {number} */ var x;");
 
     test(
@@ -46,8 +44,13 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
         "/** @constructor */ function Foo() {} \n /** @const {number} */ Foo.prototype.x;");
   }
 
+  public void testAllExternsLibraryPrinted() {
+    allowExternsChanges();
+    test("/** @type {number} */ var x;", "", "/** @type {number} */ var x;");
+  }
+
   public void testExternsDefinitionsRespected() {
-    test("/** @type {number} */ var x;", "x = 7;", "", null, null);
+    test("/** @type {number} */ var x;", "x = 7;", "");
   }
 
   public void testSimpleConstJsdocPropagation() {
@@ -65,11 +68,26 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
     test(
         "/** @const */ var x = cond ? true : 5;",
         "/** @const {*} */ var x;",
-        null, ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+        warning(ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE));
   }
 
   public void testConstKeywordJsdocPropagation() {
     test("const x = 5;", "/** @const {number} */ var x;");
+
+    test(
+        "const x = 5, y = 'str', z = /abc/;",
+        LINE_JOINER.join(
+            "/** @const {number} */ var x;",
+            "/** @const {string} */ var y;",
+            "/** @const {!RegExp} */ var z;"));
+  }
+
+  public void testSplitMultiDeclarations() {
+    test("var /** number */ x = 4, /** string */ y = 'str';",
+        "/** @type {number} */ var x; /** @type {string} */ var y;");
+
+    test("let /** number */ x = 4, /** string */ y = 'str';",
+    "/** @type {number} */ var x; /** @type {string} */ var y;");
   }
 
   public void testThisPropertiesInConstructors() {
@@ -85,10 +103,11 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
         "/** @constructor */ function Foo() { /** @type {?number} */ this.x = null; this.x = 5; }",
         "/** @constructor */ function Foo() {} \n /** @type {?number} */ Foo.prototype.x;");
 
+
     test(
         "/** @constructor */ function Foo() { /** @const */ this.x = cond ? true : 5; }",
         "/** @constructor */ function Foo() {}  /** @const {*} */ Foo.prototype.x;",
-        null, ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+        warning(ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE));
   }
 
   public void testThisPropertiesInConstructorsAndPrototype() {
@@ -387,6 +406,49 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
     test(
         "class Foo { method(/** string */ s) { return s.split(','); } }",
         "class Foo { method(/** string */ s) {} }");
+  }
+
+  public void testEs6Modules() {
+    testSame("export default class {}");
+
+    testSame("import Foo from 'foo';");
+
+    testSame("export class Foo {}");
+
+    testSame("import {Foo} from 'foo';");
+
+    testSame(
+        LINE_JOINER.join(
+            "import {Baz} from 'baz';",
+            "",
+            "export /** @constructor */ function Foo() {}",
+            "/** @type {!Baz} */ Foo.prototype.baz"));
+
+    testSame(
+        LINE_JOINER.join(
+            "import {Bar, Baz} from 'a/b/c';",
+            "",
+            "class Foo extends Bar {",
+            "  /** @return {!Baz} */ getBaz() {}",
+            "}",
+            "",
+            "export {Foo};"));
+
+    test(
+        LINE_JOINER.join(
+            "export class Foo {",
+            "  /** @return {number} */ getTime() { return Date.now(); }",
+            "}",
+            "export default /** @return {number} */ () => 6",
+            "const BLAH = 'foobar';",
+            "export {BLAH};"),
+        LINE_JOINER.join(
+            "export class Foo {",
+            "  /** @return {number} */ getTime() {}",
+            "}",
+            "export default /** @return {number} */ () => {}",
+            "/** @const {string} */ var BLAH;",
+            "export {BLAH};"));
   }
 
   public void testGoogModules() {
@@ -711,6 +773,21 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
 
     test("/** @define {number} */ goog.define('goog.BLAH', 5);",
          "/** @define {number} */ goog.define('goog.BLAH');");
+  }
+
+  public void testNestedBlocks() {
+    test("{ const x = foobar(); }", "{}");
+
+    test("{ /** @const */ let x = foobar(); }", "{}");
+
+    test("{ /** @const */ let x = foobar(); x = foobaz(); }", "{}");
+
+    testWarning("{ /** @const */ var x = foobar(); }",
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+  }
+
+  public void testGoogProvidedTopLevelSymbol() {
+    testSame("goog.provide('Foo');  /** @constructor */ Foo = function() {};");
   }
 
   public void testIfs() {

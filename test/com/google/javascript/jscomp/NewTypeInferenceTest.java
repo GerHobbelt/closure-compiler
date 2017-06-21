@@ -19194,6 +19194,18 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "};"));
   }
 
+  public void testDontCrashWhenJoiningNominalTypeWithEmptyTypemap() {
+    typeCheck(LINE_JOINER.join(
+        "/**",
+        " * @constructor",
+        " * @template T",
+        " */",
+        "var Foo = function() {};",
+        "Foo.prototype.conditional = function() {",
+        "  return true ? /** @type {Foo<boolean>} */ (new Foo) : this;",
+        "};"));
+  }
+
   public void testSpecializeFunctionReturnType() {
     typeCheck(LINE_JOINER.join(
         "/** @return {?Object} */",
@@ -20398,5 +20410,18 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "    window.p2 = 234;",
         "  };",
         "}"));
+  }
+
+  public void testBackwardAnalyzedLooseFunctionParametersInRightOrder() {
+    // Regression test for https://github.com/google/closure-compiler/issues/2520
+    typeCheck(LINE_JOINER.join(
+        "var /** !Array<!Foo>|undefined */ foos;",
+        "/** @constructor */ function Foo() {};",
+        "/** @param {string} str\n @param {number} num */",
+        "Foo.prototype.bar = function(str, num) {",
+        "  if (foos) {",
+        "    Array.prototype.forEach.call(foos, function(foo) { foo.bar(str, num); });",
+        "  }",
+        "};"));
   }
 }

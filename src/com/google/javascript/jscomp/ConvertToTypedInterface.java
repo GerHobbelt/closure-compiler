@@ -57,9 +57,40 @@ class ConvertToTypedInterface implements CompilerPass {
     this.compiler = compiler;
   }
 
+  private void unhoistExternsToCode(Node externs, Node root) {
+    // Clear out the contents of existing scripts.
+    for (Node script = root.getFirstChild(); script != null; script = script.getNext()) {
+      if (script.hasChildren()) {
+        NodeUtil.markFunctionsDeleted(script, compiler);
+        script.removeChildren();
+        compiler.reportChangeToChangeScope(script);
+      }
+    }
+
+    Node firstScript = root.getFirstChild();
+    boolean firstTime = true;
+
+    // Move the contents of externs into the first script.
+    while (externs.hasChildren()) {
+      Node externScript = externs.removeFirstChild();
+      if (externScript.hasChildren()) {
+        firstScript.addChildrenToBack(externScript.removeChildren());
+        compiler.reportChangeToChangeScope(externScript);
+        if (firstTime) {
+          compiler.reportChangeToChangeScope(firstScript);
+          firstTime = false;
+        }
+      }
+    }
+  }
+
   @Override
   public void process(Node externs, Node root) {
-    NodeTraversal.traverseEs6(compiler, root, new RemoveNonDeclarations());
+    if (!root.hasChildren() || (root.hasOneChild() && !root.getFirstChild().hasChildren())) {
+      unhoistExternsToCode(externs, root);
+      return;
+    }
+    NodeTraversal.traverseEs6(compiler, root, new RemoveNonDeclarations(compiler));
     NodeTraversal.traverseEs6(compiler, root, new PropagateConstJsdoc());
     SimplifyDeclarations simplify = new SimplifyDeclarations(compiler);
     NodeTraversal.traverseEs6(compiler, root, simplify);
@@ -73,6 +104,13 @@ class ConvertToTypedInterface implements CompilerPass {
   }
 
   private static class RemoveNonDeclarations implements NodeTraversal.Callback {
+
+    private final AbstractCompiler compiler;
+
+    public RemoveNonDeclarations(AbstractCompiler compiler) {
+      this.compiler = compiler;
+    }
+
     @Override
     public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
@@ -82,6 +120,7 @@ class ConvertToTypedInterface implements CompilerPass {
             if (!body.isNormalBlock() || body.hasChildren()) {
               t.reportCodeChange(body);
               body.replaceWith(IR.block().srcref(body));
+              NodeUtil.markFunctionsDeleted(body, compiler);
             }
           }
           return true;
@@ -96,10 +135,17 @@ class ConvertToTypedInterface implements CompilerPass {
                   && !callee.matchesQualifiedName("goog.require")
                   && !callee.matchesQualifiedName("goog.module")) {
                 n.detach();
+                NodeUtil.markFunctionsDeleted(n, t.getCompiler());
                 t.reportCodeChange();
               }
               return false;
             case ASSIGN:
+              if (expr.getFirstChild().isName() && !t.inGlobalScope() && !t.inModuleScope()) {
+                NodeUtil.removeChild(parent, n);
+                t.reportCodeChange(parent);
+                return false;
+              }
+              return true;
             case GETPROP:
               return true;
             default:
@@ -137,18 +183,31 @@ class ConvertToTypedInterface implements CompilerPass {
         case FOR_OF:
         case FOR_IN:
           n.getSecondChild().detach();
-          Node initializer = n.getFirstChild().detach();
+          Node initializer = n.removeFirstChild();
           if (initializer.isVar()) {
             parent.addChildBefore(initializer, n);
           }
           t.reportCodeChange(parent);
           return true;
-        case MODULE_BODY:
-        case VAR:
         case CONST:
         case LET:
+          if (!t.inGlobalScope() && !t.inModuleScope()) {
+            NodeUtil.removeChild(parent, n);
+            t.reportCodeChange(parent);
+            return false;
+          }
+          return true;
+        case VAR:
+          if (!t.inGlobalHoistScope() && !t.inModuleHoistScope()) {
+            NodeUtil.removeChild(parent, n);
+            t.reportCodeChange(parent);
+            return false;
+          }
+          return true;
+        case MODULE_BODY:
         case CLASS:
         case DEFAULT_CASE:
+        case BLOCK:
         case EXPORT:
         case IMPORT:
           return true;
@@ -176,6 +235,17 @@ class ConvertToTypedInterface implements CompilerPass {
             Node children = n.removeChildren();
             parent.addChildrenAfter(children, n);
             NodeUtil.removeChild(parent, n);
+            t.reportCodeChange();
+          }
+          break;
+        case VAR:
+        case LET:
+        case CONST:
+          while (n.hasMoreThanOneChild()) {
+            Node nameToSplit = n.getLastChild().detach();
+            Node rhs = nameToSplit.hasChildren() ? nameToSplit.removeFirstChild() : null;
+            Node newDeclaration = IR.declaration(nameToSplit, rhs, n.getToken()).srcref(n);
+            parent.addChildAfter(newDeclaration, n);
             t.reportCodeChange();
           }
           break;
@@ -537,6 +607,7 @@ class ConvertToTypedInterface implements CompilerPass {
       } else {
         n.replaceWith(IR.empty().srcref(n));
       }
+      NodeUtil.markFunctionsDeleted(n, compiler);
     }
 
     private void maybeRemoveRhs(NodeTraversal t, Node nameNode, Node statement, JSDocInfo jsdoc) {

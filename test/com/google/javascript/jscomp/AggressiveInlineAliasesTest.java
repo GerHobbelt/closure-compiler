@@ -41,32 +41,29 @@ public class AggressiveInlineAliasesTest extends CompilerTestCase {
   }
 
   @Override
-  public void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
     enableNormalize();
   }
 
   public void test_b19179602() {
-    test(
-        LINE_JOINER.join(
-            "var a = {};",
-            "/** @constructor */ a.b = function() {};",
-            "a.b.staticProp = 5;",
-            "/** @constructor */",
-            "function f() { ",
-            "  while (true) { ",
-            "    var b = a.b;",
-            "    alert(b.staticProp); } }"),
-        LINE_JOINER.join(
-            "var a = {};",
-            "/** @constructor */ a.b = function() {};",
-            "a.b.staticProp = 5;",
-            "/** @constructor */",
-            "function f() {",
-            "  for(; true; ) {",
-            "    var b = a.b;",
-            "    alert(b.staticProp); } }"),
-        null,
-        AggressiveInlineAliases.UNSAFE_CTOR_ALIASING);
+    test(LINE_JOINER.join(
+    "var a = {};",
+    "/** @constructor */ a.b = function() {};",
+    "a.b.staticProp = 5;",
+    "/** @constructor */",
+    "function f() { ",
+    "  while (true) { ",
+    "    var b = a.b;",
+    "    alert(b.staticProp); } }"), LINE_JOINER.join(
+    "var a = {};",
+    "/** @constructor */ a.b = function() {};",
+    "a.b.staticProp = 5;",
+    "/** @constructor */",
+    "function f() {",
+    "  for(; true; ) {",
+    "    var b = a.b;",
+    "    alert(b.staticProp); } }"), warning(AggressiveInlineAliases.UNSAFE_CTOR_ALIASING));
   }
 
   public void test_b19179602_declareOutsideLoop() {
@@ -450,8 +447,6 @@ public class AggressiveInlineAliasesTest extends CompilerTestCase {
   }
 
   public void testInlineCtorInObjLit() {
-    compareJsDoc = true;
-
     test(
         LINE_JOINER.join("function Foo() {}", "var Bar = Foo;", "var objlit = { 'prop' : Bar };"),
         LINE_JOINER.join("function Foo() {}", "var Bar = null;", "var objlit = { 'prop': Foo };"));

@@ -335,6 +335,20 @@ assert.isNull = function(value, opt_message) {};
 assert.instanceOf = function(object, constructor, opt_message) {};
 
 /**
+ * @param {!Array<*>|string} haystack
+ * @param {*} needle
+ * @param {string=} opt_message
+ */
+assert.include = function(haystack, needle, opt_message) {};
+
+/**
+ * @param {!Array<*>|string} haystack
+ * @param {*} needle
+ * @param {string=} opt_message
+ */
+assert.notInclude = function(haystack, needle, opt_message) {};
+
+/**
  * @param {*} object
  * @param {!RegExp} re
  * @param {string=} opt_message
@@ -356,3 +370,10 @@ assert.propertyVal = function(object, property, value, opt_message) {};
  * @param {string=} opt_message
  */
 assert.throws = function(fn, constructor, opt_regexp, opt_message) {};
+
+/**
+ * @param {!Array<*>} set1
+ * @param {!Array<*>} set2
+ * @param {string=} opt_message
+ */
+assert.sameMembers = function(set1, set2, opt_message) {};

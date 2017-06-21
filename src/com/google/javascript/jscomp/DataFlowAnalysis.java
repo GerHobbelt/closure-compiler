@@ -540,21 +540,26 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
   }
 
   /**
-   * Compute set of escaped variables. When a variable is escaped in a
-   * dataflow analysis, it can be reference outside of the code that we are
-   * analyzing. A variable is escaped if any of the following is true:
+   * Compute set of escaped variables. When a variable is escaped in a dataflow analysis, it can be
+   * reference outside of the code that we are analyzing. A variable is escaped if any of the
+   * following is true:
    *
-   * <p><ol>
-   * <li>It is defined as the exception name in CATCH clause so it became a
-   * variable local not to our definition of scope.</li>
-   * <li>Exported variables as they can be needed after the script terminates.
-   * </li>
-   * <li>Names of named functions because in JavaScript, <i>function foo(){}</i>
-   * does not kill <i>foo</i> in the dataflow.</li>
+   * <p>
+   *
+   * <ol>
+   *   <li>It is defined as the exception name in CATCH clause so it became a variable local not to
+   *       our definition of scope.
+   *   <li>Exported variables as they can be needed after the script terminates.
+   *   <li>Names of named functions because in JavaScript, <i>function foo(){}</i> does not kill
+   *       <i>foo</i> in the dataflow.
    */
-  static void computeEscaped(final Scope jsScope, final Set<Var> escaped,
-      AbstractCompiler compiler) {
+  static void computeEscaped(
+      final Scope jsScope,
+      final Set<Var> escaped,
+      AbstractCompiler compiler,
+      ScopeCreator scopeCreator) {
     // TODO(user): Very good place to store this information somewhere.
+
     AbstractPostOrderCallback finder = new AbstractPostOrderCallback() {
       @Override
       public void visit(NodeTraversal t, Node n, Node parent) {
@@ -570,8 +575,7 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
       }
     };
 
-    NodeTraversal t =
-        new NodeTraversal(compiler, finder, SyntacticScopeCreator.makeUntyped(compiler));
+    NodeTraversal t = new NodeTraversal(compiler, finder, scopeCreator);
     t.traverseAtScope(jsScope);
 
     // 1: Remove the exception name in CATCH which technically isn't local to
@@ -579,6 +583,53 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
     for (Var var : jsScope.getVarIterable()) {
       if (var.getParentNode().isCatch() ||
           compiler.getCodingConvention().isExported(var.getName())) {
+        escaped.add(var);
+      }
+    }
+  }
+
+  /**
+   * ******************************************************************** Alternate implementation
+   * of compute escaped that accepts the child scope and the current jsScope to help us access both
+   * the function and function body scopes.
+   */
+  static void computeEscaped(
+      final Scope jsScope,
+      final Scope jsScopeChild,
+      final Set<Var> escaped,
+      AbstractCompiler compiler,
+      Es6SyntacticScopeCreator scopeCreator) {
+
+    AbstractPostOrderCallback finder =
+        new AbstractPostOrderCallback() {
+          @Override
+          public void visit(NodeTraversal t, Node n, Node parent) {
+
+            if (jsScope.getRootNode() == NodeUtil.getEnclosingFunction(n)
+                || !n.isName()
+                || parent.isFunction()) {
+              return;
+            }
+            String name = n.getString();
+            Var var = t.getScope().getVar(name);
+            Node enclosing = NodeUtil.getEnclosingFunction(var.getNode());
+            if (var != null && enclosing == jsScope.getRootNode()) {
+              escaped.add(var);
+            }
+          }
+        };
+
+    NodeTraversal t = new NodeTraversal(compiler, finder, scopeCreator);
+    t.traverseAtScope(jsScope);
+
+    for (Var var : jsScope.getVarIterable()) {
+      if (compiler.getCodingConvention().isExported(var.getName())) {
+        escaped.add(var);
+      }
+    }
+
+    for (Var var : jsScopeChild.getVarIterable()) {
+      if (compiler.getCodingConvention().isExported(var.getName())) {
         escaped.add(var);
       }
     }

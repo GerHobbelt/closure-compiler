@@ -51,6 +51,8 @@ import java.util.Set;
  *   <li>Removes duplicate variable declarations.
  *   <li>Marks constants with the IS_CONSTANT_NAME annotation.
  *   <li>Finds properties marked @expose, and rewrites them in [] notation.
+ *   <li>Rewrite body of arrow function as a block
+ *   <li>Removes ES6 shorthand property syntax
  * </ol>
  *
  * @author johnlenz@google.com (johnlenz)
@@ -354,14 +356,20 @@ class Normalize implements CompilerPass {
           break;
 
         case FUNCTION:
-          if (maybeNormalizeFunctionDeclaration(n, compiler)) {
+          if (visitFunction(n, compiler)) {
             reportCodeChange(n, "Function declaration");
           }
           break;
 
+        case STRING_KEY:
+          if (n != null && !(n.hasOneChild())) {
+            rewriteEs6ObjectLiteralShorthandPropertySyntax(n, compiler);
+            reportCodeChange(n, "Normalize ES6 shorthand property syntax");
+          }
+          // fall through
+
         case NAME:
         case STRING:
-        case STRING_KEY:
         case GETTER_DEF:
         case SETTER_DEF:
           if (!compiler.getLifeCycleStage().isNormalizedObfuscated()) {
@@ -411,6 +419,18 @@ class Normalize implements CompilerPass {
     }
 
     /**
+     * Expand ES6 object literal shorthand property syntax.
+     *
+     * <p>From: obj = {x, y} to: obj = {x:x, y:y}
+     */
+    private static void rewriteEs6ObjectLiteralShorthandPropertySyntax(
+        Node n, AbstractCompiler compiler) {
+      String objLitName = NodeUtil.getObjectLitKeyName(n);
+      Node objLitNameNode = Node.newString(Token.NAME, objLitName).useSourceInfoFrom(n);
+      n.addChildToBack(objLitNameNode);
+    }
+
+    /**
      * Rewrite named unhoisted functions declarations to a known
      * consistent behavior so we don't to different logic paths for the same
      * code.
@@ -425,11 +445,17 @@ class Normalize implements CompilerPass {
      *
      * @see https://github.com/google/closure-compiler/pull/429
      */
-    static boolean maybeNormalizeFunctionDeclaration(Node n, AbstractCompiler compiler) {
+    static boolean visitFunction(Node n, AbstractCompiler compiler) {
       Preconditions.checkState(n.isFunction(), n);
       if (NodeUtil.isFunctionDeclaration(n) && !NodeUtil.isHoistedFunctionDeclaration(n)) {
         rewriteFunctionDeclaration(n, compiler);
         return true;
+      } else if (n.isFunction() && !NodeUtil.getFunctionBody(n).isNormalBlock()) {
+        Node returnValue = NodeUtil.getFunctionBody(n);
+        Node body = IR.block(IR.returnNode(returnValue.detach()));
+        body.useSourceInfoIfMissingFromForTree(returnValue);
+        n.addChildToBack(body);
+        compiler.reportChangeToEnclosingScope(body);
       }
       return false;
     }
@@ -705,7 +731,7 @@ class Normalize implements CompilerPass {
    * ScopeCreator duplicate declaration handler.
    */
   private final class DuplicateDeclarationHandler implements
-      SyntacticScopeCreator.RedeclarationHandler {
+      Es6SyntacticScopeCreator.RedeclarationHandler {
 
     private Set<Var> hasOkDuplicateDeclaration = new HashSet<>();
 

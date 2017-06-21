@@ -64,11 +64,13 @@ import java.io.Serializable;
 import java.nio.file.FileSystems;
 import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -111,6 +113,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   static final DiagnosticType MISSING_MODULE_ERROR = DiagnosticType.error(
       "JSC_MISSING_ENTRY_ERROR",
       "unknown module \"{0}\" specified in entry point spec");
+
+  static final DiagnosticType INCONSISTENT_MODULE_DEFINITIONS = DiagnosticType.error(
+      "JSC_INCONSISTENT_MODULE_DEFINITIONS",
+      "Serialized module definitions are not consistent with the module definitions supplied in "
+          + "the command line");
 
   // Used in PerformanceTracker
   static final String READING_PASS_NAME = "readInputs";
@@ -164,6 +171,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private FeatureSet featureSet;
 
   private final Map<InputId, CompilerInput> inputsById = new ConcurrentHashMap<>();
+
+  private transient IncrementalScopeCreator scopeCreator = null;
 
   /**
    * Subclasses are responsible for loading soures that were not provided as explicit inputs to the
@@ -291,6 +300,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // The correctness of scope-change tracking relies on Node/getIntProp
   // returning 0 if the custom attribute on a node hasn't been set.
   private int changeStamp = 1;
+
+  private final Timeline<Node> changeTimeline = new Timeline<>();
+  private final Timeline<Node> deleteTimeline = new Timeline<>();
 
   /**
    * Creates a Compiler that reports errors and warnings to its logger.
@@ -1309,11 +1321,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   Supplier<String> getUniqueNameIdSupplier() {
-    final Compiler self = this;
     return new Supplier<String>() {
       @Override
       public String get() {
-        return String.valueOf(self.nextUniqueNameId());
+        return String.valueOf(Compiler.this.nextUniqueNameId());
       }
     };
   }
@@ -1546,6 +1557,16 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return getPassConfig().getTypedScopeCreator();
   }
 
+  @Override
+  IncrementalScopeCreator getScopeCreator() {
+    return this.scopeCreator;
+  }
+
+  @Override
+  void putScopeCreator(IncrementalScopeCreator creator) {
+    this.scopeCreator = creator;
+  }
+
   @SuppressWarnings("unchecked")
   DefaultPassConfig ensureDefaultPassConfig() {
     PassConfig passes = getPassConfig().getBasePassConfig();
@@ -1689,7 +1710,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         try {
           input.getCode();
         } catch (IOException e) {
-          report(JSError.make(AbstractCompiler.READ_ERROR, input.getName()));
+          report(JSError.make(AbstractCompiler.READ_ERROR, input.getName(), e.getMessage()));
         }
       }
     } finally {
@@ -1767,8 +1788,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
                   processJsonInputs(inputs));
         }
 
-        if (options.needsTranspilationFrom(FeatureSet.ES6_MODULES)) {
-          processEs6Modules();
+        if (options.getLanguageIn().toFeatureSet().has(Feature.MODULES)) {
+          parsePotentialModules(inputs);
         }
 
         // Modules inferred in ProcessCommonJS pass.
@@ -1800,7 +1821,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         }
 
         if (!inputsToRewrite.isEmpty()) {
-          processEs6Modules(new ArrayList<>(inputsToRewrite.values()), true);
+          forceToEs6Modules(inputsToRewrite.values());
+        }
+
+        if (options.needsTranspilationFrom(FeatureSet.ES6_MODULES)) {
+          processEs6Modules();
         }
       } else {
         // Use an empty module loader if we're not actually dealing with modules.
@@ -1958,15 +1983,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     Node n = input.getAstRoot(this);
 
     // Inputs can have a null AST on a parse error.
-    if (n == null || !options.shouldDoExternsHoisting()) {
+    if (n == null) {
       return false;
     }
 
     JSDocInfo info = n.getJSDocInfo();
     if (info != null && info.isExterns()) {
-      // If the input file is explicitly marked as an externs file, then
-      // assume the programmer made a mistake and throw it into
-      // the externs pile anyways.
+      // If the input file is explicitly marked as an externs file, then move it out of the main
+      // JS root and put it with the other externs.
       externsRoot.addChildToBack(n);
       input.setIsExtern(true);
 
@@ -2037,15 +2061,26 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   void processEs6Modules() {
-    processEs6Modules(inputs, false);
+    processEs6Modules(parsePotentialModules(inputs));
   }
 
-  void processEs6Modules(List<CompilerInput> inputsToProcess, boolean forceRewrite) {
+  void forceToEs6Modules(Collection<CompilerInput> inputsToProcess) {
+    for (CompilerInput input : inputsToProcess) {
+      input.setCompiler(this);
+      Node root = input.getAstRoot(this);
+      if (root == null) {
+        continue;
+      }
+      Es6RewriteModules moduleRewriter = new Es6RewriteModules(this);
+      moduleRewriter.forceToEs6Module(root);
+    }
+  }
+
+  private List<CompilerInput> parsePotentialModules(List<CompilerInput> inputsToProcess) {
     List<CompilerInput> filteredInputs = new ArrayList<>();
     for (CompilerInput input : inputsToProcess) {
-      // Only process files that are detected as ES6 modules or forced to be rewritten
-      if (forceRewrite
-          || !options.dependencyOptions.shouldPruneDependencies()
+      // Only process files that are detected as ES6 modules
+      if (!options.dependencyOptions.shouldPruneDependencies()
           || !JsFileParser.isSupported()
           || (input.getLoadFlags().containsKey("module")
               && input.getLoadFlags().get("module").equals("es6"))) {
@@ -2058,12 +2093,22 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     for (CompilerInput input : filteredInputs) {
       input.setCompiler(this);
       Node root = input.getAstRoot(this);
+      input.getRequires();
+    }
+    return filteredInputs;
+  }
+
+  void processEs6Modules(List<CompilerInput> inputsToProcess) {
+    for (CompilerInput input : inputsToProcess) {
+      input.setCompiler(this);
+      Node root = input.getAstRoot(this);
       if (root == null) {
         continue;
       }
-      new Es6RewriteModules(this).processFile(root, forceRewrite);
+      if (Es6RewriteModules.isEs6ModuleRoot(root)) {
+        new Es6RewriteModules(this).processFile(root);
+      }
     }
-
     setFeatureSet(featureSet.without(Feature.MODULES));
   }
 
@@ -2529,6 +2574,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
+  List<Node> getChangedScopeNodesForPass(String passName) {
+    List<Node> changedScopeNodes = changeTimeline.getSince(passName);
+    changeTimeline.mark(passName);
+    return changedScopeNodes;
+  }
+
+  @Override
+  List<Node> getDeletedScopeNodesForPass(String passName) {
+    List<Node> deletedScopeNodes = deleteTimeline.getSince(passName);
+    deleteTimeline.mark(passName);
+    return deletedScopeNodes;
+  }
+
+  @Override
   public void incrementChangeStamp() {
     changeStamp++;
   }
@@ -2559,9 +2618,19 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   private void recordChange(Node n) {
+    if (n.isDeleted()) {
+      // Some complicated passes (like SmartNameRemoval) might both change and delete a scope in
+      // the same pass, and they might even perform the change after the deletion because of
+      // internal queueing. Just ignore the spurious attempt to mark changed after already marking
+      // deleted. There's no danger of deleted nodes persisting in the AST since this is enforced
+      // separately in ChangeVerifier.
+      return;
+    }
+
     n.setChangeTime(changeStamp);
     // Every code change happens at a different time
     changeStamp++;
+    changeTimeline.add(n);
   }
 
   @Override
@@ -2594,6 +2663,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     checkState(changeScopeRoot.isScript() || changeScopeRoot.isFunction());
     recordChange(changeScopeRoot);
     notifyChangeHandlers();
+  }
+
+  @Override
+  public void reportFunctionDeleted(Node n) {
+    checkState(n.isFunction());
+    n.setDeleted(true);
+    changeTimeline.remove(n);
+    deleteTimeline.add(n);
   }
 
   @Override
@@ -2941,6 +3018,20 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return Collections.unmodifiableList(inputs);
   }
 
+  /** Names exported by goog.exportSymbol. */
+  private Set<String> exportedNames = new LinkedHashSet<>();
+
+  @Override
+  public void addExportedNames(Set<String> exportedNames) {
+    this.exportedNames.addAll(exportedNames);
+
+  }
+
+  @Override
+  public Set<String> getExportedNames() {
+    return exportedNames;
+  }
+
   /**
    * Returns an unmodifiable view of the compiler inputs indexed by id.
    */
@@ -3253,6 +3344,22 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
   }
 
+  private void renameModules(List<JSModule> newModules, List<JSModule> deserializedModules) {
+    if (newModules == null) {
+      return;
+    }
+    if (newModules.size() != deserializedModules.size()) {
+      report(JSError.make(INCONSISTENT_MODULE_DEFINITIONS));
+      return;
+    }
+    for (int i = 0; i < deserializedModules.size(); i++) {
+      JSModule deserializedModule = deserializedModules.get(i);
+      JSModule newModule = newModules.get(i);
+      deserializedModule.setName(newModule.getName());
+    }
+    return;
+  }
+
   /**
    * Serializable state of the compiler.
    */
@@ -3280,6 +3387,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     private final JSError[] warnings;
     private final JSModuleGraph moduleGraph;
     private final List<JSModule> modules;
+    private final int uniqueNameId;
+    private final Set<String> exportedNames;
 
     CompilerState(Compiler compiler) {
       this.externsRoot = checkNotNull(compiler.externsRoot);
@@ -3305,72 +3414,84 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       this.warnings = compiler.errorManager.getWarnings();
       this.moduleGraph = compiler.moduleGraph;
       this.modules = compiler.modules;
+      this.uniqueNameId = compiler.uniqueNameId;
+      this.exportedNames = compiler.exportedNames;
     }
   }
 
   @GwtIncompatible("ObjectOutputStream")
   public void saveState(OutputStream outputStream) throws IOException {
-    try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream)) {
-      runInCompilerThread(new Callable<Void>() {
-        @Override
-        public Void call() throws Exception {
-          Tracer tracer = newTracer("serializeCompilerState");
-          objectOutputStream.writeObject(new CompilerState(Compiler.this));
-          stopTracer(tracer, "serializeCompilerState");
-          return null;
-        }
-      });
-   }
+    // Do not close the outputstream, caller is responsible for closing it.
+    final ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+    runInCompilerThread(new Callable<Void>() {
+      @Override
+      public Void call() throws Exception {
+        Tracer tracer = newTracer("serializeCompilerState");
+        objectOutputStream.writeObject(new CompilerState(Compiler.this));
+        stopTracer(tracer, "serializeCompilerState");
+        return null;
+      }
+    });
   }
 
   @GwtIncompatible("ObjectInputStream")
-  public void restoreState(InputStream inputStream) throws IOException  {
+  public void restoreState(InputStream inputStream) throws IOException, ClassNotFoundException  {
     initWarningsGuard(options.getWarningsGuard());
     maybeSetTracker();
-    try (final ObjectInputStream objectInputStream = new ObjectInputStream(inputStream)) {
-      CompilerState compilerState = runInCompilerThread(new Callable<CompilerState>() {
-        @Override
-        public CompilerState call() throws Exception {
-          Tracer tracer = newTracer("deserializeCompilerState");
-          CompilerState compilerState = (CompilerState) objectInputStream.readObject();
-          stopTracer(tracer, "deserializeCompilerState");
-          return compilerState;
-        }
-      });
-      featureSet = compilerState.featureSet;
-      externs = compilerState.externs;
-      inputs = compilerState.inputs;
-      inputsById.clear();
-      inputsById.putAll(compilerState.inputsById);
-      typeRegistry = compilerState.typeRegistry;
-      externAndJsRoot = compilerState.externAndJsRoot;
-      externsRoot = compilerState.externsRoot;
-      jsRoot = compilerState.jsRoot;
-      mostRecentTypechecker = compilerState.mostRecentTypeChecker;
-      synthesizedExternsInput = compilerState.synthesizedExternsInput;
-      synthesizedExternsInputAtEnd = compilerState.synthesizedExternsInputAtEnd;
-      injectedLibraries.clear();
-      injectedLibraries.putAll(compilerState.injectedLibraries);
-      lastInjectedLibrary = compilerState.lastInjectedLibrary;
-      globalRefMap = compilerState.globalRefMap;
-      symbolTable = compilerState.symbolTable;
-      hasRegExpGlobalReferences = compilerState.hasRegExpGlobalReferences;
-      typeValidator = compilerState.typeValidator;
-      setLifeCycleStage(compilerState.lifeCycleStage);
-      externProperties = compilerState.externProperties;
-      moduleGraph = compilerState.moduleGraph;
-      modules = compilerState.modules;
 
-      // restore errors.
-      if (compilerState.errors != null) {
-        for (JSError error : compilerState.errors) {
-          report(CheckLevel.ERROR, error);
-        }
+    List<JSModule> newModules = modules;
+
+    // Do not close the input stream, caller is responsible for closing it.
+    final ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+    CompilerState compilerState = runInCompilerThread(new Callable<CompilerState>() {
+      @Override
+      public CompilerState call() throws Exception {
+        Tracer tracer = newTracer("deserializeCompilerState");
+        CompilerState compilerState = (CompilerState) objectInputStream.readObject();
+        stopTracer(tracer, "deserializeCompilerState");
+        return compilerState;
       }
-      if (compilerState.warnings != null) {
-        for (JSError warning : compilerState.warnings) {
-          report(CheckLevel.WARNING, warning);
-        }
+    });
+
+    featureSet = compilerState.featureSet;
+    externs = compilerState.externs;
+    inputs = compilerState.inputs;
+    inputsById.clear();
+    inputsById.putAll(compilerState.inputsById);
+    typeRegistry = compilerState.typeRegistry;
+    externAndJsRoot = compilerState.externAndJsRoot;
+    externsRoot = compilerState.externsRoot;
+    jsRoot = compilerState.jsRoot;
+    mostRecentTypechecker = compilerState.mostRecentTypeChecker;
+    synthesizedExternsInput = compilerState.synthesizedExternsInput;
+    synthesizedExternsInputAtEnd = compilerState.synthesizedExternsInputAtEnd;
+    injectedLibraries.clear();
+    injectedLibraries.putAll(compilerState.injectedLibraries);
+    lastInjectedLibrary = compilerState.lastInjectedLibrary;
+    globalRefMap = compilerState.globalRefMap;
+    symbolTable = compilerState.symbolTable;
+    hasRegExpGlobalReferences = compilerState.hasRegExpGlobalReferences;
+    typeValidator = compilerState.typeValidator;
+    setLifeCycleStage(compilerState.lifeCycleStage);
+    externProperties = compilerState.externProperties;
+    moduleGraph = compilerState.moduleGraph;
+    modules = compilerState.modules;
+    uniqueNameId = compilerState.uniqueNameId;
+    exportedNames.clear();
+    exportedNames.addAll(compilerState.exportedNames);
+
+    // Reapply module names to deserialized modules
+    renameModules(newModules, modules);
+
+    // restore errors.
+    if (compilerState.errors != null) {
+      for (JSError error : compilerState.errors) {
+        report(CheckLevel.ERROR, error);
+      }
+    }
+    if (compilerState.warnings != null) {
+      for (JSError warning : compilerState.warnings) {
+        report(CheckLevel.WARNING, warning);
       }
     }
   }

@@ -23,7 +23,8 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 public class DeadPropertyAssignmentEliminationTest extends CompilerTestCase {
 
   @Override
-  public void setUp() throws Exception {
+  protected void setUp() throws Exception {
+    super.setUp();
     enableGatherExternProperties();
   }
 
@@ -1093,8 +1094,7 @@ public class DeadPropertyAssignmentEliminationTest extends CompilerTestCase {
             "function z() {",
             "  window.innerWidth = 10;",
             "  window.innerWidth = 20;",
-            "}"),
-        null);
+            "}"));
 
     testSame(
         externs,
@@ -1103,8 +1103,7 @@ public class DeadPropertyAssignmentEliminationTest extends CompilerTestCase {
             "  var img = new Image();",
             "  img.src = '';",
             "  img.src = 'foo.bar';",
-            "}"),
-        null);
+            "}"));
 
     testSame(
         externs,
@@ -1112,8 +1111,7 @@ public class DeadPropertyAssignmentEliminationTest extends CompilerTestCase {
             "function z(x) {",
             "  x.src = '';",
             "  x.src = 'foo.bar';",
-            "}"),
-        null);
+            "}"));
   }
 
   public void testJscompInherits() {

@@ -24,12 +24,10 @@ import static com.google.common.truth.Truth.assertThat;
 public final class ExternExportsPassTest extends CompilerTestCase {
 
   @Override
-  public void setUp() throws Exception {
+  protected void setUp() throws Exception {
     super.setUp();
     enableNormalize();
     enableTypeCheck();
-    // TODO(rluble): enable multistage compilation.
-    disableMultistageCompilation();
   }
 
   @Override
@@ -410,6 +408,25 @@ public final class ExternExportsPassTest extends CompilerTestCase {
             ""));
   }
 
+  // x.Y is present in the generated externs but lacks the @constructor annotation.
+  public void testExportPrototypePropsWithoutConstructor() {
+    compileAndCheck(
+        LINE_JOINER.join(
+            "/** @constructor */",
+            "x.Y = function() {};",
+            "x.Y.prototype.z = function() {};",
+            "goog.exportProperty(x.Y.prototype, 'z', x.Y.prototype.z);"),
+        LINE_JOINER.join(
+            "var x;",
+            "x.Y;",
+            "/**",
+            " * @return {undefined}",
+            " */",
+            "x.Y.prototype.z = function() {",
+            "};",
+            ""));
+  }
+
   public void testExportFunctionWithOptionalArguments1() {
     compileAndCheck(
         LINE_JOINER.join(
@@ -543,7 +560,6 @@ public final class ExternExportsPassTest extends CompilerTestCase {
             "};",
             "/**",
             " * @return {number}",
-            " * @this {!Foo}",
             " */",
             "Foo.prototype.m = function() {",
             "};",
@@ -710,7 +726,6 @@ public final class ExternExportsPassTest extends CompilerTestCase {
             "/**",
             " * @param {string} x",
             " * @return {undefined}",
-            " * @this {!F}",
             " */",
             "F.prototype.x = function(x) {",
             "};",
@@ -915,7 +930,7 @@ public final class ExternExportsPassTest extends CompilerTestCase {
         "goog.exportProperty = function(a, b, c) {};",
         js);
 
-    testSame(externs, js, null);
+    testSame(externs, js);
 
     return getLastCompiler().getResult().externExport;
   }

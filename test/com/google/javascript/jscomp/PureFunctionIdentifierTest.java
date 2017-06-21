@@ -20,7 +20,6 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
@@ -576,14 +575,14 @@ public final class PureFunctionIdentifierTest extends TypeICompilerTestCase {
     testSame(
         externs,
         "o.prototype.propWithAnnotatedStubAfter",
-        TypeValidator.DUP_VAR_DECLARATION_TYPE_MISMATCH, false);
+        TypeValidator.DUP_VAR_DECLARATION_TYPE_MISMATCH);
     assertThat(noSideEffectCalls).isEmpty();
 
     this.mode = TypeInferenceMode.NTI_ONLY;
     testSame(
         TEST_EXTERNS + externs,
         "o.prototype.propWithAnnotatedStubAfter",
-        GlobalTypeInfo.REDECLARED_PROPERTY, false);
+        GlobalTypeInfo.REDECLARED_PROPERTY);
     assertThat(noSideEffectCalls).isEmpty();
   }
 
@@ -609,13 +608,13 @@ public final class PureFunctionIdentifierTest extends TypeICompilerTestCase {
     this.mode = TypeInferenceMode.OTI_ONLY;
     testSame(externs,
         "o.prototype.propWithAnnotatedStubAfter",
-        TypeValidator.DUP_VAR_DECLARATION, false);
+        TypeValidator.DUP_VAR_DECLARATION);
     assertThat(noSideEffectCalls).isEmpty();
 
     this.mode = TypeInferenceMode.NTI_ONLY;
     testSame(TEST_EXTERNS + externs,
         "o.prototype.propWithAnnotatedStubAfter",
-        GlobalTypeInfo.REDECLARED_PROPERTY, false);
+        GlobalTypeInfo.REDECLARED_PROPERTY);
     assertThat(noSideEffectCalls).isEmpty();
   }
 
@@ -1608,6 +1607,38 @@ public final class PureFunctionIdentifierTest extends TypeICompilerTestCase {
     assertNoPureCalls(source);
   }
 
+  public void testCallGenerator1() {
+    this.mode = TypeInferenceMode.NEITHER; // type check for yield not yet implemented
+    String source =
+        LINE_JOINER.join(
+            "var x = 0;",
+            "function* f() {",
+            "  x = 2",
+            "  while (true) {",
+            "    yield x;",
+            "  }",
+            "}",
+            "var g = f();");
+    assertNoPureCalls(source);
+    Node lastRoot = getLastCompiler().getRoot().getLastChild();
+    Node call = findQualifiedNameNode("f", lastRoot).getParent();
+    assertThat(call.isNoSideEffectsCall()).isFalse();
+    assertEquals(
+        new Node.SideEffectFlags().setReturnsTainted().valueOf(), call.getSideEffectFlags());
+  }
+
+  public void testCallGenerator2() {
+    this.mode = TypeInferenceMode.NEITHER; // type check for yield not yet implemented
+    String source = LINE_JOINER.join(
+            "function* f() {",
+            "  while (true) {",
+            "    yield 1;",
+            "  }",
+            "}",
+            "var g = f();");
+    assertPureCallsMarked(source, ImmutableList.of("f"));
+  }
+
   public void testCallFunctionFOrG() throws Exception {
     String source = LINE_JOINER.join(
         "function f(){}",
@@ -1839,24 +1870,16 @@ public final class PureFunctionIdentifierTest extends TypeICompilerTestCase {
   }
 
   void assertPureCallsMarked(String source, List<String> expected, DiagnosticType warning) {
-    assertPureCallsMarked(source, expected, warning, LanguageMode.ECMASCRIPT_2015);
-    assertPureCallsMarked(source, expected, warning, LanguageMode.ECMASCRIPT5);
-  }
-
-  void assertPureCallsMarked(
-      String source, List<String> expected, DiagnosticType warning, LanguageMode mode) {
-    setAcceptedLanguage(mode);
-    testSame(source, warning);
+    if (warning != null) {
+      testSame(source, warning);
+    } else {
+      testSame(source);
+    }
     assertEquals(expected, noSideEffectCalls);
   }
 
-  void checkLocalityOfMarkedCalls(String source, List<String> expected) {
-    checkLocalityOfMarkedCalls(source, expected, LanguageMode.ECMASCRIPT_2015);
-    checkLocalityOfMarkedCalls(source, expected, LanguageMode.ECMASCRIPT5);
-  }
 
-  void checkLocalityOfMarkedCalls(String source, List<String> expected, LanguageMode mode) {
-    setAcceptedLanguage(mode);
+  void checkLocalityOfMarkedCalls(String source, List<String> expected) {
     testSame(source);
     assertEquals(expected, localResultCalls);
   }

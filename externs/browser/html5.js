@@ -94,10 +94,15 @@ HTMLCanvasElement.prototype.getContext = function(contextId, opt_args) {};
 HTMLCanvasElement.prototype.captureStream = function(opt_framerate) {};
 
 /**
+ * @typedef {HTMLImageElement|HTMLVideoElement|HTMLCanvasElement}
+ */
+var CanvasImageSource;
+
+/**
  * @interface
  * @see https://www.w3.org/TR/2dcontext/#canvaspathmethods
  */
-function CanvasPathMethods() {};
+function CanvasPathMethods() {}
 
 /**
  * @return {undefined}
@@ -260,17 +265,55 @@ Path2D.prototype.arc = function(
  * @param {Path2D} path
  * @return {undefined}
  */
-Path2D.prototype.addPath = function(path) {}
+Path2D.prototype.addPath = function(path) {};
 
+/**
+ * @interface
+ * @see https://www.w3.org/TR/2dcontext/#canvasdrawingstyles
+ */
+function CanvasDrawingStyles() {}
+
+/** @type {number} */
+CanvasDrawingStyles.prototype.lineWidth;
+
+/** @type {string} */
+CanvasDrawingStyles.prototype.lineCap;
+
+/** @type {string} */
+CanvasDrawingStyles.prototype.lineJoin;
+
+/** @type {number} */
+CanvasDrawingStyles.prototype.miterLimit;
+
+/**
+ * @param {Array<number>} segments
+ * @return {undefined}
+ */
+CanvasDrawingStyles.prototype.setLineDash;
+
+/**
+ * @return {!Array<number>}
+ */
+CanvasDrawingStyles.prototype.getLineDash;
+
+/** @type {string} */
+CanvasDrawingStyles.prototype.font;
+
+/** @type {string} */
+CanvasDrawingStyles.prototype.textAlign;
+
+/** @type {string} */
+CanvasDrawingStyles.prototype.textBaseline;
 
 /**
  * @constructor
+ * @implements {CanvasDrawingStyles}
  * @implements {CanvasPathMethods}
  * @see http://www.w3.org/TR/2dcontext/#canvasrenderingcontext2d
  */
 function CanvasRenderingContext2D() {}
 
-/** @type {!HTMLCanvasElement} */
+/** @const {!HTMLCanvasElement} */
 CanvasRenderingContext2D.prototype.canvas;
 
 /**
@@ -352,7 +395,7 @@ CanvasRenderingContext2D.prototype.createRadialGradient = function(
     x0, y0, r0, x1, y1, r1) {};
 
 /**
- * @param {HTMLImageElement|HTMLCanvasElement} image
+ * @param {CanvasImageSource} image
  * @param {string} repetition
  * @return {?CanvasPattern}
  * @throws {Error}
@@ -503,6 +546,12 @@ CanvasRenderingContext2D.prototype.fill = function(optFillRuleOrPath, optFillRul
 CanvasRenderingContext2D.prototype.stroke = function(optStroke) {};
 
 /**
+ * @param {Element} element
+ * @return {undefined}
+ */
+CanvasRenderingContext2D.prototype.drawFocusIfNeeded = function(element) {};
+
+/**
  * @param {Path2D|string=} optFillRuleOrPath
  * @param {string=} optFillRule
  * @return {undefined}
@@ -556,7 +605,7 @@ CanvasRenderingContext2D.prototype.strokeText = function(
 CanvasRenderingContext2D.prototype.measureText = function(text) {};
 
 /**
- * @param {HTMLImageElement|HTMLCanvasElement|Image|HTMLVideoElement} image
+ * @param {CanvasImageSource} image
  * @param {number} dx Destination x coordinate.
  * @param {number} dy Destination y coordinate.
  * @param {number=} opt_dw Destination box width.  Defaults to the image width.
@@ -726,7 +775,7 @@ function CanvasPattern() {}
  */
 function TextMetrics() {}
 
-/** @type {number} */
+/** @const {number} */
 TextMetrics.prototype.width;
 
 /**
@@ -741,13 +790,13 @@ TextMetrics.prototype.width;
  */
 function ImageData(dataOrWidth, widthOrHeight, opt_height) {}
 
-/** @type {Uint8ClampedArray} */
+/** @const {Uint8ClampedArray} */
 ImageData.prototype.data;
 
-/** @type {number} */
+/** @const {number} */
 ImageData.prototype.width;
 
-/** @type {number} */
+/** @const {number} */
 ImageData.prototype.height;
 
 /**
@@ -1666,6 +1715,9 @@ HTMLMediaElement.prototype.autobuffer;
 /** @type {!TimeRanges} */
 HTMLMediaElement.prototype.buffered;
 
+/** @type {!MediaStream} */
+HTMLMediaElement.prototype.srcObject;
+
 /**
  * Loads the media element.
  * @return {undefined}
@@ -2184,12 +2236,45 @@ MessagePort.prototype.onmessage;
 
 // HTML5 MessageEvent class
 /**
- * @see http://dev.w3.org/html5/spec/comms.html#messageevent
+ * @typedef {Window|MessagePort|ServiceWorker}
+ * @see https://html.spec.whatwg.org/multipage/comms.html#messageeventsource
+ */
+var MessageEventSource;
+
+
+/**
+ * @record
+ * @extends {EventInit}
+ * @template T
+ * @see https://html.spec.whatwg.org/multipage/comms.html#messageeventinit
+ */
+function MessageEventInit() {}
+
+/** @type {T|undefined} */
+MessageEventInit.prototype.data;
+
+/** @type {(string|undefined)} */
+MessageEventInit.prototype.origin;
+
+/** @type {(string|undefined)} */
+MessageEventInit.prototype.lastEventId;
+
+/** @type {(?MessageEventSource|undefined)} */
+MessageEventInit.prototype.source;
+
+/** @type {(!Array<MessagePort>|undefined)} */
+MessageEventInit.prototype.ports;
+
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/comms.html#messageevent
  * @constructor
  * @extends {Event}
+ * @param {string} type
+ * @param {MessageEventInit<T>=} opt_eventInitDict
  * @template T
  */
-function MessageEvent() {}
+function MessageEvent(type, opt_eventInitDict) {}
 
 /**
  * The data payload of the message.
@@ -2227,13 +2312,13 @@ MessageEvent.prototype.ports;
  * Initializes the event in a manner analogous to the similarly-named methods in
  * the DOM Events interfaces.
  * @param {string} typeArg
- * @param {boolean} canBubbleArg
- * @param {boolean} cancelableArg
- * @param {T} dataArg
- * @param {string} originArg
- * @param {string} lastEventIdArg
- * @param {Window} sourceArg
- * @param {Array<MessagePort>} portsArg
+ * @param {boolean=} canBubbleArg
+ * @param {boolean=} cancelableArg
+ * @param {T=} dataArg
+ * @param {string=} originArg
+ * @param {string=} lastEventIdArg
+ * @param {?MessageEventSource=} sourceArg
+ * @param {!Array<MessagePort>=} portsArg
  * @return {undefined}
  */
 MessageEvent.prototype.initMessageEvent = function(typeArg, canBubbleArg,
@@ -2243,19 +2328,20 @@ MessageEvent.prototype.initMessageEvent = function(typeArg, canBubbleArg,
  * Initializes the event in a manner analogous to the similarly-named methods in
  * the DOM Events interfaces.
  * @param {string} namespaceURI
- * @param {string} typeArg
- * @param {boolean} canBubbleArg
- * @param {boolean} cancelableArg
- * @param {T} dataArg
- * @param {string} originArg
- * @param {string} lastEventIdArg
- * @param {Window} sourceArg
- * @param {Array<MessagePort>} portsArg
+ * @param {string=} typeArg
+ * @param {boolean=} canBubbleArg
+ * @param {boolean=} cancelableArg
+ * @param {T=} dataArg
+ * @param {string=} originArg
+ * @param {string=} lastEventIdArg
+ * @param {?MessageEventSource=} sourceArg
+ * @param {!Array<MessagePort>=} portsArg
  * @return {undefined}
  */
 MessageEvent.prototype.initMessageEventNS = function(namespaceURI, typeArg,
     canBubbleArg, cancelableArg, dataArg, originArg, lastEventIdArg, sourceArg,
     portsArg) {};
+
 
 /**
  * HTML5 BroadcastChannel class.

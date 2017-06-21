@@ -1683,7 +1683,7 @@ public class CommandLineRunner extends
       options.polymerVersion = flags.polymerVersion;
     }
 
-    options.chromePass = flags.chromePass;
+    options.setChromePass(flags.chromePass);
 
     options.setDartPass(flags.dartPass);
 

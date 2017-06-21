@@ -24,8 +24,9 @@ import com.google.common.collect.ImmutableSet;
  * Test case for {@link GatherExternProperties}.
  */
 public final class GatherExternPropertiesTest extends CompilerTestCase {
-  public GatherExternPropertiesTest() {
-    super();
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
     enableTypeCheck();
   }
 
@@ -44,7 +45,6 @@ public final class GatherExternPropertiesTest extends CompilerTestCase {
     assertExternProperties(
         "foo = {bar: null, 'baz': {foobar: null}};",
         "bar", "baz", "foobar");
-
     // Object literal with numeric propertic.
     assertExternProperties(
         "foo = {0: null};",
@@ -172,14 +172,56 @@ public final class GatherExternPropertiesTest extends CompilerTestCase {
         // Externs.
         "/** @type {NonExternType} */ var foo;",
         // Normal code.
-        "/** @typedef {{bar: string, baz: string}} */ var NonExternType;",
-        null);
+        "/** @typedef {{bar: string, baz: string}} */ var NonExternType;");
     // Check that no properties were found.
     assertThat(getLastCompiler().getExternProperties()).isEmpty();
   }
 
+  public void testExternClassNoTypeCheck() {
+    disableTypeCheck();
+    assertExternProperties(
+        LINE_JOINER.join(
+            "class Foo {",
+            "  bar() {",
+            "    return this;",
+            "  }",
+            "}",
+            "var baz = new Foo();",
+            "var bar = baz.bar;"),
+        "bar");
+  }
+
+  public void testExternClassWithTypeCheck() {
+    enableTypeCheck();
+    allowExternsChanges();
+    enableTranspile();
+    assertExternProperties(
+        LINE_JOINER.join(
+            "class Foo {",
+            "  bar() {",
+            "    return this;",
+            "  }",
+            "}",
+            "var baz = new Foo();",
+            "var bar = baz.bar;"),
+        "prototype", "bar");
+  }
+
+  public void testExternAsyncFunction() {
+    disableTypeCheck();
+    assertExternProperties(
+        LINE_JOINER.join(
+            "function *gen() {",
+            " var x = 0;",
+            " yield x;",
+            "}",
+            "var foo = gen();",
+            "gen.next().value;"),
+        "next", "value");
+  }
+
   private void assertExternProperties(String externs, String... properties) {
-    testSame(externs, "", null);
+    testSame(externs, "");
     assertEquals(ImmutableSet.copyOf(properties),
         getLastCompiler().getExternProperties());
   }

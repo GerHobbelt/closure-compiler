@@ -192,7 +192,6 @@ class InlineVariables implements CompilerPass {
      * If it looks safe to do so, inline them.
      */
     private void doInlinesForScope(NodeTraversal t, ReferenceMap referenceMap) {
-
       boolean maybeModifiedArguments =
           maybeEscapedOrModifiedArguments(t.getScope(), referenceMap);
       for (Var v : t.getScope().getVarIterable()) {
@@ -255,7 +254,6 @@ class InlineVariables implements CompilerPass {
       Reference declaration = referenceInfo.references.get(0);
       Reference init = referenceInfo.getInitializingReference();
       int firstRefAfterInit = (declaration == init) ? 2 : 3;
-
       if (refCount > 1 &&
           isImmutableAndWellDefinedVariable(v, referenceInfo)) {
         // if the variable is referenced more than once, we can only
@@ -451,6 +449,7 @@ class InlineVariables implements CompilerPass {
         replacement.setTypeI(child.getTypeI());
       }
       parent.replaceChild(child, replacement);
+      NodeUtil.markFunctionsDeleted(child, compiler);
     }
 
     /**
@@ -581,6 +580,10 @@ class InlineVariables implements CompilerPass {
             return false;
           }
         }
+      }
+
+      if (isRefTemplateLiteral(reference)) {
+        return false;
       }
 
       return canMoveAggressively(value) ||
@@ -727,12 +730,19 @@ class InlineVariables implements CompilerPass {
 
       for (int i = startingReadRef; i < refSet.size(); i++) {
         Reference ref = refSet.get(i);
-        if (!isValidReference(ref)) {
+        if (!isValidReference(ref) || isRefTemplateLiteral(ref)) {
           return false;
         }
       }
-
       return true;
     }
+
+    private boolean isRefTemplateLiteral(Reference ref) {
+      if (ref.getParent().isTemplateLitSub()) {
+        return true;
+      }
+      return false;
+    }
+
   }
 }

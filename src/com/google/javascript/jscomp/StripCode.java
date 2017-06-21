@@ -420,6 +420,7 @@ class StripCode implements CompilerPass {
         if (isStripName(key.getString())) {
           Node next = key.getNext();
           n.removeChild(key);
+          NodeUtil.markFunctionsDeleted(key, compiler);
           key = next;
           compiler.reportChangeToEnclosingScope(n);
         } else {
@@ -650,6 +651,7 @@ class StripCode implements CompilerPass {
      */
     void replaceWithEmpty(Node n, Node parent) {
       NodeUtil.removeChild(parent, n);
+      NodeUtil.markFunctionsDeleted(n, compiler);
     }
   }
 }
