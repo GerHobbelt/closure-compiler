@@ -239,16 +239,17 @@ public class J2clPass implements CompilerPass {
 
     /*
      * Inlines Arrays.$create(), Arrays.$init(), Arrays.$instanceIsOfType(), Arrays.$castTo() and
-     * Casts.to() so that all references to Object.$isInstance() functions will be fully qualified
+     * Casts.$to() so that all references to Object.$isInstance() functions will be fully qualified
      * and easy to strip.
      */
     inlineFunctionsInFile(
         root,
         "vmbootstrap/Arrays.impl.java.js",
-        ImmutableSet.of("$create", "$init", "$instanceIsOfType", "$castTo"),
+        ImmutableSet.of("$create", "$init", "$instanceIsOfType", "$castTo", "$stampType"),
         InliningMode.DIRECT);
+    // TODO(b/37722603): remove "to" once the change is done in J2CL.
     inlineFunctionsInFile(
-        root, "vmbootstrap/Casts.impl.java.js", ImmutableSet.of("to"), InliningMode.DIRECT);
+        root, "vmbootstrap/Casts.impl.java.js", ImmutableSet.of("$to", "to"), InliningMode.DIRECT);
 
     /*
      * Inlines all Interface.$markImplementor(FooClass) metaclass calls so that FooClass and others

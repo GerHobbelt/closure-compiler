@@ -483,7 +483,7 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
     private boolean isInitializingAssignmentAt(int index) {
       if (index < references.size() && index > 0) {
         Reference maybeDecl = references.get(index - 1);
-        if (maybeDecl.isVarDeclaration()) {
+        if (maybeDecl.isVarDeclaration() || maybeDecl.isLetDeclaration()) {
           Preconditions.checkState(!maybeDecl.isInitializingDeclaration());
           Reference maybeInit = references.get(index);
           if (maybeInit.isSimpleAssignmentToName()) {
@@ -533,11 +533,12 @@ public final class ReferenceCollectingCallback implements ScopedCallback,
         return false;
       }
 
-      // Make sure this assignment is not in a loop.
+      // Make sure this assignment is not in a loop or an enclosing function.
       for (BasicBlock block = ref.getBasicBlock();
            block != null; block = block.getParent()) {
         if (block.isFunction) {
-          if (ref.getSymbol().getScope() != ref.scope) {
+          if (ref.getSymbol().getScope().getClosestHoistScope()
+              != ref.scope.getClosestHoistScope()) {
             return false;
           }
           break;

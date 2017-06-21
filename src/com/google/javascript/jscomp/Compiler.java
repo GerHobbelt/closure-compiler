@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
@@ -55,7 +56,12 @@ import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.Serializable;
 import java.nio.file.FileSystems;
 import java.util.AbstractSet;
 import java.util.ArrayList;
@@ -209,7 +215,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   private JSTypeRegistry typeRegistry;
   private volatile Config parserConfig = null;
-  private Config externsParserConfig = null;
+  private volatile Config externsParserConfig = null;
 
   private ReverseAbstractInterpreter abstractInterpreter;
   private TypeValidator typeValidator;
@@ -717,15 +723,28 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     externAndJsRoot = IR.root(externsRoot, jsRoot);
   }
 
-  public Result compile(
+  public Result initAndCheckAndTranspileAndOptimize(
       SourceFile extern, SourceFile input, CompilerOptions options) {
+    return initAndCheckAndTranspileAndOptimize(
+        ImmutableList.of(extern), ImmutableList.of(input), options);
+  }
+
+  /** @deprecated use initAndCheckAndTranspileAndOptimize() */
+  @Deprecated
+  public Result compile(SourceFile extern, SourceFile input, CompilerOptions options) {
     return compile(ImmutableList.of(extern), ImmutableList.of(input), options);
   }
 
   /**
    * Compiles a list of inputs.
+   *
+   * <p>This is a convenience method to wrap up all the work of compilation, including
+   * generating the error and warning report.
+   *
+   * <p>NOTE: All methods called here must be public, because client code must be able to replicate
+   * and customize this.
    */
-  public <T1 extends SourceFile, T2 extends SourceFile> Result compile(
+  public <T1 extends SourceFile, T2 extends SourceFile> Result initAndCheckAndTranspileAndOptimize(
       List<T1> externs, List<T2> inputs, CompilerOptions options) {
     // The compile method should only be called once.
     Preconditions.checkState(jsRoot == null);
@@ -735,19 +754,34 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       if (hasErrors()) {
         return getResult();
       }
-      return compile();
+      return checkAndTranspileAndOptimize();
     } finally {
-      Tracer t = newTracer("generateReport");
-      errorManager.generateReport();
-      stopTracer(t, "generateReport");
+      generateReport();
     }
   }
 
   /**
-   * Compiles a list of modules.
+   * Compiles a list of inputs.
+   *
+   * @deprecated use initAndCheckAndTranspileAndOptimize()
    */
-  public <T extends SourceFile> Result compileModules(List<T> externs,
-      List<JSModule> modules, CompilerOptions options) {
+  @Deprecated
+  public <T1 extends SourceFile, T2 extends SourceFile> Result compile(
+      List<T1> externs, List<T2> inputs, CompilerOptions options) {
+    return initAndCheckAndTranspileAndOptimize(externs, inputs, options);
+  }
+
+  /**
+   * Compiles a list of modules.
+   *
+   * <p>This is a convenience method to wrap up all the work of compilation, including
+   * generating the error and warning report.
+   *
+   * <p>NOTE: All methods called here must be public, because client code must be able to replicate
+   * and customize this.
+   */
+  public <T extends SourceFile> Result initModulesAndCheckAndTranspileAndOptimize(
+      List<T> externs, List<JSModule> modules, CompilerOptions options) {
     // The compile method should only be called once.
     Preconditions.checkState(jsRoot == null);
 
@@ -756,15 +790,48 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       if (hasErrors()) {
         return getResult();
       }
-      return compile();
+      return checkAndTranspileAndOptimize();
     } finally {
-      Tracer t = newTracer("generateReport");
-      errorManager.generateReport();
-      stopTracer(t, "generateReport");
+      generateReport();
     }
   }
 
-  private Result compile() {
+  /**
+   * Generates a report of all warnings and errors found during compilation to stderr.
+   *
+   * <p>Client code must call this method explicitly if it doesn't use one of the convenience
+   * methods that do so automatically.
+   */
+  public void generateReport() {
+    Tracer t = newTracer("generateReport");
+    errorManager.generateReport();
+    stopTracer(t, "generateReport");
+  }
+
+  /**
+   * Compiles a list of modules.
+   *
+   * @deprecated Use initModulesAndCheckAndTranspileAndOptimize()
+   */
+  @Deprecated
+  public <T extends SourceFile> Result compileModules(
+      List<T> externs, List<JSModule> modules, CompilerOptions options) {
+    return initModulesAndCheckAndTranspileAndOptimize(externs, modules, options);
+  }
+
+  /**
+   * Perform checks transpilation and optimization.
+   *
+   * <p>Either {@code init()} or {@code initModules()} must be called before this method is called.
+   * <p>The caller is responsible for also calling {@code generateReport()} to generate a
+   * report of warnings and errors to stderr.  See the invocation in
+   * {@link #initAndCheckAndTranspileAndOptimize} for a good example.
+   * <p> TODO(bradfordcsmith): Break this up into checkAndTranspile() and optimize().
+   * @return compilation results.
+   */
+  public Result checkAndTranspileAndOptimize() {
+    checkState(
+        inputs != null && !inputs.isEmpty(), "No inputs. Did you call init() or initModules()?");
     return runInCompilerThread(new Callable<Result>() {
       @Override
       public Result call() throws Exception {
@@ -3130,5 +3197,64 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     if (getOptions().sourceMapIncludeSourcesContent && getSourceMap() != null) {
       getSourceMap().addSourceFile(SourceFile.fromCode(filename, contents));
     }
+  }
+
+  /**
+   * Serializable state of the compiler.
+   */
+  private static class CompilerState implements Serializable {
+    CompilerOptions options;
+    Node externsRoot;
+    Node jsRoot;
+    Node externAndJsRoot;
+    List<CompilerInput> externs;
+    List<CompilerInput> inputs;
+    Map<InputId, CompilerInput> inputsById;
+    JSTypeRegistry typeRegistry;
+
+    CompilerState(
+        CompilerOptions options,
+        Node externsRoot,
+        Node jsRoot,
+        Node externAndJsRoot,
+        List<CompilerInput> externs,
+        List<CompilerInput> inputs,
+        Map<InputId, CompilerInput> inputsById,
+        JSTypeRegistry typeRegistry) {
+      this.options = options;
+      this.externsRoot = externsRoot;
+      this.jsRoot = jsRoot;
+      this.externAndJsRoot = externAndJsRoot;
+      this.typeRegistry = typeRegistry;
+      this.externs = externs;
+      this.inputs = inputs;
+      this.inputsById = inputsById;
+    }
+  }
+
+  @GwtIncompatible("ObjectOutputStream")
+  public void saveState(OutputStream outputStream) throws IOException {
+    CompilerState compilerState = new CompilerState(
+        options, externsRoot, jsRoot, externAndJsRoot, externs, inputs, inputsById, typeRegistry);
+    try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream)) {
+      objectOutputStream.writeObject(compilerState);
+   }
+  }
+
+  @GwtIncompatible("ObjectInputStream")
+  public void restoreState(InputStream inputStream) throws Exception {
+    try (ObjectInputStream objectInputStream = new ObjectInputStream(inputStream)) {
+      CompilerState compilerState = (CompilerState) objectInputStream.readObject();
+      options = compilerState.options;
+      externs = compilerState.externs;
+      inputs = compilerState.inputs;
+      inputsById.clear();
+      inputsById.putAll(compilerState.inputsById);
+      typeRegistry = compilerState.typeRegistry;
+      externAndJsRoot = compilerState.externAndJsRoot;
+      externsRoot = compilerState.externsRoot;
+      jsRoot = compilerState.jsRoot;
+    }
+    initWarningsGuard(options.getWarningsGuard());
   }
 }
