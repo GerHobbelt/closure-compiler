@@ -98,6 +98,20 @@ public class CompilerOptions implements Serializable {
   private Environment environment;
 
   /**
+   * Instrument code for the purpose of collecting coverage data - restrict to coverage pass only,
+   * and skip all other passes.
+   */
+  private boolean instrumentForCoverageOnly = false;
+
+  public void setInstrumentForCoverageOnly(boolean instrumentForCoverageOnly) {
+    this.instrumentForCoverageOnly = instrumentForCoverageOnly;
+  }
+
+  public boolean getInstrumentForCoverageOnly() {
+    return instrumentForCoverageOnly;
+  }
+
+  /**
    * If true, don't transpile ES6 to ES3.
    *  WARNING: Enabling this option will likely cause the compiler to crash
    *     or produce incorrect output.
@@ -2857,6 +2871,7 @@ public class CompilerOptions implements Serializable {
             .add("instrumentationTemplateFile", instrumentationTemplateFile)
             .add("instrumentationTemplate", instrumentationTemplate)
             .add("instrumentForCoverage", instrumentForCoverage)
+            .add("instrumentForCoverageOnly", instrumentForCoverageOnly)
             .add("instrumentBranchCoverage", instrumentBranchCoverage)
             .add("j2clPassMode", j2clPassMode)
             .add("labelRenaming", labelRenaming)

@@ -43,11 +43,10 @@ public final class NameAnonymousFunctionsMappedTest extends CompilerTestCase {
   protected void setUp() throws Exception {
     super.setUp();
     previous = null;
-    validateAstChangeMarking(false);
   }
 
   @Override
-  public CompilerPass getProcessor(Compiler compiler) {
+  protected CompilerPass getProcessor(Compiler compiler) {
     return pass = new NameAnonymousFunctionsMapped(compiler, previous);
   }
 

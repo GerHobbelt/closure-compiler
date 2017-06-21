@@ -28,16 +28,15 @@ public class Es6ToEs3ClassSideInheritanceTest extends CompilerTestCase {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT_2015);
     setLanguageOut(LanguageMode.ECMASCRIPT3);
     allowExternsChanges(true);
-    validateAstChangeMarking(false);
   }
 
   @Override
-  public CompilerPass getProcessor(Compiler compiler) {
+  protected CompilerPass getProcessor(Compiler compiler) {
     return new Es6ToEs3ClassSideInheritance(compiler);
   }
 
   @Override
-  public int getNumRepetitions() {
+  protected int getNumRepetitions() {
     return 1;
   }
 

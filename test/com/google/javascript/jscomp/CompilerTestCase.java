@@ -24,6 +24,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.errorprone.annotations.ForOverride;
 import com.google.javascript.jscomp.AbstractCompiler.MostRecentTypechecker;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.testing.BlackHoleErrorManager;
@@ -178,9 +179,26 @@ public abstract class CompilerTestCase extends TestCase {
           " */",
           "function ActiveXObject(progId, opt_location) {}");
 
-  /** A default set of externs for testing. */
-  public static final String DEFAULT_EXTERNS =
+  /** A minimal set of externs, consisting of only those needed for NTI not to blow up. */
+  static final String MINIMAL_EXTERNS =
       LINE_JOINER.join(
+          "/**",
+          " * @constructor",
+          " * @param {*=} opt_value",
+          " * @return {!Object}",
+          " */",
+          "function Object(opt_value) {}",
+          "/**",
+          " * @constructor",
+          " * @param {...*} var_args",
+          " */",
+          "function Function(var_args) {}",
+          "/**",
+          " * @constructor",
+          " * @param {*=} arg",
+          " * @return {string}",
+          " */",
+          "function String(arg) {}",
           "/**",
           " * @interface",
           " * @template VALUE",
@@ -198,15 +216,23 @@ public abstract class CompilerTestCase extends TestCase {
           " */",
           "function IArrayLike() {};",
           "/**",
+          " * @template T",
+          " * @constructor ",
+          " * @implements {IArrayLike<T>} ",
+          " * @implements {Iterable<T>}",
+          " * @param {...*} var_args",
+          " * @return {!Array.<?>}",
+          " */",
+          "function Array(var_args) {}");
+
+  /** A default set of externs for testing. */
+  public static final String DEFAULT_EXTERNS =
+      LINE_JOINER.join(
+          MINIMAL_EXTERNS,
+          "/**",
           " * @type{number}",
           " */",
           "IArrayLike.prototype.length;",
-          "/**",
-          " * @constructor",
-          " * @param {*=} opt_value",
-          " * @return {!Object}",
-          " */",
-          "function Object(opt_value) {}",
           "/** @return {string} */",
           "Object.prototype.toString = function() {};",
           "/**",
@@ -216,9 +242,6 @@ public abstract class CompilerTestCase extends TestCase {
           "Object.prototype.hasOwnProperty = function(propertyName) {};",
           "/** @type {?Function} */ Object.prototype.constructor;",
           "Object.defineProperties = function(obj, descriptors) {};",
-          "/** @constructor",
-          " * @param {...*} var_args */ ",
-          "function Function(var_args) {}",
           "/** @type {!Function} */ Function.prototype.apply;",
           "/** @type {!Function} */ Function.prototype.bind;",
           "/** @type {!Function} */ Function.prototype.call;",
@@ -226,10 +249,6 @@ public abstract class CompilerTestCase extends TestCase {
           "Function.prototype.length;",
           "/** @type {string} */",
           "Function.prototype.name;",
-          "/** @constructor",
-          " * @param {*=} arg",
-          " * @return {string} */",
-          "function String(arg) {}",
           "/** @param {number} sliceArg */",
           "String.prototype.slice = function(sliceArg) {};",
           "/**",
@@ -253,15 +272,6 @@ public abstract class CompilerTestCase extends TestCase {
           " * @return {boolean}",
           " */",
           "function Boolean(arg) {}",
-          "/**",
-          " * @template T",
-          " * @constructor ",
-          " * @implements {IArrayLike<T>} ",
-          " * @implements {Iterable<T>}",
-          " * @param {...*} var_args",
-          " * @return {!Array.<?>}",
-          " */",
-          "function Array(var_args) {}",
           "/** @type {number} */ Array.prototype.length;",
           "/**",
           " * @param {...T} var_args",
@@ -413,6 +423,7 @@ public abstract class CompilerTestCase extends TestCase {
     return options;
   }
 
+  @ForOverride
   protected CodingConvention getCodingConvention() {
     return new GoogleCodingConvention();
   }
@@ -429,6 +440,7 @@ public abstract class CompilerTestCase extends TestCase {
    * Returns the number of times the pass should be run before results are
    * verified.
    */
+  @ForOverride
   protected int getNumRepetitions() {
     // Since most compiler passes should be idempotent, we run each pass twice
     // by default.

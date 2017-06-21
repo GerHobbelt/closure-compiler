@@ -93,7 +93,6 @@ public final class ReplaceStringsTest extends CompilerTestCase {
   protected void setUp() throws Exception {
     super.setUp();
     super.enableTypeCheck();
-    validateAstChangeMarking(false);
     functionsToInspect = defaultFunctionsToInspect;
     reserved = Collections.emptySet();
     previous = null;
@@ -125,7 +124,7 @@ public final class ReplaceStringsTest extends CompilerTestCase {
   }
 
   @Override
-  public CompilerPass getProcessor(final Compiler compiler) {
+  protected CompilerPass getProcessor(final Compiler compiler) {
     pass = new ReplaceStrings(
         compiler, "`", functionsToInspect, reserved, previous);
 
@@ -152,7 +151,7 @@ public final class ReplaceStringsTest extends CompilerTestCase {
   }
 
   @Override
-  public int getNumRepetitions() {
+  protected int getNumRepetitions() {
     // This compiler pass is not idempotent and should only be run over a
     // parse tree once.
     return 1;

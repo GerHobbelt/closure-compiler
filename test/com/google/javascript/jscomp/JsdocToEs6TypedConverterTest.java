@@ -59,7 +59,6 @@ public final class JsdocToEs6TypedConverterTest extends CompilerTestCase {
   public void setUp() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6_TYPED);
     compareJsDoc = false;
-    validateAstChangeMarking(false);
   }
 
   @Override
@@ -70,7 +69,7 @@ public final class JsdocToEs6TypedConverterTest extends CompilerTestCase {
   }
 
   @Override
-  public CompilerPass getProcessor(Compiler compiler) {
+  protected CompilerPass getProcessor(Compiler compiler) {
     return new JsdocToEs6TypedConverter(compiler);
   }
 

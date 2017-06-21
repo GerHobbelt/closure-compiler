@@ -31,7 +31,11 @@ import java.util.Set;
  * {@link PeepholeIntegrationTest}.
  */
 
-public final class PeepholeFoldConstantsTest extends CompilerTestCase {
+public final class PeepholeFoldConstantsTest extends TypeICompilerTestCase {
+
+  PeepholeFoldConstantsTest() {
+    super(DEFAULT_EXTERNS);
+  }
 
   private boolean late;
   private boolean useTypes = true;
@@ -41,10 +45,11 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     super.setUp();
     late = false;
     useTypes = true;
+    this.mode = TypeInferenceMode.NEITHER;
   }
 
   @Override
-  public CompilerPass getProcessor(final Compiler compiler) {
+  protected CompilerPass getProcessor(final Compiler compiler) {
     CompilerPass peepholePass =
         new PeepholeOptimizationsPass(compiler, new PeepholeFoldConstants(late, useTypes));
     return peepholePass;
@@ -1300,7 +1305,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   }
 
   public void testTypeBasedFoldConstant() {
-    enableTypeCheck();
+    this.mode = TypeInferenceMode.BOTH;
     test("var /** number */ x; x + 1 + 1 + x",
          "var /** number */ x; x + 2 + x");
 
@@ -1321,7 +1326,6 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
     useTypes = false;
     testSame("var /** number */ x; x + 1 + 1 + x");
-    disableTypeCheck();
   }
 
   public void foldDefineProperties1() {
