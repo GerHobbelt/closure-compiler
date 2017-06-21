@@ -72,7 +72,6 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
   public CheckConformanceTest() {
     super(EXTERNS, true);
     enableTranspile();
-    enableNormalize();
     enableClosurePass();
     enableClosurePassForExpected();
     enableRewriteClosureCode();
@@ -80,18 +79,11 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
   }
 
   @Override
-  protected CompilerOptions getOptions() {
-    CompilerOptions options = super.getOptions();
-    options.setWarningLevel(
-        DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.OFF);
-    return options;
-  }
-
-  @Override
   protected void setUp() throws Exception {
     super.setUp();
     super.enableClosurePass();
     configuration = DEFAULT_CONFORMANCE;
+    ignoreWarnings(DiagnosticGroups.MISSING_PROPERTIES);
   }
 
   @Override
@@ -1869,6 +1861,34 @@ public final class CheckConformanceTest extends TypeICompilerTestCase {
         LINE_JOINER.join(
             "const TagName = goog.dom.TagName;",
             "goog.dom.createDom(TagName.DIV, 'red');"),
+        CheckConformance.CONFORMANCE_VIOLATION,
+        "Violation: BanCreateDom Message");
+  }
+
+  public void testBanCreateDomMultiType() {
+    configuration =
+        LINE_JOINER.join(
+            "requirement: {",
+            "  type: CUSTOM",
+            "  java_class: 'com.google.javascript.jscomp.ConformanceRules$BanCreateDom'",
+            "  error_message: 'BanCreateDom Message'",
+            "  value: 'h2.class'",
+            "}");
+
+    String externs =
+        LINE_JOINER.join(
+            DEFAULT_EXTERNS,
+            "/** @const */ var goog = {};",
+            "/** @const */ goog.dom = {};",
+            "/** @constructor @template T */ goog.dom.TagName = function() {}",
+            "/** @constructor */ function HTMLHeadingElement() {}\n");
+
+    testWarning(
+        externs,
+        LINE_JOINER.join(
+            "function f(/** !goog.dom.TagName<!HTMLHeadingElement> */ heading) {",
+            "  goog.dom.createDom(heading, 'red');",
+            "}"),
         CheckConformance.CONFORMANCE_VIOLATION,
         "Violation: BanCreateDom Message");
   }

@@ -38,9 +38,6 @@ public class NodeTraversal {
   /** Contains the current node*/
   private Node curNode;
 
-  /** The current script being visited */
-  private Node curScript;
-
   /** The change scope for the current node being visiteds */
   private Node currentChangeScope;
 
@@ -254,14 +251,6 @@ public class NodeTraversal {
         Node parent) {
       return include == nodeTypes.contains(n.getToken());
     }
-  }
-
-  /** Use the 3-argument constructor instead. */
-  @Deprecated
-  public NodeTraversal(AbstractCompiler compiler, Callback cb) {
-    this(compiler, cb, compiler.getLanguageMode().isEs6OrHigher()
-        ? new Es6SyntacticScopeCreator(compiler)
-        : SyntacticScopeCreator.makeUntyped(compiler));
   }
 
   /**
@@ -556,16 +545,6 @@ public class NodeTraversal {
   }
 
   /**
-   * Traverses a node recursively.
-   * @deprecated Use traverseEs6 whenever possible.
-   */
-  @Deprecated
-  public static void traverse(AbstractCompiler compiler, Node root, Callback cb) {
-    NodeTraversal t = new NodeTraversal(compiler, cb);
-    t.traverse(root);
-  }
-
-  /**
    * Traverses using the ES6SyntacticScopeCreator
    */
   // TODO (stephshi): rename to "traverse" when the old traverse method is no longer used
@@ -577,16 +556,6 @@ public class NodeTraversal {
   public static void traverseTyped(AbstractCompiler compiler, Node root, Callback cb) {
     NodeTraversal t = new NodeTraversal(compiler, cb, SyntacticScopeCreator.makeTyped(compiler));
     t.traverse(root);
-  }
-
-  /**
-   * @deprecated Use traverseRootsEs6.
-   */
-  @Deprecated
-  public static void traverseRoots(
-      AbstractCompiler compiler, Callback cb, Node externs, Node root) {
-    NodeTraversal t = new NodeTraversal(compiler, cb);
-    t.traverseRoots(externs, root);
   }
 
   public static void traverseRootsEs6(
@@ -603,7 +572,6 @@ public class NodeTraversal {
 
   private void handleScript(Node n, Node parent) {
     setChangeScope(n);
-    curScript = n;
     setInputId(n.getInputId(), getSourceName(n));
 
     curNode = n;
@@ -612,7 +580,6 @@ public class NodeTraversal {
       curNode = n;
       callback.visit(this, n, parent);
     }
-    curScript = null;
     setChangeScope(null);
   }
 
@@ -986,7 +953,6 @@ public class NodeTraversal {
     } else {
       setInputId(null, "");
     }
-    this.curScript = script;
   }
 
   private void setInputId(InputId id, String sourceName) {

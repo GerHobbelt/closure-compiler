@@ -89,58 +89,49 @@ class CrossModuleCodeMotion implements CompilerPass {
       // Traverse the tree and find the modules where a var is declared + used
       collectReferences(root);
 
-      // Make is so we can ignore constructor references in instanceof.
-      if (parentModuleCanSeeSymbolsDeclaredInChildren) {
-        makeInstanceOfCodeOrderIndependent();
-      }
-
       // Move the functions + variables to a deeper module [if possible]
       moveCode();
+
+      // Make is so we can ignore constructor references in instanceof.
+      if (parentModuleCanSeeSymbolsDeclaredInChildren) {
+        addInstanceofGuards();
+      }
     }
   }
 
   /** move the code accordingly */
   private void moveCode() {
     for (NamedInfo info : namedInfo.values()) {
-      JSModule deepestDependency = info.deepestModule;
-
-      // Only move if all are true:
-      // a) allowMove is true
-      // b) it was used + declared somewhere [if not, then it will be removed
-      // as dead or invalid code elsewhere]
-      // c) the new dependency depends on the declModule
-      if (info.allowMove && deepestDependency != null) {
+      if (info.shouldBeMoved()) {
         Iterator<Declaration> it = info.declarationIterator();
-        JSModuleGraph moduleGraph = compiler.getModuleGraph();
+        // Find the appropriate spot to move it to
+        Node destParent = moduleVarParentMap.get(info.preferredModule);
+        if (destParent == null) {
+          destParent = compiler.getNodeForCodeInsertion(info.preferredModule);
+          moduleVarParentMap.put(info.preferredModule, destParent);
+        }
         while (it.hasNext()) {
           Declaration decl = it.next();
-          if (decl.module != null &&
-              moduleGraph.dependsOn(deepestDependency,
-                  decl.module)) {
+          checkState(decl.module == info.declModule);
 
-            // Find the appropriate spot to move it to
-            Node destParent = moduleVarParentMap.get(deepestDependency);
-            if (destParent == null) {
-              destParent = compiler.getNodeForCodeInsertion(deepestDependency);
-              moduleVarParentMap.put(deepestDependency, destParent);
-            }
+          // VAR Nodes are normalized to have only one child.
+          Node declParent = decl.node.getParent();
+          checkState(
+              !declParent.isVar() || declParent.hasOneChild(),
+              "AST not normalized.");
 
-            // VAR Nodes are normalized to have only one child.
-            Node declParent = decl.node.getParent();
-            checkState(
-                !declParent.isVar() || declParent.hasOneChild(),
-                "AST not normalized.");
+          // Remove it
+          compiler.reportChangeToEnclosingScope(declParent);
+          declParent.detach();
 
-            // Remove it
-            compiler.reportChangeToEnclosingScope(declParent);
-            declParent.detach();
+          // Add it to the new spot
+          destParent.addChildToFront(declParent);
 
-            // Add it to the new spot
-            destParent.addChildToFront(declParent);
-
-            compiler.reportChangeToEnclosingScope(declParent);
-          }
+          compiler.reportChangeToEnclosingScope(declParent);
         }
+        // Update variable declaration location.
+        info.wasMoved = true;
+        info.declModule = info.preferredModule;
       }
     }
   }
@@ -149,11 +140,15 @@ class CrossModuleCodeMotion implements CompilerPass {
   private class NamedInfo {
     boolean allowMove = true;
 
-    // The deepest module where the variable is used. Starts at null
-    private JSModule deepestModule = null;
+    // All modules containing references to this global variable directly or transitively depend
+    // on this module, which is potentially further down the tree than the module containing the
+    // variable's declaration statements.
+    private JSModule preferredModule = null;
 
     // The module where declarations appear
     private JSModule declModule = null;
+
+    private boolean wasMoved = false;
 
     // information on the spot where the item was declared
     private final Deque<Declaration> declarations =
@@ -166,22 +161,14 @@ class CrossModuleCodeMotion implements CompilerPass {
         return;
       }
 
-      // If we have no deepest module yet, set this one
-      if (deepestModule == null) {
-        deepestModule = m;
+      // If we have no preferred module yet, set this one
+      if (preferredModule == null) {
+        preferredModule = m;
       } else {
         // Find the deepest common dependency
-        deepestModule =
-            graph.getSmallestCoveringDependency(ImmutableList.of(m, deepestModule));
+        preferredModule =
+            graph.getSmallestCoveringDependency(ImmutableList.of(m, preferredModule));
       }
-    }
-
-    boolean isUsedInOrDependencyOfModule(JSModule m) {
-      checkNotNull(m);
-      if (deepestModule == null) {
-        return false;
-      }
-      return m == deepestModule || graph.dependsOn(m, deepestModule);
     }
 
     /**
@@ -197,6 +184,19 @@ class CrossModuleCodeMotion implements CompilerPass {
       declarations.push(d);
       declModule = d.module;
       return true;
+    }
+
+    boolean shouldBeMoved() {
+      // Only move if all are true:
+      // a) allowMove is true
+      // b) it is declared somewhere (declModule != null)
+      // c) it was used somewhere (preferredModule != null)
+      //    [if not, then it will be removed as dead or invalid code elsewhere]
+      // d) the all usages depend on the declModule by way of preferredModule
+      return allowMove
+          && preferredModule != null
+          && declModule != null
+          && graph.dependsOn(preferredModule, declModule);
     }
 
     /**
@@ -588,12 +588,18 @@ class CrossModuleCodeMotion implements CompilerPass {
    * false if tested with a constructor that is undefined. This allows ignoring
    * instanceof with respect to cross module code motion.
    */
-  private void makeInstanceOfCodeOrderIndependent() {
+  private void addInstanceofGuards() {
     Node tmp = IR.block();
     for (Map.Entry<Node, InstanceofInfo> entry : instanceofNodes.entrySet()) {
       Node n = entry.getKey();
       InstanceofInfo info = entry.getValue();
-      if (!info.namedInfo.allowMove || !info.mustBeGuardedByTypeof()) {
+      // No need for a guard if:
+      // 1. the declaration wasn't moved
+      // 2. OR it was moved to the start of the module containing this instanceof reference
+      // 3. OR it was moved to a module the instanceof reference's module depends on
+      if (!info.namedInfo.wasMoved
+          || info.namedInfo.declModule.equals(info.module)
+          || graph.dependsOn(info.module, info.namedInfo.declModule)) {
         continue;
       }
       // Wrap "foo instanceof Bar" in
@@ -626,16 +632,6 @@ class CrossModuleCodeMotion implements CompilerPass {
     InstanceofInfo(JSModule module, NamedInfo namedInfo) {
       this.module = checkNotNull(module);
       this.namedInfo = checkNotNull(namedInfo);
-    }
-
-    /**
-     * Returns true if this instance of instanceof is in a deeper module than
-     * the deepest module (by reference) of the related name.
-     * In that case the name may be undefined when the instanceof runs and we
-     * have to guard it with typeof.
-     */
-    boolean mustBeGuardedByTypeof() {
-      return !this.namedInfo.isUsedInOrDependencyOfModule(this.module);
     }
   }
 }
