@@ -16,8 +16,10 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.JSDocInfo;
@@ -42,7 +44,7 @@ class TypedCodeGenerator extends CodeGenerator {
   TypedCodeGenerator(
       CodeConsumer consumer, CompilerOptions options, TypeIRegistry registry) {
     super(consumer, options);
-    Preconditions.checkNotNull(registry);
+    checkNotNull(registry);
     this.registry = registry;
     this.jsDocInfoPrinter = new JSDocInfoPrinter(options.getUseOriginalNamesInOutput());
   }
@@ -89,7 +91,7 @@ class TypedCodeGenerator extends CodeGenerator {
       return getFunctionAnnotation(node);
     } else if (type.isEnumObject()) {
       return "/** @enum {"
-          + type.toMaybeObjectType().getElementsType().toNonNullAnnotationString()
+          + type.toMaybeObjectType().getEnumeratedTypeOfEnumObject().toNonNullAnnotationString()
           + "} */\n";
     } else if (!type.isUnknownType()
         && !type.isBottom()
@@ -106,7 +108,7 @@ class TypedCodeGenerator extends CodeGenerator {
    */
   private String getFunctionAnnotation(Node fnNode) {
     TypeI type = fnNode.getTypeI();
-    Preconditions.checkState(fnNode.isFunction() || type.isFunctionType());
+    checkState(fnNode.isFunction() || type.isFunctionType());
 
     if (type == null || type.isUnknownType()) {
       return "";
@@ -130,12 +132,12 @@ class TypedCodeGenerator extends CodeGenerator {
     }
 
     // Param types
-    int minArgs = funType.getMinArguments();
-    int maxArgs = funType.getMaxArguments();
+    int minArity = funType.getMinArity();
+    int maxArity = funType.getMaxArity();
     List<TypeI> formals = ImmutableList.copyOf(funType.getParameterTypes());
     for (int i = 0; i < formals.size(); i++) {
       sb.append(" * ");
-      appendAnnotation(sb, "param", getParameterJSDocType(formals, i, minArgs, maxArgs));
+      appendAnnotation(sb, "param", getParameterJSDocType(formals, i, minArity, maxArity));
       sb.append(" ")
           .append(paramNode == null ? "p" + i : paramNode.getString())
           .append("\n");

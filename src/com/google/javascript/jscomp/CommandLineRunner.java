@@ -761,10 +761,9 @@ public class CommandLineRunner extends
       usage =
           "Specifies how the compiler locates modules. BROWSER requires all module imports "
               + "to begin with a '.' or '/' and have a file extension. NODE uses the node module "
-              + "rules. LEGACY prepends a '/' to any import not already beginning with a "
-              + "'.' or '/'."
+              + "rules."
     )
-    private ModuleLoader.ResolutionMode moduleResolutionMode = ModuleLoader.ResolutionMode.LEGACY;
+    private ModuleLoader.ResolutionMode moduleResolutionMode = ModuleLoader.ResolutionMode.BROWSER;
 
     @Option(name = "--custom_options_file",
         usage = "File listing special option overrides. One option per line, " +

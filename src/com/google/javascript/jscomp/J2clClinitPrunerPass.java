@@ -15,7 +15,8 @@
  */
 package com.google.javascript.jscomp;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.base.Strings;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
@@ -224,7 +225,7 @@ public class J2clClinitPrunerPass implements CompilerPass {
 
     /** Returns whether the specified function contains a call to the specified clinit. */
     private boolean callsClinit(Node fnNode, String clinitName) {
-      Preconditions.checkNotNull(clinitName);
+      checkNotNull(clinitName);
       // TODO(michaelthomas): Consider checking all children, but watch out for return statements
       // that could short-circuit the clinit.
       Node child = fnNode.getLastChild().getFirstChild();

@@ -2871,8 +2871,7 @@ public final class IntegrationTest extends IntegrationTestCase {
         "     '[object Function]';" +
         "};";
     String result =
-        "isFunction=function(a){var b={};" +
-        "return a&&\"[object Function]\"===b.b.a(a)}";
+        "isFunction=function(a){var b={}; return a && '[object Function]' === b.a.apply(a)}";
 
     test(options, code, result);
   }
@@ -4327,6 +4326,42 @@ public final class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = new CompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     test(options, "var x = foobar;", VarCheck.UNDEFINED_VAR_ERROR);
+  }
+
+  // TODO(bellashim): Add a non-transpiling version of this test when InlineFunctions
+  // can run in that mode.
+  public void testInlineRestParam() {
+    CompilerOptions options = createCompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2017);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    test(
+        options,
+        LINE_JOINER.join(
+            "function foo() {",
+            "  var f = (...args) => args[0];",
+            "  return f(8);",
+            "}",
+            "alert(foo());"),
+        "alert(function(c){for(var b=[],a=0;a<arguments.a;++a)b[a-0]"
+            + "=arguments[a];return b[0]}(8))");
+  }
+
+  // TODO(bellashim): Add a non-transpiling version of this test when InlineFunctions
+  // can run in that mode.
+  public void testDefaultParameters() {
+    CompilerOptions options = createCompilerOptions();
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2017);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+
+    test(options,
+        LINE_JOINER.join(
+            "function foo(a, b = {foo: 5}) {",
+            "  return a + b.foo;",
+            "}",
+            "alert(foo(3, {foo: 9}));"),
+        "var a={a:9},a=void 0===a?{a:5}:a;alert(3+a.a)");
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

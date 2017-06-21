@@ -15,10 +15,14 @@
  */
 package com.google.javascript.jscomp;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.javascript.jscomp.NodeUtil.Visitor;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.HashSet;
@@ -38,7 +42,9 @@ class FunctionArgumentInjector {
   // identifier can be used, so we use "this".
   static final String THIS_MARKER = "this";
 
-  static final String REST_MARKER = "REST";
+  static final String REST_MARKER = "rest param";
+
+  static final String DEFAULT_MARKER = "Default Value";
 
   private FunctionArgumentInjector() {
     // A private constructor to prevent instantiation.
@@ -64,9 +70,7 @@ class FunctionArgumentInjector {
       Node replacementTemplate = replacements.get(node.getString());
       if (replacementTemplate != null) {
         // This should not be replacing declared names.
-        Preconditions.checkState(!parent.isFunction()
-            || !parent.isVar()
-            || !parent.isCatch());
+        checkState(!(parent.isFunction() || parent.isVar() || parent.isCatch()), parent);
         // The name may need to be replaced more than once,
         // so we need to clone the node.
         Node replacement = replacementTemplate.cloneTree();
@@ -75,7 +79,7 @@ class FunctionArgumentInjector {
       }
     } else if (replaceThis && node.isThis()) {
       Node replacementTemplate = replacements.get(THIS_MARKER);
-      Preconditions.checkNotNull(replacementTemplate);
+      checkNotNull(replacementTemplate);
       if (!replacementTemplate.isThis()) {
         // The name may need to be replaced more than once,
         // so we need to clone the node.
@@ -122,17 +126,39 @@ class FunctionArgumentInjector {
       cArg = cArg.getNext();
     } else {
       // 'apply' isn't supported yet.
-      Preconditions.checkState(!NodeUtil.isFunctionObjectApply(callNode));
+      checkState(!NodeUtil.isFunctionObjectApply(callNode));
       argMap.put(THIS_MARKER, NodeUtil.newUndefinedNode(callNode));
     }
 
-    for (Node fnArg : NodeUtil.getFunctionParameters(fnNode).children()) {
+    for (Node fnParam : NodeUtil.getFunctionParameters(fnNode).children()) {
       if (cArg != null) {
-        argMap.put(fnArg.getString(), cArg);
+        if (fnParam.isRest()) {
+          Node array = IR.arraylit();
+          array.useSourceInfoIfMissingFromForTree(cArg);
+          while (cArg != null) {
+            array.addChildToBack(cArg.cloneTree());
+            cArg = cArg.getNext();
+          }
+          argMap.put(fnParam.getFirstChild().getString(), array);
+          return argMap;
+        } else if (fnParam.isDefaultValue()) {
+          argMap.put(fnParam.getFirstChild().getString(), cArg);
+        } else {
+          argMap.put(fnParam.getString(), cArg);
+        }
         cArg = cArg.getNext();
       } else {
-        Node srcLocation = callNode;
-        argMap.put(fnArg.getString(), NodeUtil.newUndefinedNode(srcLocation));
+        if (fnParam.isRest()) {
+          //No arguments for REST parameters
+          Node array = IR.arraylit();
+          argMap.put(fnParam.getFirstChild().getString(), array);
+        } else if (fnParam.isDefaultValue()) {
+          Node defaultValue = fnParam.getSecondChild().cloneTree();
+          argMap.put(fnParam.getFirstChild().getString(), defaultValue);
+        } else {
+          Node srcLocation = callNode;
+          argMap.put(fnParam.getString(), NodeUtil.newUndefinedNode(srcLocation));
+        }
       }
     }
 
@@ -140,7 +166,7 @@ class FunctionArgumentInjector {
     // called function.
     while (cArg != null) {
       String uniquePlaceholder =
-        getUniqueAnonymousParameterName(safeNameIdSupplier);
+          getUniqueAnonymousParameterName(safeNameIdSupplier);
       argMap.put(uniquePlaceholder, cArg);
       cArg = cArg.getNext();
     }
@@ -194,7 +220,7 @@ class FunctionArgumentInjector {
   private static Set<String> findModifiedParameters(
       Node n, Node parent, Set<String> names, Set<String> unsafe,
       boolean inInnerFunction) {
-    Preconditions.checkArgument(unsafe != null);
+    checkArgument(unsafe != null);
     if (n.isName()) {
       if (names.contains(n.getString()) && (inInnerFunction || canNameValueChange(n, parent))) {
         unsafe.add(n.getString());
@@ -250,7 +276,7 @@ class FunctionArgumentInjector {
       return;
     }
 
-    Preconditions.checkArgument(fnNode.isFunction());
+    checkArgument(fnNode.isFunction());
     Node block = fnNode.getLastChild();
 
     int argCount = argMap.size();
@@ -553,6 +579,8 @@ class FunctionArgumentInjector {
     for (Node n : NodeUtil.getFunctionParameters(fnNode).children()) {
       if (n.isRest()){
         set.add(REST_MARKER);
+      } else if (n.isDefaultValue()){
+        set.add(DEFAULT_MARKER);
       } else {
         set.add(n.getString());
       }

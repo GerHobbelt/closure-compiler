@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -75,6 +77,9 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   @Nullable
   abstract SourceFile getSourceFileByName(String sourceName);
 
+  @Nullable
+  abstract Node getScriptNode(String filename);
+
   /**
    * Gets the module graph. May return null if there aren't at least two
    * modules.
@@ -114,6 +119,8 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   public abstract JSTypeRegistry getTypeRegistry();
 
   public abstract TypeIRegistry getTypeIRegistry();
+
+  public abstract void clearTypeIRegistry();
 
   abstract void forwardDeclareType(String typeName);
 
@@ -566,7 +573,7 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * @param object the object to store as the annotation
    */
   void setAnnotation(String key, Object object) {
-    Preconditions.checkArgument(object != null, "The stored annotation value cannot be null.");
+    checkArgument(object != null, "The stored annotation value cannot be null.");
     Preconditions.checkArgument(
         !annotationMap.containsKey(key), "Cannot overwrite the existing annotation '%s'.", key);
     annotationMap.put(key, object);

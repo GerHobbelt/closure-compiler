@@ -22,7 +22,6 @@ import static com.google.common.truth.Truth.assertWithMessage;
 import static com.google.javascript.jscomp.testing.JSErrorSubject.assertError;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.ForOverride;
@@ -213,10 +212,20 @@ public abstract class CompilerTestCase extends TestCase {
           "function Function(var_args) {}",
           "/**",
           " * @constructor",
+          " * @implements {Iterable<string>}",
           " * @param {*=} arg",
           " * @return {string}",
           " */",
           "function String(arg) {}",
+          "/**",
+          " * @record",
+          " * @template VALUE",
+          " */",
+          "function IIterableResult() {};",
+          "/** @type {boolean} */",
+          "IIterableResult.prototype.done;",
+          "/** @type {VALUE} */",
+          "IIterableResult.prototype.value;",
           "/**",
           " * @interface",
           " * @template VALUE",
@@ -224,13 +233,14 @@ public abstract class CompilerTestCase extends TestCase {
           "function Iterable() {}",
           "/**",
           " * @interface",
-          " * @template T",
+          " * @template VALUE",
           " */",
           "function Iterator() {}",
           "/**",
-          " * @return {T}",
+          " * @param {VALUE=} value",
+          " * @return {!IIterableResult<VALUE>}",
           " */",
-          "Iterator.prototype.next = function() {}",
+          "Iterator.prototype.next;",
           "/**",
           " * @interface",
           " * @template VALUE",
@@ -274,6 +284,8 @@ public abstract class CompilerTestCase extends TestCase {
           "Object.prototype.hasOwnProperty = function(propertyName) {};",
           "/** @type {?Function} */ Object.prototype.constructor;",
           "Object.defineProperties = function(obj, descriptors) {};",
+          "Object.create;",
+          "",
           "/** @type {!Function} */ Function.prototype.apply;",
           "/** @type {!Function} */ Function.prototype.bind;",
           "/** @type {!Function} */ Function.prototype.call;",
@@ -380,6 +392,12 @@ public abstract class CompilerTestCase extends TestCase {
           "/** @typedef {?} */ var symbol;", // TODO(sdh): remove once primitive 'symbol' supported
           "/** @constructor */ function Symbol() {}",
           "/** @const {!symbol} */ Symbol.iterator;",
+          "/**",
+          " * @return {!Iterator<VALUE>}",
+          " * @suppress {externsValidation}",
+          " */",
+          "Iterable.prototype[Symbol.iterator] = function() {};",
+          "/** @type {number} */ var NaN;",
           ACTIVE_X_OBJECT_DEF);
 
   /**
@@ -1288,25 +1306,6 @@ public abstract class CompilerTestCase extends TestCase {
    * expected, this method just verifies that the error is encountered.
    *  @param compiler A compiler that has been initialized via
    *     {@link Compiler#init}
-   * @param compiler The compiler which contains the configured inputs.
-   * @param inputsObj The inputs for reference.
-   * @param expected Expected output, or null if an error is expected
-   * @param diagnostic Expected error or warning, or null if none expected
-   */
-  protected void test(
-      Compiler compiler,
-      Sources inputsObj,
-      Expected expectedObj,
-      Diagnostic diagnostic) {
-    testInternal(compiler, inputsObj, expectedObj, diagnostic);
-  }
-
-  /**
-   * Verifies that the compiler pass's JS output matches the expected output
-   * and (optionally) that an expected warning is issued. Or, if an error is
-   * expected, this method just verifies that the error is encountered.
-   *  @param compiler A compiler that has been initialized via
-   *     {@link Compiler#init}
    *  @param inputsObj Input source files
    *  @param expectedObj Expected outputs
    *  @param diagnostic Expected warning/error diagnostic
@@ -1422,10 +1421,8 @@ public abstract class CompilerTestCase extends TestCase {
         if (multistageCompilation && runNormalization) {
           // Only run multistage compilation when normalizing.
 
-          // TODO(rluble): Use the multistage pipeline for NTI and modules.
-          if (!newTypeInferenceEnabled
-              && inputs != null
-              && compiler.getModuleGraph() == null) {
+          // TODO(rluble): enable multistage compilation when invoking with modules.
+          if (inputs != null && compiler.getModuleGraph() == null) {
             compiler = multistageSerializeAndDeserialize(compiler, inputs, recentChange);
             root = compiler.getRoot();
             externsRoot = compiler.getExternsRoot();
@@ -1712,6 +1709,7 @@ public abstract class CompilerTestCase extends TestCase {
 
   private static void transpileToEs5(AbstractCompiler compiler, Node externsRoot, Node codeRoot) {
     List<PassFactory> factories = new ArrayList<>();
+    TranspilationPasses.addEs6ModulePass(factories);
     TranspilationPasses.addEs2017Passes(factories);
     TranspilationPasses.addEs6EarlyPasses(factories);
     TranspilationPasses.addEs6LatePasses(factories);
@@ -2080,11 +2078,11 @@ public abstract class CompilerTestCase extends TestCase {
     for (TestPart part : parts) {
       finalParts[i++] = part;
       if (part instanceof Sources) {
-        Preconditions.checkState(expected == null);
+        checkState(expected == null);
         expected = fromSources((Sources) part);
       }
     }
-    Preconditions.checkState(expected != null);
+    checkState(expected != null);
     finalParts[i++] = expected;
 
     test(finalParts);
@@ -2109,16 +2107,16 @@ public abstract class CompilerTestCase extends TestCase {
     Diagnostic diagnostic = null;
     for (TestPart part : parts) {
       if (part instanceof Externs) {
-        Preconditions.checkState(externs == null);
+        checkState(externs == null);
         externs = (Externs) part;
       } else if (part instanceof Sources) {
-        Preconditions.checkState(srcs == null);
+        checkState(srcs == null);
         srcs = (Sources) part;
       } else if (part instanceof Expected) {
-        Preconditions.checkState(expected == null);
+        checkState(expected == null);
         expected = (Expected) part;
       } else if (part instanceof Diagnostic) {
-        Preconditions.checkState(diagnostic == null);
+        checkState(diagnostic == null);
         diagnostic = (Diagnostic) part;
       } else {
         throw new IllegalStateException("unexepected " + part.getClass().getName());

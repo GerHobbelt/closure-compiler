@@ -80,6 +80,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
+import javax.annotation.Nullable;
 
 /**
  * Compiler (and the other classes in this package) does the following:
@@ -426,8 +427,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   void initWarningsGuard(WarningsGuard warningsGuard) {
-    this.warningsGuard = new ComposeWarningsGuard(
-        new SuppressDocWarningsGuard(getDiagnosticGroups().getRegisteredGroups()), warningsGuard);
+    this.warningsGuard =
+        new ComposeWarningsGuard(
+            new SuppressDocWarningsGuard(this, getDiagnosticGroups().getRegisteredGroups()),
+            warningsGuard);
   }
 
   /**
@@ -1222,7 +1225,13 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
   }
 
+  @Override
+  @Nullable
   final Node getScriptNode(String filename) {
+    checkNotNull(filename);
+    if (jsRoot == null) {
+      return null;
+    }
     for (Node file : jsRoot.children()) {
       if (file.getSourceFileName() != null && file.getSourceFileName().endsWith(filename)) {
         return file;
@@ -1532,6 +1541,22 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @Override
+  public void clearTypeIRegistry() {
+    switch (mostRecentTypechecker) {
+      case OTI:
+        typeRegistry = null;
+        return;
+      case NTI:
+        symbolTable = null;
+        return;
+      case NONE:
+        return;
+      default:
+        throw new RuntimeException("Unhandled typechecker " + mostRecentTypechecker);
+    }
+  }
+
+  @Override
   public JSTypeRegistry getTypeRegistry() {
     if (typeRegistry == null) {
       typeRegistry = new JSTypeRegistry(oldErrorReporter, forwardDeclaredTypes);
@@ -1823,10 +1848,6 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         if (!inputsToRewrite.isEmpty()) {
           forceToEs6Modules(inputsToRewrite.values());
         }
-
-        if (options.needsTranspilationFrom(FeatureSet.ES6_MODULES)) {
-          processEs6Modules();
-        }
       } else {
         // Use an empty module loader if we're not actually dealing with modules.
         this.moduleLoader = ModuleLoader.EMPTY;
@@ -2060,13 +2081,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return rewriteJson.getPackageJsonMainEntries();
   }
 
-  void processEs6Modules() {
-    processEs6Modules(parsePotentialModules(inputs));
-  }
-
   void forceToEs6Modules(Collection<CompilerInput> inputsToProcess) {
     for (CompilerInput input : inputsToProcess) {
       input.setCompiler(this);
+      input.addProvide(input.getPath().toModuleName());
       Node root = input.getAstRoot(this);
       if (root == null) {
         continue;
@@ -2092,24 +2110,11 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
     for (CompilerInput input : filteredInputs) {
       input.setCompiler(this);
-      Node root = input.getAstRoot(this);
+      // Call getAstRoot to force parsing to happen.
+      input.getAstRoot(this);
       input.getRequires();
     }
     return filteredInputs;
-  }
-
-  void processEs6Modules(List<CompilerInput> inputsToProcess) {
-    for (CompilerInput input : inputsToProcess) {
-      input.setCompiler(this);
-      Node root = input.getAstRoot(this);
-      if (root == null) {
-        continue;
-      }
-      if (Es6RewriteModules.isEs6ModuleRoot(root)) {
-        new Es6RewriteModules(this).processFile(root);
-      }
-    }
-    setFeatureSet(featureSet.without(Feature.MODULES));
   }
 
   /**

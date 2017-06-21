@@ -15,10 +15,10 @@
  */
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.Es6ToEs3Converter.CANNOT_CONVERT_YET;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
@@ -104,6 +104,10 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
           new JSTypeExpression(
               new Node(Token.ELLIPSIS, new Node(Token.QMARK)), "<Es6ConvertSuper>"));
       memberDef.setJSDocInfo(info.build());
+
+      // Es6ConvertSuperConstructorCalls will add a call to $jcomp.construct. Inject it now
+      // so that it's present in the AST before typechecking.
+      compiler.ensureLibraryInjected("es6/util/construct", false);
     }
     memberDef.useSourceInfoIfMissingFromForTree(classNode);
     classMembers.addChildToFront(memberDef);
@@ -116,7 +120,7 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
   }
 
   private void visitSuper(Node node, Node parent) {
-    Preconditions.checkState(node.isSuper());
+    checkState(node.isSuper());
     Node exprRoot = node;
 
     if (exprRoot.getParent().isGetElem() || exprRoot.getParent().isGetProp()) {
@@ -169,8 +173,8 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
   }
 
   private void visitSuperCall(Node node, Node parent, Node enclosingMemberDef) {
-    Preconditions.checkState(parent.isCall(), parent);
-    Preconditions.checkState(node.isSuper(), node);
+    checkState(parent.isCall(), parent);
+    checkState(node.isSuper(), node);
 
     Node clazz = NodeUtil.getEnclosingClass(node);
     Node superName = clazz.getSecondChild();
@@ -191,7 +195,12 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
         Node enclosingStatementParent = enclosingStatement.getParent();
         enclosingStatement.detach();
         compiler.reportChangeToEnclosingScope(enclosingStatementParent);
+      } else {
+        // Es6ConvertSuperConstructorCalls will add a call to $jcomp.construct. Inject it now
+        // so that it's present in the AST before typechecking.
+        compiler.ensureLibraryInjected("es6/util/construct", false);
       }
+
       // Calls to super() constructors will be transpiled by Es6ConvertSuperConstructorCalls
       // later.
       return;
@@ -203,10 +212,10 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
   }
 
   private void visitSuperPropertyCall(Node node, Node parent, Node enclosingMemberDef) {
-    Preconditions.checkState(parent.isGetProp() || parent.isGetElem(), parent);
-    Preconditions.checkState(node.isSuper(), node);
+    checkState(parent.isGetProp() || parent.isGetElem(), parent);
+    checkState(node.isSuper(), node);
     Node grandparent = parent.getParent();
-    Preconditions.checkState(grandparent.isCall());
+    checkState(grandparent.isCall());
 
     Node clazz = NodeUtil.getEnclosingClass(node);
     Node superName = clazz.getSecondChild();
@@ -236,8 +245,8 @@ public final class Es6ConvertSuper extends NodeTraversal.AbstractPostOrderCallba
   }
 
   private void visitSuperPropertyAccess(Node node, Node parent, Node enclosingMemberDef) {
-    Preconditions.checkState(parent.isGetProp() || parent.isGetElem(), parent);
-    Preconditions.checkState(node.isSuper(), node);
+    checkState(parent.isGetProp() || parent.isGetElem(), parent);
+    checkState(node.isSuper(), node);
     Node grandparent = parent.getParent();
 
     if (NodeUtil.isLValue(parent)) {

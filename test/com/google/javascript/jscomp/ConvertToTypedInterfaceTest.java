@@ -538,6 +538,28 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
   }
 
   public void testGoogModulesWithUndefinedExports() {
+    testWarning(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "exports = (new Baz).getFoobar();"),
+        ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+
+   testWarning(
+        LINE_JOINER.join(
+            "goog.module('x.y.z');",
+            "",
+            "const Baz = goog.require('x.y.z.Baz');",
+            "const Foobar = goog.require('f.b.Foobar');",
+            "",
+            "exports.foobar = (new Baz).getFoobar();"),
+       ConvertToTypedInterface.CONSTANT_WITHOUT_EXPLICIT_TYPE);
+  }
+
+  public void testGoogModulesWithAnnotatedUninferrableExports() {
     test(
         LINE_JOINER.join(
             "goog.module('x.y.z');",
@@ -812,7 +834,10 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
     test("while (true) { foo(); break; }", "{}");
 
     test("for (var i = 0; i < 10; i++) { var field = 88; }",
-        "/** @const {*} */ var i; {/** @const {*} */ var field;}");
+        "{ /** @const {*} */ var i; /** @const {*} */ var field;}");
+
+    test("for (var i = 0, arraySize = getSize(); i < arraySize; i++) { foo(arr[i]); }",
+        "{/** @const {*} */ var i; /** @const {*} */ var arraySize; }");
 
     test(
         "while (i++ < 10) { var /** number */ field = i; }",
@@ -824,7 +849,7 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
 
     test(
         "for (var /** number */ i = 0; i < 10; i++) { var /** number */ field = i; }",
-        "/** @type {number} */ var i; { /** @type {number } */ var field; }");
+        "{ /** @type {number} */ var i; /** @type {number } */ var field; }");
 
     test(
         "for (i = 0; i < 10; i++) { var /** number */ field = i; }",
@@ -832,7 +857,7 @@ public final class ConvertToTypedInterfaceTest extends CompilerTestCase {
 
     test(
         "for (var i = 0; i < 10; i++) { var /** number */ field = i; }",
-        "/** @const {*} */ var i; { /** @type {number } */ var field; }");
+        "{ /** @const {*} */ var i; /** @type {number } */ var field; }");
   }
 
   public void testNamespaces() {
