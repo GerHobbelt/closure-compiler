@@ -99,6 +99,7 @@ final class PolymerClassRewriter {
       Node assign = IR.assign(
           cls.target.cloneTree(),
           cls.constructor.value.cloneTree());
+      NodeUtil.markNewScopesChanged(assign, compiler);
       assign.setJSDocInfo(constructorDoc.build());
       Node exprResult = IR.exprResult(assign);
       exprResult.useSourceInfoIfMissingFromForTree(cls.target);
@@ -106,6 +107,7 @@ final class PolymerClassRewriter {
     } else {
       // var foo = Polymer({...}); OR Polymer({...});
       Node var = IR.var(cls.target.cloneTree(), cls.constructor.value.cloneTree());
+      NodeUtil.markNewScopesChanged(var, compiler);
       var.useSourceInfoIfMissingFromForTree(exprRoot);
       var.setJSDocInfo(constructorDoc.build());
       block.addChildToBack(var);
@@ -292,6 +294,7 @@ final class PolymerClassRewriter {
         }
 
         Node fnValue = behaviorFunction.value.cloneTree();
+        NodeUtil.markNewScopesChanged(fnValue, compiler);
         Node exprResult = IR.exprResult(
             IR.assign(NodeUtil.newQName(compiler, qualifiedPath + fnName), fnValue));
         exprResult.useSourceInfoIfMissingFromForTree(behaviorFunction.name);
@@ -351,6 +354,7 @@ final class PolymerClassRewriter {
   private Node makeReadOnlySetter(String propName, String qualifiedPath) {
     String setterName = "_set" + propName.substring(0, 1).toUpperCase() + propName.substring(1);
     Node fnNode = IR.function(IR.name(""), IR.paramList(IR.name(propName)), IR.block());
+    compiler.reportChangeToChangeScope(fnNode);
     Node exprResNode = IR.exprResult(
         IR.assign(NodeUtil.newQName(compiler, qualifiedPath + setterName), fnNode));
 
@@ -374,6 +378,7 @@ final class PolymerClassRewriter {
 
     String interfaceName = getInterfaceName(cls);
     Node fnNode = IR.function(IR.name(""), IR.paramList(), IR.block());
+    compiler.reportChangeToChangeScope(fnNode);
     Node varNode = IR.var(NodeUtil.newQName(compiler, interfaceName), fnNode);
 
     JSDocInfoBuilder info = new JSDocInfoBuilder(true);

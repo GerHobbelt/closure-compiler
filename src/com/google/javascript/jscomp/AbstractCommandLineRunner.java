@@ -1143,30 +1143,32 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       B options, List<SourceFile> externs, List<JSModule> modules) {
     try {
       compiler.initModules(externs, modules, options);
-      if (compiler.hasErrors()) {
-        return compiler.getResult();
+      if (!compiler.hasErrors()) {
+        compiler.checkAndTranspileAndOptimize();
+        compiler.completeCompilation();
       }
-      return compiler.checkAndTranspileAndOptimize();
     } finally {
       // Make sure we generate a report of errors and warnings even if the compiler throws an
       // exception somewhere.
       compiler.generateReport();
     }
+    return compiler.getResult();
   }
 
   private Result performFullCompilation(
       B options, List<SourceFile> externs, List<SourceFile> inputs) {
     try {
       compiler.init(externs, inputs, options);
-      if (compiler.hasErrors()) {
-        return compiler.getResult();
+      if (!compiler.hasErrors()) {
+        compiler.checkAndTranspileAndOptimize();
+        compiler.completeCompilation();
       }
-      return compiler.checkAndTranspileAndOptimize();
     } finally {
       // Make sure we generate a report of errors and warnings even if the compiler throws an
       // exception somewhere.
       compiler.generateReport();
     }
+    return compiler.getResult();
   }
 
   /**
@@ -2010,7 +2012,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       out.append(displayName);
       out.append("\n");
 
-      bundler.appendTo(out, input, input.getSourceFile().getCodeCharSource());
+      bundler.appendTo(out, input, input.getSourceFile().getCode());
 
       out.append("\n");
     }

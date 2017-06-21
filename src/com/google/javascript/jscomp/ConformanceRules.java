@@ -388,6 +388,7 @@ public final class ConformanceRules {
    * Banned name rule
    */
   static class BannedName extends AbstractRule {
+    private final Requirement.Type requirementType;
     private final ImmutableList<Node> names;
 
     BannedName(AbstractCompiler compiler, Requirement requirement)
@@ -396,6 +397,7 @@ public final class ConformanceRules {
       if (requirement.getValueCount() == 0) {
         throw new InvalidRequirementSpec("missing value");
       }
+      requirementType = requirement.getType();
       ImmutableList.Builder<Node> builder = ImmutableList.builder();
       for (String name : requirement.getValueList()) {
         builder.add(NodeUtil.newQName(compiler, name));
@@ -406,6 +408,11 @@ public final class ConformanceRules {
     @Override
     protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
       if (isCandidateNode(n)) {
+        if (requirementType == Type.BANNED_NAME_CALL) {
+          if (!ConformanceUtil.isCallTarget(n)) {
+            return ConformanceResult.CONFORMANCE;
+          }
+        }
         for (int i = 0; i < names.size(); i++) {
           Node nameNode = names.get(i);
           if (n.matchesQualifiedName(nameNode) && isRootOfQualifiedNameGlobal(t, n)) {
@@ -1476,15 +1483,20 @@ public final class ConformanceRules {
         if (tagName != null && !tagAttr[0].equals(tagName) && !tagAttr[0].equals("*")) {
           continue;
         }
+        ConformanceResult violation =
+            tagName == null && !tagAttr[0].equals("*")
+                ? ConformanceResult.POSSIBLE_VIOLATION
+                : ConformanceResult.VIOLATION;
         if (attrsType != null
             && (attrsType.isStringValueType() || attrsType.containsArray())) {
           // String or array attribute sets the class.
           if (!tagAttr[1].equals("class")) {
             continue;
           }
-          return tagName == null && !tagAttr[0].equals("*")
-              ? ConformanceResult.POSSIBLE_VIOLATION
-              : ConformanceResult.VIOLATION;
+          return violation;
+        }
+        if (tagAttr[1].equals("textContent") && n.getChildCount() > 3) {
+          return violation;
         }
         if (!attrs.isObjectLit()) {
           // Attrs is not an object literal and tagName matches or is unknown.
@@ -1496,9 +1508,7 @@ public final class ConformanceRules {
             // Ignore string literal values.
             continue;
           }
-          return tagName == null && !tagAttr[0].equals("*")
-              ? ConformanceResult.POSSIBLE_VIOLATION
-              : ConformanceResult.VIOLATION;
+          return violation;
         }
       }
 

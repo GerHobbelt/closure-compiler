@@ -1517,7 +1517,12 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
             switch (tag) {
               case TRUE_MASK:
               case FALSE_MASK:
-                builder.append("boolean");
+                builder.append(
+                    (tags & BOOLEAN_MASK) == BOOLEAN_MASK
+                        ? "boolean"
+                        : tag == TRUE_MASK
+                        ? "true"
+                        : "false");
                 tags &= ~BOOLEAN_MASK;
                 continue;
               case NULL_MASK:
@@ -1965,7 +1970,10 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
 
   @Override
   public final boolean isBoxableScalar() {
-    return isNumber() || isString() || isBoolean();
+    return isNumber()
+        || isString()
+        || isBoolean()
+        || (isEnumElement() && getEnumeratedTypeOfEnumElement().isBoxableScalar());
   }
 
   @Override

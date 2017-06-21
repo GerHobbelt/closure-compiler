@@ -211,7 +211,7 @@ implements NodeTraversal.Callback, HotSwapCompilerPass {
     Node declaredValue = null;
     if (declaration.isFunction()) {
       declaredValue = declaration;
-    } else if (declaration.isVar() && declaredVarOrProp.isName()) {
+    } else if (NodeUtil.isNameDeclaration(declaration) && declaredVarOrProp.isName()) {
       if (declaredVarOrProp.hasChildren()) {
         declaredValue = checkNotNull(declaredVarOrProp.getFirstChild());
       } else {
@@ -223,7 +223,7 @@ implements NodeTraversal.Callback, HotSwapCompilerPass {
       declaredValue = checkNotNull(declaredVarOrProp.getFirstChild());
     } else {
       throw new IllegalStateException(
-          "Unexpected declaration format: " + declaration.toStringTree());
+          "Unexpected declaration format:\n" + declaration.toStringTree());
     }
 
     if (declaredValue.isFunction()) {

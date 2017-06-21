@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -166,11 +165,22 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   private final Map<InputId, CompilerInput> inputsById = new ConcurrentHashMap<>();
 
-  // Function to load source files from disk or memory.
-  private Function<String, SourceFile> originalSourcesLoader =
-      new Function<String, SourceFile>() {
+  /**
+   * Subclasses are responsible for loading soures that were not provided as explicit inputs to the
+   * compiler. For example, looking up sources referenced within sourcemaps.
+   */
+  public static class ExternalSourceLoader {
+    public SourceFile loadSource(String filename) {
+      throw new RuntimeException("Cannot load without a valid loader.");
+    }
+  }
+
+  private ExternalSourceLoader originalSourcesLoader =
+      new ExternalSourceLoader() {
+        // TODO(tdeegan): The @GwtIncompatible tree needs to be cleaned up.
         @Override
-        public SourceFile apply(String filename) {
+        @GwtIncompatible("SourceFile.fromFile")
+        public SourceFile loadSource(String filename) {
           return SourceFile.fromFile(filename);
         }
       };
@@ -326,8 +336,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   }
 
   @VisibleForTesting
-  void setOriginalSourcesLoader(
-      Function<String, SourceFile> originalSourcesLoader) {
+  void setOriginalSourcesLoader(ExternalSourceLoader originalSourcesLoader) {
     this.originalSourcesLoader = originalSourcesLoader;
   }
 
@@ -751,13 +760,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     try {
       init(externs, inputs, options);
-      if (hasErrors()) {
-        return getResult();
+      if (!hasErrors()) {
+        checkAndTranspileAndOptimize();
+        completeCompilation();
       }
-      return checkAndTranspileAndOptimize();
     } finally {
       generateReport();
     }
+    return getResult();
   }
 
   /**
@@ -787,13 +797,14 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
     try {
       initModules(externs, modules, options);
-      if (hasErrors()) {
-        return getResult();
+      if (!hasErrors()) {
+        checkAndTranspileAndOptimize();
+        completeCompilation();
       }
-      return checkAndTranspileAndOptimize();
     } finally {
       generateReport();
     }
+    return getResult();
   }
 
   /**
@@ -801,6 +812,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    *
    * <p>Client code must call this method explicitly if it doesn't use one of the convenience
    * methods that do so automatically.
+   * <p>Always call this method, even if the compiler throws an exception. The report will include
+   * information about the exception.
    */
   public void generateReport() {
     Tracer t = newTracer("generateReport");
@@ -827,18 +840,28 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
    * report of warnings and errors to stderr.  See the invocation in
    * {@link #initAndCheckAndTranspileAndOptimize} for a good example.
    * <p> TODO(bradfordcsmith): Break this up into checkAndTranspile() and optimize().
-   * @return compilation results.
    */
-  public Result checkAndTranspileAndOptimize() {
+  public void checkAndTranspileAndOptimize() {
     checkState(
         inputs != null && !inputs.isEmpty(), "No inputs. Did you call init() or initModules()?");
-    return runInCompilerThread(new Callable<Result>() {
-      @Override
-      public Result call() throws Exception {
-        compileInternal();
-        return getResult();
-      }
-    });
+    runInCompilerThread(
+        new Callable<Void>() {
+          @Override
+          public Void call() throws Exception {
+            parseForCompilation();
+            if (!hasErrors()) {
+              if (options.getInstrumentForCoverageOnly()) {
+                instrumentForCoverage(options.instrumentBranchCoverage);
+              } else {
+                performChecksAndTranspilation();
+                if (!hasErrors() && options.shouldOptimize()) {
+                  performOptimizations();
+                }
+              }
+            }
+            return null;
+          }
+        });
   }
 
   /**
@@ -866,24 +889,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
         callable, options != null && options.getTracerMode().isOn());
   }
 
-  private void compileInternal() {
-    setProgress(0.0, null);
-    CompilerOptionsPreprocessor.preprocess(options);
-    read();
-    // Guesstimate.
-    setProgress(0.02, "read");
-    parse();
-    // Guesstimate.
-    setProgress(0.15, "parse");
-    if (hasErrors()) {
-      return;
-    }
-
-    if (options.getInstrumentForCoverageOnly()) {
-      instrumentForCoverage(options.instrumentBranchCoverage);
-      return;
-    }
-
+  private void performChecksAndTranspilation() {
     if (options.skipNonTranspilationPasses) {
       // i.e. whitespace-only mode, which will not work with goog.module without:
       whitespaceOnlyPasses();
@@ -892,15 +898,32 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
     } else {
       check(); // check() also includes transpilation
-      if (hasErrors()) {
-        return;
-      }
-
-      if (!options.checksOnly && !options.shouldGenerateTypedExterns()) {
-        optimize();
-      }
     }
+  }
 
+  /**
+   * Performs all the bookkeeping required at the end of a compilation.
+   *
+   * <p>This method must be called if the compilation makes it as far as doing checks.
+   * <p> DON'T call it if the compiler threw an exception.
+   * <p> DO call it even when {@code hasErrors()} returns true.
+   */
+  public void completeCompilation() {
+    runInCompilerThread(new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        completeCompilationInternal();
+        return null;
+      }
+
+    });
+  }
+
+  /**
+   * Performs all the bookkeeping required at the end of a compilation.
+   */
+  private void completeCompilationInternal() {
     if (options.recordFunctionInformation) {
       recordFunctionInformation();
     }
@@ -925,10 +948,31 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     stopTracer(tracer, "instrumentationPass");
   }
 
-  public void read() {
+  /**
+   * Parses input files in preparation for compilation.
+   *
+   * <p>Either {@code init()} or {@code initModules()} must be called first to set up the input
+   * files to be read.
+   * <p>TODO(bradfordcsmith): Rename this to parse()
+   */
+  public void parseForCompilation() {
+    setProgress(0.0, null);
+    CompilerOptionsPreprocessor.preprocess(options);
     readInputs();
+    // Guesstimate.
+    setProgress(0.02, "read");
+    parseInputs();
+    // Guesstimate.
+    setProgress(0.15, "parse");
   }
 
+  /**
+   * Parses input files without doing progress tracking that is part of a full compile.
+   *
+   * <p>Either {@code init()} or {@code initModules()} must be called first to set up the input
+   * files to be read.
+   * <p>TODO(bradfordcsmith): Rename this to parseIndependentOfCompilation() or similar.
+   */
   public void parse() {
     parseInputs();
   }
@@ -999,7 +1043,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return phaseOptimizer;
   }
 
-  public void check() {
+  void check() {
     runCustomPasses(CustomPassExecutionTime.BEFORE_CHECKS);
 
     // We are currently only interested in check-passes for progress reporting
@@ -2018,16 +2062,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     return new JsAst(file).getAstRoot(this);
   }
 
-  private int syntheticCodeId = 0;
 
-  @Override
-  Node parseSyntheticCode(String js) {
-    SourceFile source = SourceFile.fromCode(" [synthetic:" + (++syntheticCodeId) + "] ", js);
-    addFilesToSourceMap(ImmutableList.of(source));
-    CompilerInput input = new CompilerInput(source);
-    putCompilerInput(input.getInputId(), input);
-    return input.getAstRoot(this);
-  }
 
   /**
    * Allow subclasses to override the default CompileOptions object.
@@ -2044,21 +2079,31 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
   }
 
+  private int syntheticCodeId = 0;
+
   @Override
-  Node parseSyntheticCode(String fileName, String js) {
-    initCompilerOptionsIfTesting();
-    addFileToSourceMap(fileName, js);
-    CompilerInput input = new CompilerInput(SourceFile.fromCode(fileName, js));
-    putCompilerInput(input.getInputId(), input);
-    return input.getAstRoot(this);
+  Node parseSyntheticCode(String js) {
+    return parseSyntheticCode(" [synthetic:" + (++syntheticCodeId) + "] ", js);
   }
 
   @Override
+  Node parseSyntheticCode(String fileName, String js) {
+    initCompilerOptionsIfTesting();
+    SourceFile source = SourceFile.fromCode(fileName, js);
+    addFilesToSourceMap(ImmutableList.of(source));
+    return parseCodeHelper(source);
+  }
+
+  @Override
+  @VisibleForTesting
   Node parseTestCode(String js) {
     initCompilerOptionsIfTesting();
     initBasedOnOptions();
-    CompilerInput input = new CompilerInput(
-        SourceFile.fromCode("[testcode]", js));
+    return parseCodeHelper(SourceFile.fromCode("[testcode]", js));
+  }
+
+  private Node parseCodeHelper(SourceFile src) {
+    CompilerInput input = new CompilerInput(src);
     putCompilerInput(input.getInputId(), input);
     return input.getAstRoot(this);
   }
@@ -2364,7 +2409,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   // Optimizations
   //------------------------------------------------------------------------
 
-  public void optimize() {
+  void performOptimizations() {
+    checkState(options.shouldOptimize());
     List<PassFactory> optimizations = getPassConfig().getOptimizations();
     if (optimizations.isEmpty()) {
       return;
@@ -2474,7 +2520,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     currentChangeScope = newChangeScopeRoot;
   }
 
-  private Node getEnclosingChangeScope(Node n) {
+  private Node getChangeScopeForNode(Node n) {
     /**
      * Compiler change reporting usually occurs after the AST change has already occurred. In the
      * case of node removals those nodes are already removed from the tree and so have no parent
@@ -2486,11 +2532,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       return n;
     }
 
-    while (n.getParent() != null) {
-      n = n.getParent();
-      if (n.isFunction() || n.isScript()) {
-        return n;
-      }
+    n = NodeUtil.getEnclosingChangeScopeRoot(n.getParent());
+    if (n == null) {
+      throw new IllegalStateException(
+          "An enclosing scope is required for change reports but node " + n + " doesn't have one.");
     }
     return n;
   }
@@ -2535,7 +2580,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
 
   @Override
   void reportChangeToEnclosingScope(Node n) {
-    recordChange(getEnclosingChangeScope(n));
+    recordChange(getChangeScopeForNode(n));
     notifyChangeHandlers();
   }
 
@@ -2570,17 +2615,18 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       case ECMASCRIPT_2016:
         return Config.LanguageMode.ECMASCRIPT7;
       case ECMASCRIPT8:
+      case ECMASCRIPT_2017:
       case ECMASCRIPT_NEXT:
         return Config.LanguageMode.ECMASCRIPT8;
       default:
-        throw new IllegalStateException("unexpected language mode: "
+        throw new IllegalStateException("Unexpected language mode: "
             + options.getLanguageIn());
     }
   }
 
   @Override
   Config getParserConfig(ConfigContext context) {
-    if (parserConfig == null) {
+    if (parserConfig == null || externsParserConfig == null) {
       synchronized (this) {
         if (parserConfig == null) {
           Config.LanguageMode configLanguageMode = getParserConfigLanguageMode(
@@ -2775,8 +2821,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     // Translate it to one relative to our base directory.
     String path =
         getRelativeTo(result.getOriginalFile(), sourceMap.getOriginalPath());
-    sourceMapOriginalSources.putIfAbsent(
-        path, originalSourcesLoader.apply(path));
+    sourceMapOriginalSources.putIfAbsent(path, originalSourcesLoader.loadSource(path));
     return result.toBuilder()
         .setOriginalFile(path)
         .setColumnPosition(result.getColumnPosition() - 1)

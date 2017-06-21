@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -26,7 +25,9 @@ import com.google.debugging.sourcemap.FilePosition;
 import com.google.debugging.sourcemap.SourceMapConsumerV3;
 import com.google.debugging.sourcemap.SourceMapGeneratorV3;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
+import com.google.javascript.jscomp.Compiler.ExternalSourceLoader;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -185,11 +186,10 @@ public final class CompilerTest extends TestCase {
         SourceFile.fromCode(sourceMapPath, output.toString()));
   }
 
-  private Function<String, SourceFile> createFileLoader(
-      final List<SourceFile> sourceFiles) {
-    return new Function<String, SourceFile>() {
+  private ExternalSourceLoader createFileLoader(final List<SourceFile> sourceFiles) {
+    return new ExternalSourceLoader() {
       @Override
-      public SourceFile apply(String filename) {
+      public SourceFile loadSource(String filename) {
         for (SourceFile file : sourceFiles) {
           if (file.getOriginalPath().equals(filename)) {
             return file;
@@ -976,7 +976,7 @@ public final class CompilerTest extends TestCase {
         new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
     compiler.restoreState(byteArrayInputStream);
 
-    compiler.optimize();
+    compiler.performOptimizations();
     String source = compiler.toSource();
     assertEquals("'use strict';console.log(2);", source);
 
@@ -1085,6 +1085,29 @@ public final class CompilerTest extends TestCase {
     } catch (IllegalArgumentException expected) {
       return;
     }
+  }
+
+  public void testReportChangeNoScopeFails() {
+    Compiler compiler = new Compiler();
+
+    Node detachedNode = IR.var(IR.name("foo"));
+
+    try {
+      compiler.reportChangeToEnclosingScope(detachedNode);
+      fail("Reporting a change on a node with no scope should have failed.");
+    } catch (IllegalStateException e) {
+      return;
+    }
+  }
+
+  public void testReportChangeWithScopeSucceeds() {
+    Compiler compiler = new Compiler();
+
+    Node attachedNode = IR.var(IR.name("foo"));
+    Node function = IR.function(IR.name("bar"), IR.paramList(), IR.block(attachedNode));
+
+    // Succeeds without throwing an exception.
+    compiler.reportChangeToEnclosingScope(attachedNode);
   }
 
   private static CompilerOptions createNewFlagBasedOptions() {

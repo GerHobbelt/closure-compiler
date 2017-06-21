@@ -797,6 +797,9 @@ public class CompilerOptions implements Serializable {
   /** Remove goog.asserts calls. */
   boolean removeClosureAsserts;
 
+  /** Remove J2CL assert calls. */
+  boolean removeJ2clAsserts = true;
+
   /** Gather CSS names (requires closurePass) */
   public boolean gatherCssNames;
 
@@ -1712,6 +1715,10 @@ public class CompilerOptions implements Serializable {
 
   public void setRemoveClosureAsserts(boolean remove) {
     this.removeClosureAsserts = remove;
+  }
+
+  public void setRemoveJ2clAsserts(boolean remove) {
+    this.removeJ2clAsserts = remove;
   }
 
   public void setColorizeErrorOutput(boolean colorizeErrorOutput) {
@@ -2921,6 +2928,7 @@ public class CompilerOptions implements Serializable {
             .add("removeAbstractMethods", removeAbstractMethods)
             .add("removeSuperMethods", removeSuperMethods)
             .add("removeClosureAsserts", removeClosureAsserts)
+            .add("removeJ2clAsserts", removeJ2clAsserts)
             .add("removeDeadCode", removeDeadCode)
             .add("removeUnusedClassProperties", removeUnusedClassProperties)
             .add("removeUnusedConstructorProperties", removeUnusedConstructorProperties)
@@ -3041,13 +3049,14 @@ public class CompilerOptions implements Serializable {
      */
     ECMASCRIPT_2016,
 
-    /** @deprecated Use {@code ECMASCRIPT_NEXT} */
+    /** @deprecated Use {@code ECMASCRIPT_2017} */
     @Deprecated
     ECMASCRIPT8,
 
-    /**
-     * ECMAScript latest draft standard.
-     */
+    /** ECMAScript standard approved in 2017. Adds async/await. */
+    ECMASCRIPT_2017,
+
+    /** ECMAScript latest draft standard. */
     ECMASCRIPT_NEXT,
 
     /**
@@ -3371,5 +3380,12 @@ public class CompilerOptions implements Serializable {
     if (outputCharsetName != null) {
       outputCharset = Charset.forName(outputCharsetName);
     }
+  }
+
+  boolean shouldOptimize() {
+    return !skipNonTranspilationPasses
+        && !checksOnly
+        && !shouldGenerateTypedExterns()
+        && !instrumentForCoverageOnly;
   }
 }

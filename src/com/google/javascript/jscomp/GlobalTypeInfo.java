@@ -500,6 +500,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       // Type the global THIS as a loose object
       globalThisType = this.commonTypes.getTopObject().withLoose();
     }
+    commonTypes.setGlobalThis(globalThisType);
     this.globalScope.setDeclaredType(
         (new FunctionTypeBuilder(this.commonTypes)).
         addReceiverType(globalThisType).buildDeclaration());
@@ -2187,9 +2188,8 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
           return commonTypes.getArrayInstance(arrayType);
         }
         case TRUE:
-          return commonTypes.TRUE_TYPE;
         case FALSE:
-          return commonTypes.FALSE_TYPE;
+          return commonTypes.BOOLEAN;
         case THIS:
           return this.currentScope.getDeclaredTypeOf("this");
         case NAME:

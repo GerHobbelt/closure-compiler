@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.javascript.jscomp.CompilerOptions.LanguageMode.ECMASCRIPT_NEXT;
 
 /**
  * Verifies that valid candidates for inlining are inlined, but
@@ -31,6 +32,7 @@ public final class InlineVariablesTest extends CompilerTestCase {
 
   public InlineVariablesTest() {
     enableNormalize();
+    setAcceptedLanguage(ECMASCRIPT_NEXT);
   }
 
   @Override
@@ -80,7 +82,7 @@ public final class InlineVariablesTest extends CompilerTestCase {
     test("var x = 1; var y = x;", "var y = 1;");
   }
 
-  public void testInlineInFunction() {
+  public void testInlineInFunction1() {
     test("function baz() { var x = 1; var z = x; }",
         "function baz() { var z = 1; }");
   }
@@ -119,6 +121,16 @@ public final class InlineVariablesTest extends CompilerTestCase {
            "foo.x();" +
            "result = a;" +
         "}");
+  }
+
+  public void testInlineInFunction6() {
+    test("function baz() { { var x = 1; var z = x; } }",
+        "function baz() { { var z = 1; } }");
+  }
+
+  public void testInlineInFunction7() {
+    test("function baz() { var x = 1; { var z = x; } }",
+        "function baz() { { var z = 1; } }");
   }
 
   public void testInlineAcrossModules() {
@@ -809,12 +821,98 @@ public final class InlineVariablesTest extends CompilerTestCase {
       );
   }
 
-  public void testInlineCatchAlias1() {
+  public void testInlineSwitchVar() {
     test(
+        "var x = y; switch (x) {}",
+        "switch (y) {}");
+  }
+
+  public void testInlineSwitchLet() {
+    test(
+        "let x = y; switch (x) {}",
+        "switch (y) {}");
+  }
+
+  // Successfully inlines 'values' and 'e'
+  public void testInlineIntoForLoop1() {
+    test(
+        LINE_JOINER.join(
+            "function calculate_hashCode() {",
+            "  var values = [1, 2, 3, 4, 5];",
+            "  var hashCode = 1;",
+            "  for (var $array = values, i = 0; i < $array.length; i++) {",
+            "    var e = $array[i];",
+            "    hashCode = 31 * hashCode + calculate_hashCode(e);",
+            "  }",
+            "  return hashCode;",
+            "}"),
+        LINE_JOINER.join(
+            "function calculate_hashCode() {",
+            "  var hashCode = 1;",
+            "  var $array = [1, 2, 3, 4, 5];",
+            "  var i = 0;",
+            "  for (; i < $array.length; i++) {",
+            "    hashCode = 31 * hashCode + calculate_hashCode($array[i]);",
+            "  }",
+            "  return hashCode;",
+            "}"));
+  }
+
+  // Inlines 'e' but fails to inline 'values'
+  // TODO(tbreisacher): Investigate and see if we can improve this.
+  public void testInlineIntoForLoop2() {
+    test(
+        LINE_JOINER.join(
+            "function calculate_hashCode() {",
+            "  let values = [1, 2, 3, 4, 5];",
+            "  let hashCode = 1;",
+            "  for (let $array = values, i = 0; i < $array.length; i++) {",
+            "    let e = $array[i];",
+            "    hashCode = 31 * hashCode + calculate_hashCode(e);",
+            "  }",
+            "  return hashCode;",
+            "}"),
+        LINE_JOINER.join(
+            "function calculate_hashCode() {",
+            "  let values = [1, 2, 3, 4, 5];",
+            "  let hashCode = 1;",
+            "  for (let $array = values, i = 0; i < $array.length; i++) {",
+            "    hashCode = 31 * hashCode + calculate_hashCode($array[i]);",
+            "  }",
+            "  return hashCode;",
+            "}"));
+  }
+
+  // This used to be inlined, but regressed when we switched to the ES6 scope creator.
+  public void testNoInlineCatchAliasVar1() {
+    testSame(
         LINE_JOINER.join(
             "try {",
             "} catch (e) {",
             "  var y = e;",
+            "  g();" ,
+            "  y;y;" ,
+            "}"));
+  }
+
+  // This used to be inlined, but regressed when we switched to the ES6 scope creator.
+  public void testNoInlineCatchAliasVar2() {
+    testSame(
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  var y; y = e;",
+            "  g();",
+            "  y;y;",
+            "}"));
+  }
+
+  public void testInlineCatchAliasLet1() {
+    test(
+        LINE_JOINER.join(
+            "try {",
+            "} catch (e) {",
+            "  let y = e;",
             "  g();" ,
             "  y;y;" ,
             "}"),
@@ -826,12 +924,12 @@ public final class InlineVariablesTest extends CompilerTestCase {
             "}"));
   }
 
-  public void testInlineCatchAlias2() {
+  public void testInlineCatchAliasLet2() {
     test(
         LINE_JOINER.join(
             "try {",
             "} catch (e) {",
-            "  var y; y = e;",
+            "  let y; y = e;",
             "  g();",
             "  y;y;",
             "}"),
