@@ -184,7 +184,7 @@ Request.prototype.url;
 /** @type {!Headers} */
 Request.prototype.headers;
 
-/** @type {!RequestType} */
+/** @type {!FetchRequestType} */
 Request.prototype.type;
 
 /** @type {!RequestDestination} */

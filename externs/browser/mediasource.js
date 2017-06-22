@@ -94,15 +94,15 @@ MediaSource.isTypeSupported = function(type) {};
  */
 function SourceBuffer() {}
 
- * @override
+/** @override */
 SourceBuffer.prototype.addEventListener = function(
     type, listener, opt_options) {};
 
- * @override
+/** @override */
 SourceBuffer.prototype.removeEventListener = function(
     type, listener, opt_options) {};
 
- * @override
+/** @override */
 SourceBuffer.prototype.dispatchEvent = function(evt) {};
 
 /** @type {string} */

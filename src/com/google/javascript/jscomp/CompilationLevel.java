@@ -83,6 +83,18 @@ public enum CompilationLevel {
       case "ADVANCED_OPTIMIZATIONS":
       case "ADVANCED":
         return CompilationLevel.ADVANCED_OPTIMIZATIONS;
+      case "SHUMWAY_OPTIMIZATIONS":
+      case "SHUMWAY":
+        return CompilationLevel.SHUMWAY_OPTIMIZATIONS;
+      case "J2ME_OPTIMIZATIONS":
+      case "J2ME":
+        return CompilationLevel.J2ME_OPTIMIZATIONS;
+      case "J2ME_AOT_OPTIMIZATIONS":
+      case "J2ME_AOT":
+        return CompilationLevel.J2ME_AOT_OPTIMIZATIONS;
+      case "FROM_CONFIG_FILE":
+      case "FROM_FILE":
+        return CompilationLevel.FROM_CONFIG_FILE;
     }
     return null;
   }

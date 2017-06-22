@@ -119,6 +119,7 @@
       <include name="gson.jar"/>
       <include name="jsr305.jar"/>
       <include name="protobuf-java.jar"/>
+      <include name="jsinterop-annotations.jar"/>
     </fileset>
   </path>
 
@@ -422,7 +423,6 @@
           depends="refasterjs-compile, compile">
    <jar destfile="${refasterjs-jarfile}" update="true">
      <zipgroupfileset dir="${lib.dir}" includes="*.jar"/>
-     <fileset dir="${classes.dir}" includes="externs.zip" />
      <fileset dir="${classes.dir}" />
      <fileset dir="${refasterjs-classes.dir}" />
      <manifest>
