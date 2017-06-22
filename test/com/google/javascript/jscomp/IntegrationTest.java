@@ -2864,14 +2864,14 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setCheckSymbols(false);
     options.setCheckTypes(false);
     String code =
-        "isFunction = function(functionToCheck) {" +
-        "  var getType = {};" +
-        "  return functionToCheck && " +
-        "      getType.toString.apply(functionToCheck) === " +
-        "     '[object Function]';" +
-        "};";
+        LINE_JOINER.join(
+            "isFunction = function(functionToCheck) {",
+            "  var getType = {};",
+            "  return functionToCheck && ",
+            "      getType.toString.apply(functionToCheck) === '[object Function]';",
+            "};");
     String result =
-        "isFunction=function(a){var b={}; return a && '[object Function]' === b.a.apply(a)}";
+        "isFunction = function(a){ var b={}; return a && '[object Function]' === b.b.a(a); }";
 
     test(options, code, result);
   }
@@ -4044,18 +4044,22 @@ public final class IntegrationTest extends IntegrationTestCase {
 
     // property name preserved due to export
     test(options, code,
-        "alert((new function(){this.abc = 1}).abc + " +
-            "(new function(){this.abc = 1}).abc);");
+        "alert((new function(){this.abc = 1}).abc + (new function(){this.abc = 1}).abc);");
 
     // unreferenced property not removed due to export.
-    test(options, "" +
-        "/** @constructor */ var X = function() {" +
-        "/** @export */ this.abc = 1;};\n" +
-        "/** @constructor */ var Y = function() {" +
-        "/** @export */ this.abc = 1;};\n" +
-        "alert(new X() + new Y());",
-        "alert((new function(){this.abc = 1}) + " +
-            "(new function(){this.abc = 1}));");
+    test(
+        options,
+        LINE_JOINER.join(
+            "/** @constructor */ var X = function() {",
+            "  /** @export */ this.abc = 1;",
+            "};",
+            "",
+            "/** @constructor */ var Y = function() {",
+            "  /** @export */ this.abc = 1;",
+            "};",
+            "",
+            "alert(new X() + new Y());"),
+        "alert((new function(){this.abc = 1}) + (new function(){this.abc = 1}));");
 
     // disambiguate and ambiguate properties respect the exports.
     options.setCheckTypes(true);
@@ -4063,9 +4067,10 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setAmbiguateProperties(true);
     options.propertyInvalidationErrors = ImmutableMap.of("abc", CheckLevel.ERROR);
 
-    test(options, code,
-        "alert((new function(){this.abc = 1}).abc + " +
-            "(new function(){this.abc = 1}).abc);");
+    test(
+        options,
+        code,
+        "alert((new function(){this.abc = 1}).abc + (new function(){this.abc = 1}).abc);");
 
     // unreferenced property not removed due to export.
     test(
@@ -4355,13 +4360,14 @@ public final class IntegrationTest extends IntegrationTestCase {
     options.setLanguageIn(LanguageMode.ECMASCRIPT_2017);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
 
-    test(options,
+    test(
+        options,
         LINE_JOINER.join(
             "function foo(a, b = {foo: 5}) {",
             "  return a + b.foo;",
             "}",
             "alert(foo(3, {foo: 9}));"),
-        "var a={a:9},a=void 0===a?{a:5}:a;alert(3+a.a)");
+        "var a={a:9}; a=void 0===a?{a:5}:a;alert(3+a.a)");
   }
 
   /** Creates a CompilerOptions object with google coding conventions. */

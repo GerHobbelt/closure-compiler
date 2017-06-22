@@ -2478,7 +2478,7 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory(Compiler.UNREACHABLE_CODE_ELIM_NAME, false) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          return new UnreachableCodeElimination(compiler, true);
+          return new UnreachableCodeElimination(compiler);
         }
 
         @Override
@@ -3132,11 +3132,14 @@ public final class DefaultPassConfig extends PassConfig {
       new PassFactory("j2clOptBundlePass", false) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          final J2clClinitPrunerPass j2clClinitPrunerPass = new J2clClinitPrunerPass(compiler);
+          List<Node> changedScopeNodes = compiler.getChangedScopeNodesForPass(getName());
+
+          final J2clClinitPrunerPass j2clClinitPrunerPass =
+              new J2clClinitPrunerPass(compiler, changedScopeNodes);
           final J2clConstantHoisterPass j2clConstantHoisterPass =
-              (new J2clConstantHoisterPass(compiler));
+              new J2clConstantHoisterPass(compiler);
           final J2clEqualitySameRewriterPass j2clEqualitySameRewriterPass =
-              (new J2clEqualitySameRewriterPass(compiler));
+              new J2clEqualitySameRewriterPass(compiler, changedScopeNodes);
           return new CompilerPass() {
 
             @Override
