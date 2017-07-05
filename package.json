@@ -18,7 +18,7 @@
         "url" : "https://github.com/nicks"
     },
     "scripts": {
-        "make": "mvn -DskipTests",
-        "test": "mvn"
+        "make": "mvn -DskipTests -pl externs/pom.xml,pom-main.xml,pom-main-shaded.xml",
+        "test": "mvn             -pl externs/pom.xml,pom-main.xml,pom-main-shaded.xml"
     }
 }
