@@ -1546,17 +1546,21 @@ public final class CompilerTest extends TestCase {
     options.dependencyOptions.setMoocherDropping(false);
     List<SourceFile> externs =
         AbstractCommandLineRunner.getBuiltinExterns(options.getEnvironment());
-    Compiler compiler = new Compiler();
-    Result result = compiler.compile(externs, ImmutableList.copyOf(sources), options);
-    assertTrue(result.success);
 
-    List<String> orderedInputs = new ArrayList<>();
-    for (CompilerInput input : compiler.getInputsInOrder()) {
-      orderedInputs.add(input.getName());
+    for (int iterationCount = 0; iterationCount < 10; iterationCount++) {
+      java.util.Collections.shuffle(sources);
+      Compiler compiler = new Compiler();
+      Result result = compiler.compile(externs, ImmutableList.copyOf(sources), options);
+      assertTrue(result.success);
+
+      List<String> orderedInputs = new ArrayList<>();
+      for (CompilerInput input : compiler.getInputsInOrder()) {
+        orderedInputs.add(input.getName());
+      }
+
+      assertThat(orderedInputs)
+          .containsExactly("base.js", "a.js", "b.js", "c.js", "d.js", "entry.js", "test.js")
+          .inOrder();
     }
-
-    assertThat(orderedInputs)
-        .containsExactly("base.js", "a.js", "b.js", "c.js", "d.js", "entry.js", "test.js")
-        .inOrder();
   }
 }

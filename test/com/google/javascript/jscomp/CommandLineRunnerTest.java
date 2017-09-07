@@ -751,7 +751,7 @@ public final class CommandLineRunnerTest extends TestCase {
         new String[] {
           "goog.addDependency('sym', [], []);\nvar x = 3;", "var COMPILED = false;",
         },
-        new String[] {"var x = 3;", "var COMPILED = !1;"});
+        new String[] {"var COMPILED = !1;", "var x = 3;"});
   }
 
   public void testSourceSortingCircularDeps1() {
@@ -847,19 +847,26 @@ public final class CommandLineRunnerTest extends TestCase {
           "goog.provide('scotch'); var x = 3;"
          },
          new String[] {
-           "var beer = {};",
-           "",
            "var scotch = {}, x = 3;",
+           "var beer = {};",
+           ""
          });
+    assertTrue(lastCompiler.getOptions().getDependencyOptions().shouldSortDependencies());
+    assertTrue(lastCompiler.getOptions().getDependencyOptions().shouldPruneDependencies());
   }
 
+  /**
+   * The regex parser uses "var COMPILED = false;" to detect
+   * the closure-library base.js file. So this file actually
+   * provides "goog" - and is therefore dropped.
+   */
   public void testSourcePruningOn7() {
     args.add("--dependency_mode=LOOSE");
     test(new String[] {
           "var COMPILED = false;",
          },
          new String[] {
-          "var COMPILED = !1;",
+           "",
          });
   }
 
