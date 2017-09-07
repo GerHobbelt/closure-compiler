@@ -1506,19 +1506,57 @@ public final class CompilerTest extends TestCase {
         AbstractCommandLineRunner.getBuiltinExterns(options.getEnvironment());
     Compiler compiler = new Compiler();
     Result result = compiler.compile(externs, ImmutableList.copyOf(sources), options);
-    assertTrue(Joiner.on(",").join(result.errors), result.success);
-    String outputSource = compiler.toSource();
-    assertThat(outputSource).isEqualTo(Joiner.on("").join(
-        "var module$b$c={};",
-        "window[\"BEFOREA\"]=true;",
-        "var $jscompDefaultExport$$module$b$c={",
-        "settings:{inUse:Boolean(document.documentElement[\"attachShadow\"])}};",
-        "module$b$c.default=$jscompDefaultExport$$module$b$c;",
-        "if(module$b$c.default.settings.inUse)window[\"E\"]=true;",
-        "window[\"A\"]=true;",
-        "window[\"B\"]=true;",
-        "window[\"E\"]=false;",
-        "window[\"C\"]=true;",
-        "window[\"D\"]=true;"));
+    assertTrue(result.success);
+
+    List<String> orderedInputs = new ArrayList<>();
+    for (CompilerInput input : compiler.getInputsInOrder()) {
+      orderedInputs.add(input.getName());
+    }
+
+    assertThat(orderedInputs)
+        .containsExactly("/b/c.js", "/b/b.js", "/b/a.js", "/important.js", "/a/b.js", "/a/a.js", "/entry.js")
+        .inOrder();
+  }
+
+  public void testProperGoogBaseOrdering() throws Exception {
+    List<SourceFile> sources = new ArrayList<>();
+    sources.add(SourceFile.fromCode("test.js", "goog.setTestOnly()"));
+    sources.add(SourceFile.fromCode("d.js", "goog.provide('d');"));
+    sources.add(SourceFile.fromCode("c.js", "goog.provide('c');"));
+    sources.add(SourceFile.fromCode("b.js", "goog.provide('b');"));
+    sources.add(SourceFile.fromCode("a.js", "goog.provide('a');"));
+    sources.add(SourceFile.fromCode("base.js",
+        CompilerTestCase.LINE_JOINER.join(
+            "/** @provideGoog */",
+            "/** @const */ var goog = goog || {};",
+            "var COMPILED = false;")));
+    sources.add(SourceFile.fromCode("entry.js",
+        CompilerTestCase.LINE_JOINER.join(
+            "goog.require('a');",
+            "goog.require('b');",
+            "goog.require('c');",
+            "goog.require('d');")));
+
+    CompilerOptions options = new CompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    options.dependencyOptions.setEntryPoints(ImmutableList.of(ModuleIdentifier.forFile("entry.js")));
+    options.dependencyOptions.setDependencySorting(true);
+    options.dependencyOptions.setDependencyPruning(true);
+    options.dependencyOptions.setMoocherDropping(false);
+    List<SourceFile> externs =
+        AbstractCommandLineRunner.getBuiltinExterns(options.getEnvironment());
+    Compiler compiler = new Compiler();
+    Result result = compiler.compile(externs, ImmutableList.copyOf(sources), options);
+    assertTrue(result.success);
+
+    List<String> orderedInputs = new ArrayList<>();
+    for (CompilerInput input : compiler.getInputsInOrder()) {
+      orderedInputs.add(input.getName());
+    }
+
+    assertThat(orderedInputs)
+        .containsExactly("base.js", "a.js", "b.js", "c.js", "d.js", "entry.js", "test.js")
+        .inOrder();
   }
 }
