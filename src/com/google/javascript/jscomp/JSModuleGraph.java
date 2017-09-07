@@ -570,12 +570,7 @@ public final class JSModuleGraph implements Serializable {
       throws MissingModuleException, MissingProvideException {
     Set<CompilerInput> entryPointInputs = new LinkedHashSet<>();
     Map<String, JSModule> modulesByName = getModulesByName();
-
     if (depOptions.shouldPruneDependencies()) {
-      if (!depOptions.shouldDropMoochers()) {
-        entryPointInputs.addAll(sorter.getInputsWithoutProvides());
-      }
-
       for (ModuleIdentifier entryPoint : depOptions.getEntryPoints()) {
         CompilerInput entryPointInput = null;
         try {
@@ -601,10 +596,8 @@ public final class JSModuleGraph implements Serializable {
 
         entryPointInputs.add(entryPointInput);
       }
-
-      CompilerInput baseJs = sorter.maybeGetInputProviding("goog");
-      if (baseJs != null) {
-        entryPointInputs.add(baseJs);
+      if (!depOptions.shouldDropMoochers()) {
+        entryPointInputs.addAll(sorter.getInputsWithoutProvides());
       }
     } else {
       entryPointInputs.addAll(inputs);
