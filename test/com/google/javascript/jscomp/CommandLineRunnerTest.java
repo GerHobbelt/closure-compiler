@@ -736,6 +736,7 @@ public final class CommandLineRunnerTest extends TestCase {
     test(new String[] {
           "goog.provide('a');",
           "goog.require('a');\n" +
+          "/** This is base.js */\n" +
           "var COMPILED = false;",
          },
          new String[] {
@@ -749,7 +750,8 @@ public final class CommandLineRunnerTest extends TestCase {
     args.add("--language_in=ECMASCRIPT5");
     test(
         new String[] {
-          "goog.addDependency('sym', [], []);\nvar x = 3;", "var COMPILED = false;",
+          "goog.addDependency('sym', [], []);\nvar x = 3;",
+          "/** This is base.js */\nvar COMPILED = false;",
         },
         new String[] {"var COMPILED = !1;", "var x = 3;"});
   }
@@ -855,15 +857,10 @@ public final class CommandLineRunnerTest extends TestCase {
     assertTrue(lastCompiler.getOptions().getDependencyOptions().shouldPruneDependencies());
   }
 
-  /**
-   * The regex parser uses "var COMPILED = false;" to detect
-   * the closure-library base.js file. So this file actually
-   * provides "goog" - and is therefore dropped.
-   */
   public void testSourcePruningOn7() {
     args.add("--dependency_mode=LOOSE");
     test(new String[] {
-          "var COMPILED = false;",
+          "/** This is base.js */\nvar COMPILED = false;",
          },
          new String[] {
            "",
