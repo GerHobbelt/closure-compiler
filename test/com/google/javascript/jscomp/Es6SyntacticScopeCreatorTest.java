@@ -20,12 +20,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.CompilerTestCase.LINE_JOINER;
+import static com.google.javascript.jscomp.testing.NodeSubject.assertNode;
 
 import com.google.common.collect.HashMultiset;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Multiset;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.Es6SyntacticScopeCreator.RedeclarationHandler;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.Token;
 import junit.framework.TestCase;
 
 /**
@@ -126,6 +129,88 @@ public final class Es6SyntacticScopeCreatorTest extends TestCase {
     scopeCreator.createScope(block, globalScope);
 
     assertThat(redeclarations).hasCount("x", 1);
+  }
+
+  public void testVarShadowsParam() {
+    String js = "function f(p) { var p; }";
+    Node root = getRoot(js);
+
+    Scope globalScope = scopeCreator.createScope(root, null);
+
+    Node function = root.getFirstChild();
+    Scope functionScope = scopeCreator.createScope(function, globalScope);
+
+    Node body = function.getLastChild();
+    Scope bodyScope = scopeCreator.createScope(body, functionScope);
+
+    assertThat(Iterables.transform(globalScope.getVarIterable(), Var::getName))
+        .containsExactly("f");
+    assertThat(Iterables.transform(functionScope.getVarIterable(), Var::getName))
+        .containsExactly("p");
+
+    // "var p" doesn't declare a new var, so there is no 'p' variable in the function body scope.
+    assertThat(bodyScope.getVarIterable()).isEmpty();
+  }
+
+  public void testParamShadowsFunctionName() {
+    String js = "var f = function g(g) { }";
+    Node root = getRoot(js);
+
+    Scope globalScope = scopeCreator.createScope(root, null);
+
+    Node function = root.getFirstChild().getFirstFirstChild();
+    Scope functionScope = scopeCreator.createScope(function, globalScope);
+
+    Node body = function.getLastChild();
+    Scope bodyScope = scopeCreator.createScope(body, functionScope);
+
+    assertThat(Iterables.transform(globalScope.getVarIterable(), Var::getName))
+        .containsExactly("f");
+    assertThat(Iterables.transform(functionScope.getVarIterable(), Var::getName))
+        .containsExactly("g");
+    assertThat(bodyScope.getVarIterable()).isEmpty();
+  }
+
+  public void testVarShadowsFunctionName() {
+    String js = "var f = function g() { var g; }";
+    Node root = getRoot(js);
+
+    Scope globalScope = scopeCreator.createScope(root, null);
+
+    Node function = root.getFirstChild().getFirstFirstChild();
+    Scope functionScope = scopeCreator.createScope(function, globalScope);
+
+    Node body = function.getLastChild();
+    Scope bodyScope = scopeCreator.createScope(body, functionScope);
+
+    assertThat(Iterables.transform(globalScope.getVarIterable(), Var::getName))
+        .containsExactly("f");
+    assertThat(Iterables.transform(functionScope.getVarIterable(), Var::getName))
+        .containsExactly("g");
+
+    // "var g" declares a new variable, which shadows the function name.
+    assertThat(Iterables.transform(bodyScope.getVarIterable(), Var::getName)).containsExactly("g");
+  }
+
+  public void testParamAndVarShadowFunctionName() {
+    String js = "var f = function g(g) { var g; }";
+    Node root = getRoot(js);
+
+    Scope globalScope = scopeCreator.createScope(root, null);
+
+    Node function = root.getFirstChild().getFirstFirstChild();
+    Scope functionScope = scopeCreator.createScope(function, globalScope);
+
+    Node body = function.getLastChild();
+    Scope bodyScope = scopeCreator.createScope(body, functionScope);
+
+    assertThat(Iterables.transform(globalScope.getVarIterable(), Var::getName))
+        .containsExactly("f");
+    assertThat(Iterables.transform(functionScope.getVarIterable(), Var::getName))
+        .containsExactly("g");
+
+    // "var g" doesn't declare a new var, so there is no 'g' variable in the function body scope.
+    assertThat(bodyScope.getVarIterable()).isEmpty();
   }
 
   public void testVarRedeclaration1_inES6Module() {
@@ -907,6 +992,40 @@ public final class Es6SyntacticScopeCreatorTest extends TestCase {
     Scope fScope = scopeCreator.createScope(fNode, globalScope);
     assertFalse(fScope.isDeclared("f", false));
     assertTrue(fScope.isDeclared("foo", false));
+  }
+
+  public void testFunctionNameMatchesParamName1() {
+    String js = "var f = function foo(foo) {}";
+    Node root = getRoot(js);
+    Scope globalScope = scopeCreator.createScope(root, null);
+    assertTrue(globalScope.isDeclared("f", false));
+    assertFalse(globalScope.isDeclared("foo", false));
+
+    Node fNode = root.getFirstChild().getFirstFirstChild();
+    Scope fScope = scopeCreator.createScope(fNode, globalScope);
+    assertFalse(fScope.isDeclared("f", false));
+    assertTrue(fScope.isDeclared("foo", false));
+
+    // The parameter 'foo', not the function name, is the declaration of the variable 'foo' in this
+    // scope.
+    assertNode(fScope.getVar("foo").getNode().getParent()).hasType(Token.PARAM_LIST);
+  }
+
+  public void testFunctionNameMatchesParamName2() {
+    String js = "var f = function foo(x = foo, foo) {}";
+    Node root = getRoot(js);
+    Scope globalScope = scopeCreator.createScope(root, null);
+    assertTrue(globalScope.isDeclared("f", false));
+    assertFalse(globalScope.isDeclared("foo", false));
+
+    Node fNode = root.getFirstChild().getFirstFirstChild();
+    Scope fScope = scopeCreator.createScope(fNode, globalScope);
+    assertFalse(fScope.isDeclared("f", false));
+    assertTrue(fScope.isDeclared("foo", false));
+
+    // The parameter 'foo', not the function name, is the declaration of the variable 'foo' in this
+    // scope.
+    assertNode(fScope.getVar("foo").getNode().getParent()).hasType(Token.PARAM_LIST);
   }
 
   public void testClassName() {
